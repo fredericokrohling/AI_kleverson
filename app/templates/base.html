@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Assistente PM{% endblock %}</title>
+  <script src="/static/htmx.min.js"></script>
+  <style>
+    :root { --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #fff; --accent: #0969da; --erro: #cf222e; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --bg: #0d1117; --accent: #4493f8; --erro: #f85149; }
+    }
+    body { font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 960px; margin: 0 auto; padding: 16px; line-height: 1.5; }
+    header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+    section { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    h1 { font-size: 1.25rem; } h2 { font-size: 1rem; margin-top: 0; }
+    .muted { color: var(--muted); } .erro { color: var(--erro); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+    a, button { color: var(--accent); } button { background: none; border: 1px solid var(--accent); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header><h1>Assistente PM</h1><span class="muted">{{ owner }}</span></header>
+  {% block content %}{% endblock %}
+</body>
+</html>

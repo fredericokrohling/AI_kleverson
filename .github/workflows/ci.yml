@@ -1,0 +1,39 @@
+name: testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: assistente
+          POSTGRES_PASSWORD: teste
+          POSTGRES_DB: assistente
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U assistente"
+          --health-interval 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # Os testes aplicam as migrações; depois conferimos se os modelos batem com elas.
+      - run: uv run pytest
+      - run: uv run alembic check
+        env:
+          DATABASE_URL: postgresql+psycopg://assistente:teste@localhost:5432/assistente
+
+  imagem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t assistente-pm .
