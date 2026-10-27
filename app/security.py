@@ -37,14 +37,20 @@ def get_cipher() -> TokenCipher:
     return TokenCipher(get_settings().token_encryption_key)
 
 
-def require_owner(request: Request) -> str:
-    """Dependência do FastAPI: só o login Tailscale autorizado passa.
+def owner_login(headers) -> str | None:
+    """O login Tailscale de quem fez a requisição, se for o dono; senão None.
 
     O app escuta apenas em 127.0.0.1 no servidor; o único caminho de fora é o
     `tailscale serve`, que identifica o usuário. Sem login configurado, nada passa.
     """
     allowed = get_settings().allowed_tailscale_login.strip().lower()
-    login = request.headers.get(TAILSCALE_LOGIN_HEADER, "").strip().lower()
-    if not allowed or login != allowed:
+    login = headers.get(TAILSCALE_LOGIN_HEADER, "").strip().lower()
+    return login if allowed and login == allowed else None
+
+
+def require_owner(request: Request) -> str:
+    """Dependência do FastAPI para páginas e chamadas HTTP: só o dono passa."""
+    login = owner_login(request.headers)
+    if login is None:
         raise HTTPException(status_code=403, detail="Acesso negado")
     return login

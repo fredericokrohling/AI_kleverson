@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Assistente PM: transcrição",
+  "version": "0.1.0",
+  "description": "Transcreve reuniões do Google Meet em tempo real, sem bot na reunião.",
+  "permissions": ["tabCapture", "offscreen", "sidePanel", "storage"],
+  "host_permissions": ["https://meet.google.com/*", "https://*.ts.net/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Transcrever esta reunião" },
+  "side_panel": { "default_path": "painel.html" },
+  "options_page": "opcoes.html",
+  "content_scripts": [
+    { "matches": ["https://meet.google.com/*"], "js": ["legendas.js"] }
+  ]
+}

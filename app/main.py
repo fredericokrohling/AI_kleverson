@@ -17,6 +17,7 @@ from app.db import get_session, get_sessionmaker
 from app.llm import BudgetExceededError, LLMClient, month_spend_usd
 from app.models import AuditLog, OAuthToken
 from app.security import get_cipher, require_owner
+from app.transcription.routes import router as transcription_router
 
 settings = get_settings()
 app = FastAPI(title="Assistente PM", docs_url=None, redoc_url=None, openapi_url=None)
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
+app.include_router(transcription_router)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 Owner = Annotated[str, Depends(require_owner)]

@@ -153,6 +153,29 @@ class Attachment(Base):
     extraction_error: Mapped[str | None] = mapped_column(Text)
 
 
+class TranscriptSegment(Base):
+    """Trecho de transcrição ao vivo, antes de a reunião virar um item do bronze.
+
+    Cada canal é uma fonte: "voce" (seu microfone), "outros" (áudio da aba do Meet)
+    e "legenda_meet" (legendas do próprio Meet, para comparação).
+    """
+
+    __tablename__ = "transcript_segments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    channel: Mapped[str] = mapped_column(String(30))
+    provider: Mapped[str] = mapped_column(String(50))
+    speaker: Mapped[str | None] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    # Milissegundos desde o início da captura daquele canal.
+    start_ms: Mapped[int | None] = mapped_column(Integer)
+    end_ms: Mapped[int | None] = mapped_column(Integer)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class ItemClassification(Base):
     """A qual projeto um item bruto pertence, e como isso foi decidido."""
 

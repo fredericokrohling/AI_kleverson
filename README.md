@@ -28,6 +28,7 @@ Siga na ordem:
 1. [Servidor: Lightsail + Tailscale + Docker](docs/setup/01-servidor.md)
 2. [Google: projeto, APIs e login](docs/setup/02-google-oauth.md)
 3. [Claude: chave da API](docs/setup/03-anthropic.md)
+4. [Transcrição em tempo real](docs/setup/04-transcricao.md)
 
 ## Desenvolvimento local
 
@@ -55,6 +56,8 @@ app/
   security.py      criptografia e controle de acesso pelo Tailscale
   main.py          console web (FastAPI + HTMX)
   cli.py           comandos: gerar-chave, testar-llm, testar-google
+  transcription/   transcrição ao vivo: serviço de streaming, trechos, finalização
+extensao/          extensão do Chrome que captura o áudio do Meet
 migrations/        migrações do banco (Alembic)
 docs/setup/        guias de instalação
 ```
@@ -64,7 +67,7 @@ docs/setup/        guias de instalação
 | Bloco | Estado |
 | --- | --- |
 | 0. Fundação | Código pronto; falta instalar no servidor |
-| 1. Teste de transcrição em tempo real | A fazer |
+| 1. Teste de transcrição em tempo real | Código pronto; falta o teste em reunião real |
 | 2. E-mail para bronze | A fazer |
 | 3. Silver: classificação e extração | A fazer |
 | 4. Console: cadastro, fila, fatos, busca | A fazer |

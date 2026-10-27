@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; --muted: #6e7781; --erro: #cf222e; --linha: #d0d7de; }
+body { font: 14px/1.45 system-ui, sans-serif; margin: 0; padding: 12px; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.muted { color: var(--muted); } .erro { color: var(--erro); }
+.fala { padding: 6px 0; border-bottom: 1px solid var(--linha); }
+.fala b { display: block; font-size: 12px; color: var(--muted); }
+button { cursor: pointer; padding: 4px 10px; }
+input { width: 100%; padding: 6px; box-sizing: border-box; }

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # Fração do teto que dispara o alerta no log de auditoria.
     llm_budget_alert_ratio: Decimal = Decimal("0.8")
 
+    # Transcrição em tempo real (bloco 1).
+    transcription_provider: str = "deepgram"
+    deepgram_api_key: str = ""
+    deepgram_model: str = "nova-3"
+    transcription_language: str = "pt-BR"
+
     google_client_id: str = ""
     google_client_secret: str = ""
     public_base_url: str = "http://localhost:8000"
