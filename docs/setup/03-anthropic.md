@@ -5,6 +5,12 @@ A conta pode estar no seu nome mesmo que o Pro esteja em outro nome; não há co
 
 Tempo estimado: 10 minutos.
 
+## Por que a API e não a assinatura Pro
+
+A assinatura Claude Pro é para uso humano no app. Um sistema que roda sozinho no servidor
+precisa da **API**, que é cobrada por uso (por token). Por isso a conta é separada e o
+teto de gasto é obrigatório.
+
 1. Acesse console.anthropic.com e crie a conta no seu nome.
 2. **Billing**: compre créditos (comece com US$ 10).
 3. **Limits**: defina o limite de gasto mensal (o mesmo valor). Esse é o freio definitivo,
