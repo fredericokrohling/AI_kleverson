@@ -5,13 +5,27 @@ e eventos, e **não consegue enviar e-mail** (essa permissão não é pedida).
 
 Tempo estimado: 30 minutos. Pré-requisito: o console já abre em `https://assistente.<sua-rede>.ts.net`.
 
+## Por que OAuth
+
+OAuth é o jeito oficial de um sistema acessar sua conta Google **sem conhecer sua senha**.
+Você autoriza no site do Google, escolhe as permissões e pode revogar quando quiser em
+myaccount.google.com/permissions. O Google entrega ao sistema um "refresh token", que fica
+criptografado no seu banco. Detalhes em [docs/aprendizado/03-seguranca.md](../aprendizado/03-seguranca.md).
+
 ## 2.1 Projeto e APIs
+
+**Por quê:** o Google exige que todo acesso por API pertença a um projeto do Google Cloud,
+e cada API precisa ser ligada explicitamente. Ligamos só as três que usamos.
 
 1. Acesse console.cloud.google.com com a conta Gmail que o assistente vai ler.
 2. Crie um projeto chamado `assistente-pm`.
 3. Em **APIs e serviços → Biblioteca**, ative: **Gmail API**, **Google Calendar API**, **Google Drive API**.
 
 ## 2.2 Tela de consentimento
+
+**Por quê:** é a tela que o Google mostra no login, listando o que o app pode fazer. Os
+escopos abaixo são o mínimo necessário. **`gmail.send` fica de fora de propósito**: sem
+ele, o sistema não consegue enviar e-mail, nem por bug.
 
 Em **Google Auth Platform** (ou **Tela de consentimento OAuth**, conforme a versão do console):
 
@@ -27,12 +41,19 @@ Em **Google Auth Platform** (ou **Tela de consentimento OAuth**, conforme a vers
 
 ## 2.3 Cliente OAuth
 
+**Por quê:** o cliente é a identidade do seu app perante o Google. O endereço de
+redirecionamento precisa ser exatamente igual ao do console; o Google recusa qualquer
+outro, o que impede alguém de desviar o login para um site falso.
+
 1. **Clientes → Criar cliente** → tipo **Aplicativo da Web**.
 2. **URIs de redirecionamento autorizados**: `https://assistente.<sua-rede>.ts.net/auth/google/callback`
 3. Copie o **ID do cliente** e a **chave secreta** para `GOOGLE_CLIENT_ID` e
    `GOOGLE_CLIENT_SECRET` no `.env` do servidor. Rode `docker compose up -d`.
 
 ## 2.4 Conectar
+
+**Por quê o teste no servidor:** ele usa o token gravado (sem você no navegador), que é
+exatamente o que os coletores de e-mail e agenda vão fazer.
 
 1. No console, clique em **Conectar conta Google**.
 2. O Google vai mostrar "**O Google não verificou este app**". É esperado: o app é seu.

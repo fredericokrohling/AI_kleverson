@@ -1,13 +1,19 @@
+# Integração contínua (CI): o GitHub roda estes passos a cada push e em todo PR.
+# Se algum falhar, o PR fica vermelho. Explicação em docs/aprendizado/04-ciclo-de-desenvolvimento.md.
 name: testes
 
+# Quando rodar: push na main e qualquer PR.
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
+  # Trabalho 1: qualidade do código, testes e migrações.
   testes:
+    # Máquina Linux descartável fornecida pelo GitHub.
     runs-on: ubuntu-latest
+    # Um Postgres de verdade ao lado, igual ao do servidor, para os testes usarem.
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -16,15 +22,21 @@ jobs:
           POSTGRES_PASSWORD: teste
           POSTGRES_DB: assistente
         ports: ["5432:5432"]
+        # Espera o banco ficar pronto antes de começar os passos.
         options: >-
           --health-cmd "pg_isready -U assistente"
           --health-interval 5s
           --health-retries 10
     steps:
+      # Baixa o código do commit.
       - uses: actions/checkout@v4
+      # Instala o uv.
       - uses: astral-sh/setup-uv@v5
+      # Instala as dependências nas versões exatas do uv.lock (--frozen falha se o lock estiver desatualizado).
       - run: uv sync --frozen
+      # Procura erros comuns no código.
       - run: uv run ruff check .
+      # Confere se a formatação está padronizada.
       - run: uv run ruff format --check .
       # Os testes aplicam as migrações; depois conferimos se os modelos batem com elas.
       - run: uv run pytest
@@ -32,6 +44,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://assistente:teste@localhost:5432/assistente
 
+  # Trabalho 2: garante que a imagem Docker do servidor constrói.
   imagem:
     runs-on: ubuntu-latest
     steps:

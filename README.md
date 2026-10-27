@@ -21,6 +21,13 @@ Regras que o código garante:
   privada do Tailscale, e só o login configurado em `ALLOWED_TAILSCALE_LOGIN` entra.
 - **Todo uso do Claude passa por `app/llm.py`**, que registra tokens e custo e respeita o teto mensal.
 
+## Aprender com o projeto
+
+Este projeto também é material de estudo. Comece por [docs/aprendizado/](docs/aprendizado/README.md):
+lá está o **porquê** de cada escolha (arquitetura, tecnologias, segurança, fluxo de
+desenvolvimento). Todo arquivo Python tem um comentário acima de cada linha explicando o
+que ela faz.
+
 ## Instalação
 
 Siga na ordem:
@@ -59,7 +66,8 @@ app/
   transcription/   transcrição ao vivo: serviço de streaming, trechos, finalização
 extensao/          extensão do Chrome que captura o áudio do Meet
 migrations/        migrações do banco (Alembic)
-docs/setup/        guias de instalação
+docs/setup/        guias de instalação (como)
+docs/aprendizado/  por que cada escolha foi feita
 ```
 
 ## Andamento
