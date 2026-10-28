@@ -117,17 +117,65 @@ cd AI_kleverson
 arquivo conseguir lê-lo. A chave gerada por `gerar-chave` é a que criptografa os tokens
 do Google no banco.
 
-```bash
-cp .env.example .env
-chmod 600 .env
-nano .env   # preencha banco, SESSION_SECRET e ALLOWED_TAILSCALE_LOGIN
-docker compose build
-docker compose run --rm app python -m app.cli gerar-chave   # cole em TOKEN_ENCRYPTION_KEY
-docker compose up -d
-```
+**Atenção:** o arquivo `.env.example` só existe na `main` depois do merge dos PRs. Se a pasta
+tiver só o `README.md`, faça os merges no GitHub e rode `git pull` antes.
 
-Para gerar senha e `SESSION_SECRET`: `openssl rand -base64 32`.
-`ALLOWED_TAILSCALE_LOGIN` é o e-mail que aparece no painel do Tailscale como dono da rede.
+Rode **um passo de cada vez** (os passos 3 e 5 pedem que você preencha valores):
+
+1. Crie o arquivo de configuração e restrinja o acesso:
+
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
+
+2. Gere dois valores aleatórios (rode duas vezes): o primeiro é a **senha do banco**, o
+   segundo é o `SESSION_SECRET`.
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   **Por que `-hex`:** só usa letras e números. Outros formatos podem gerar `/` ou `+`, que
+   quebram o endereço do banco em `DATABASE_URL`.
+
+3. Edite o arquivo com `nano .env`:
+   - troque `troque-por-uma-senha-longa` pela senha do banco **nas duas linhas** em que
+     aparece (`POSTGRES_PASSWORD` e `DATABASE_URL`);
+   - `SESSION_SECRET`: o segundo valor;
+   - `ALLOWED_TAILSCALE_LOGIN`: o e-mail que aparece no painel do Tailscale como dono da rede;
+   - deixe Google, Anthropic, Deepgram e `PUBLIC_BASE_URL` vazios por enquanto (guias 02 a 04
+     e passo 1.7).
+
+   Para salvar e sair do nano: **Ctrl+O**, **Enter**, **Ctrl+X**.
+
+4. Construa a imagem (alguns minutos):
+
+   ```bash
+   docker compose build
+   ```
+
+   Se aparecer "permission denied", saia (`exit`) e entre de novo no servidor, para valer a
+   permissão do Docker dada no passo 1.3.
+
+5. Gere a chave de criptografia dos tokens:
+
+   ```bash
+   docker compose run --rm app python -m app.cli gerar-chave
+   ```
+
+   Copie a linha que aparecer, abra `nano .env` de novo e cole depois de
+   `TOKEN_ENCRYPTION_KEY=`.
+
+6. Suba tudo e confira:
+
+   ```bash
+   docker compose up -d
+   docker compose ps
+   ```
+
+   `db` e `app` devem aparecer em execução; `migrate` aparece encerrado (ele aplica as
+   migrações e termina).
 
 ## 1.7 Publicar o console na sua rede privada
 
