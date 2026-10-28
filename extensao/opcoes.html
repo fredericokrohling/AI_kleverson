@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="estilo.css">
+  <title>Assistente PM: opções</title>
+</head>
+<body style="max-width: 560px">
+  <h2>Opções da transcrição</h2>
+  <p>
+    <label for="url">Endereço do console (rede Tailscale)</label>
+    <input id="url" placeholder="https://assistente.sua-rede.ts.net">
+  </p>
+  <p><button id="salvar">Salvar</button> <span id="salvo" class="muted"></span></p>
+  <h3>Microfone</h3>
+  <p class="muted">Necessário uma vez, para transcrever o que você fala.</p>
+  <p><button id="microfone">Autorizar microfone</button> <span id="estado-mic" class="muted"></span></p>
+  <script src="opcoes.js"></script>
+</body>
+</html>

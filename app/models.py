@@ -263,6 +263,40 @@ class Attachment(Base):
     extraction_error: Mapped[str | None] = mapped_column(Text)
 
 
+# Trechos da transcrição ao vivo. Ficam aqui enquanto a reunião acontece; ao finalizar,
+# viram um único item do bronze (a transcrição completa).
+class TranscriptSegment(Base):
+    """Trecho de transcrição ao vivo, antes de a reunião virar um item do bronze.
+
+    Cada canal é uma fonte: "voce" (seu microfone), "outros" (áudio da aba do Meet)
+    e "legenda_meet" (legendas do próprio Meet, para comparação).
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "transcript_segments"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Identificador da reunião (gerado pela extensão); index para juntar os trechos rápido.
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    # De qual canal veio o trecho: "voce", "outros" ou "legenda_meet".
+    channel: Mapped[str] = mapped_column(String(30))
+    # Quem transcreveu (ex.: "deepgram" ou "meet").
+    provider: Mapped[str] = mapped_column(String(50))
+    # Quem falou, quando se sabe (ex.: "Falante 1" ou o nome da legenda do Meet).
+    speaker: Mapped[str | None] = mapped_column(String(200))
+    # O texto falado.
+    text: Mapped[str] = mapped_column(Text)
+    # Milissegundos desde o início da captura daquele canal.
+    start_ms: Mapped[int | None] = mapped_column(Integer)
+    # Fim do trecho, na mesma contagem.
+    end_ms: Mapped[int | None] = mapped_column(Integer)
+    # Quando o servidor recebeu o trecho.
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 # Liga cada item bruto a um projeto.
 class ItemClassification(Base):
     """A qual projeto um item bruto pertence, e como isso foi decidido."""

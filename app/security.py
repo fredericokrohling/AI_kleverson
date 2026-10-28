@@ -71,9 +71,10 @@ def get_cipher() -> TokenCipher:
     return TokenCipher(get_settings().token_encryption_key)
 
 
-# Dependência do FastAPI: as rotas que a usam só rodam depois desta verificação.
-def require_owner(request: Request) -> str:
-    """Dependência do FastAPI: só o login Tailscale autorizado passa.
+# Verificação comum a páginas (HTTP) e ao WebSocket da transcrição. Recebe só os
+# cabeçalhos porque o WebSocket não tem um objeto Request igual ao das páginas.
+def owner_login(headers) -> str | None:
+    """O login Tailscale de quem fez a requisição, se for o dono; senão None.
 
     O app escuta apenas em 127.0.0.1 no servidor; o único caminho de fora é o
     `tailscale serve`, que identifica o usuário. Sem login configurado, nada passa.
@@ -81,9 +82,18 @@ def require_owner(request: Request) -> str:
     # Login autorizado, sem espaços nas pontas (.strip) e em minúsculas (.lower).
     allowed = get_settings().allowed_tailscale_login.strip().lower()
     # Login informado pelo Tailscale; "" se o cabeçalho não veio.
-    login = request.headers.get(TAILSCALE_LOGIN_HEADER, "").strip().lower()
-    # Bloqueia se nada foi configurado (falha fechada) ou se o login é outro.
-    if not allowed or login != allowed:
+    login = headers.get(TAILSCALE_LOGIN_HEADER, "").strip().lower()
+    # Devolve o login só se houver um configurado (falha fechada) e for igual a ele.
+    return login if allowed and login == allowed else None
+
+
+# Dependência do FastAPI: as rotas que a usam só rodam depois desta verificação.
+def require_owner(request: Request) -> str:
+    """Dependência do FastAPI para páginas e chamadas HTTP: só o dono passa."""
+    # Reaproveita a verificação comum.
+    login = owner_login(request.headers)
+    # None = não é o dono (ou nada foi configurado).
+    if login is None:
         # 403 = "proibido". A rota nem chega a rodar.
         raise HTTPException(status_code=403, detail="Acesso negado")
     # Devolve o login para a rota usar (ex.: registrar no log de auditoria).

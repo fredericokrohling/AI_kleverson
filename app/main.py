@@ -55,6 +55,9 @@ from app.models import AuditLog, OAuthToken
 # Criptografia e verificação de acesso.
 from app.security import get_cipher, require_owner
 
+# Rotas da transcrição ao vivo (WebSocket, legendas, finalização), num módulo separado.
+from app.transcription.routes import router as transcription_router
+
 # Carrega a configuração uma vez, ao iniciar.
 settings = get_settings()
 # Cria o app. docs_url/redoc_url/openapi_url=None desligam as páginas automáticas de
@@ -73,6 +76,8 @@ app.add_middleware(
 )
 # Onde ficam os modelos HTML: pasta templates ao lado deste arquivo.
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+# Acrescenta ao app as rotas de transcrição definidas em app/transcription/routes.py.
+app.include_router(transcription_router)
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
 # mount publica a pasta static no endereço /static.
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")

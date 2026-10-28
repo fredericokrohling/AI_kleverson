@@ -76,6 +76,17 @@ class Settings(BaseSettings):
     # Fração do teto que dispara o alerta no log de auditoria (0.8 = 80%).
     llm_budget_alert_ratio: Decimal = Decimal("0.8")
 
+    # Transcrição em tempo real (bloco 1).
+    # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
+    # app/transcription/providers.py.
+    transcription_provider: str = "deepgram"
+    # Chave da API do Deepgram (console.deepgram.com).
+    deepgram_api_key: str = ""
+    # Modelo de transcrição do Deepgram; nova-3 é o mais recente com português.
+    deepgram_model: str = "nova-3"
+    # Idioma falado nas reuniões.
+    transcription_language: str = "pt-BR"
+
     # Identificação do app no Google Cloud (criada no guia 02-google-oauth.md).
     google_client_id: str = ""
     # Senha do app no Google Cloud; fica só no .env.

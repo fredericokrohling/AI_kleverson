@@ -10,6 +10,7 @@ consideradas e onde ela aparece no código.
 2. [Tecnologias: o que cada uma faz e por que foi escolhida](02-tecnologias.md)
 3. [Segurança: como o sistema fica fechado para o mundo](03-seguranca.md)
 4. [Ciclo de desenvolvimento: Git, PR, testes e CI](04-ciclo-de-desenvolvimento.md)
+5. [Transcrição em tempo real: como funciona e por quê (Deepgram, WebSocket, áudio)](05-transcricao.md)
 
 ## Como ler o código
 
@@ -32,7 +33,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 5. `app/llm.py`: como chamamos o Claude e controlamos o custo.
 6. `app/google_auth.py`: login no Google.
 7. `app/main.py`: as páginas do console.
-8. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+8. `app/transcription/`: a transcrição ao vivo (comece pelo `__init__.py`).
+9. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 
