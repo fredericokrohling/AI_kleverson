@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Contas Google conectadas</h2>
+  {% if accounts %}
+    <table>
+      <tr><th>Conta</th><th>Atualizado em</th></tr>
+      {% for a in accounts %}
+        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at.strftime("%d/%m/%Y %H:%M") }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">Nenhuma conta conectada ainda.</p>
+  {% endif %}
+  <p><a href="/auth/google/login">Conectar conta Google</a></p>
+</section>
+
+<section>
+  <h2>Claude</h2>
+  <p>Modelo: <strong>{{ model }}</strong>. Gasto no mês: <strong>US$ {{ "%.4f"|format(spent) }}</strong> de US$ {{ budget }}.</p>
+  <form method="post" action="/testes/llm" hx-post="/testes/llm" hx-target="#resultado-llm" hx-indicator="#aguarde">
+    <button type="submit">Testar Claude</button>
+  </form>
+  <span id="aguarde" class="htmx-indicator muted">aguarde...</span>
+  <div id="resultado-llm"></div>
+</section>
+
+<section>
+  <h2>Últimas ações</h2>
+  {% if recent %}
+    <table>
+      <tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Alvo</th></tr>
+      {% for r in recent %}
+        <tr><td>{{ r.created_at.strftime("%d/%m %H:%M") }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td><td>{{ r.target or "" }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">Nada registrado ainda.</p>
+  {% endif %}
+</section>
+{% endblock %}

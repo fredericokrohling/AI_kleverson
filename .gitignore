@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# Segredos e dados nunca vão para o Git
+.env
+*.pem
+client_secret*.json
+backups/
+dados/

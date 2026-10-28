@@ -1,0 +1,64 @@
+# Sobe banco + console. Uso no servidor: docker compose up -d --build
+# Nenhuma porta fica aberta para a internet: o console escuta só em 127.0.0.1
+# e o acesso de fora é pelo `tailscale serve` (ver docs/setup/01-servidor.md).
+#
+# São três "serviços" (contêineres), que sobem nesta ordem:
+#   db       → o Postgres;
+#   migrate  → aplica as migrações do banco e termina;
+#   app      → o console, que só sobe se a migração deu certo.
+
+services:
+  # Banco de dados.
+  db:
+    # Postgres 16 já com a extensão pgvector instalada.
+    image: pgvector/pgvector:pg16
+    # Volta sozinho se cair ou se o servidor reiniciar.
+    restart: unless-stopped
+    # Usuário, senha e nome do banco vêm do .env (as ${...} são lidas de lá).
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Os dados ficam num volume: sobrevivem a atualizações e recriações do contêiner.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Teste de saúde: os outros serviços esperam o banco responder antes de subir.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  # Migrações: roda `alembic upgrade head` uma vez a cada subida e termina.
+  migrate:
+    # Usa a mesma imagem do app (construída pelo Dockerfile).
+    build: .
+    # Configurações do .env.
+    env_file: .env
+    # Aplica as migrações pendentes.
+    command: ["alembic", "upgrade", "head"]
+    # Só começa quando o banco estiver saudável.
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # O console web.
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # 127.0.0.1 = só o próprio servidor acessa. O tailscale serve faz a ponte.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Só sobe se a migração terminou sem erro (banco e código na mesma versão).
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # A cada 30 s confere se /saude responde; o Docker marca o contêiner como doente se não.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/saude')"]
+      interval: 30s
+      retries: 3
+
+# Declara o volume persistente do banco.
+volumes:
+  pgdata:

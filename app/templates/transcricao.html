@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/">Voltar</a> · sessão <code>{{ session_id }}</code></p>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+  <section>
+    <h2>Serviço de transcrição ({{ audio|length }} trechos)</h2>
+    {% for s in audio %}
+      <p><span class="muted">{{ s.speaker }}</span><br>{{ s.text }}</p>
+    {% else %}
+      <p class="muted">Nenhum trecho.</p>
+    {% endfor %}
+  </section>
+  <section>
+    <h2>Legendas do Meet ({{ captions|length }} trechos)</h2>
+    {% for s in captions %}
+      <p><span class="muted">{{ s.speaker or "?" }}</span><br>{{ s.text }}</p>
+    {% else %}
+      <p class="muted">Nenhum trecho.</p>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

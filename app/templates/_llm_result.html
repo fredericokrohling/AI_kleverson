@@ -1,0 +1,6 @@
+{% if result.refused %}
+  <p class="erro">O modelo recusou a solicitação.</p>
+{% else %}
+  <p>{{ result.text }}</p>
+{% endif %}
+<p class="muted">Modelo {{ result.model }} · custo US$ {{ "%.6f"|format(result.cost_usd) }}</p>
