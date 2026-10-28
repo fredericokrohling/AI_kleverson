@@ -5,6 +5,11 @@ console acessível só pelos seus aparelhos em `https://assistente.<sua-rede>.ts
 
 Tempo estimado: 40 minutos.
 
+> **Onde rodar cada comando.** Cada passo diz em qual máquina digitar. O começo da linha
+> do terminal mostra onde você está: `ubuntu@assistente:~$` é o servidor; o nome do seu
+> computador é o Linux Mint. Para entrar no servidor a partir do seu computador:
+> `ssh ubuntu@assistente`. Para sair: `exit`.
+
 ## Por que este desenho
 
 - **Lightsail** é o servidor da AWS mais simples de operar, com preço fixo e backup
@@ -19,6 +24,8 @@ Detalhes em [docs/aprendizado/03-seguranca.md](../aprendizado/03-seguranca.md).
 
 ## 1.1 Tailscale nos seus aparelhos
 
+**Onde:** no seu computador e no celular.
+
 **Por quê:** cada aparelho que vai acessar o console precisa estar na sua rede Tailscale.
 MagicDNS dá um nome fixo ao servidor; HTTPS Certificates permite o cadeado no navegador,
 que o login do Google exige.
@@ -30,6 +37,8 @@ que o login do Google exige.
 
 ## 1.2 Criar a instância no Lightsail
 
+**Onde:** no site da AWS (lightsail.aws.amazon.com), pelo navegador.
+
 **Por quê:** Ubuntu LTS tem atualizações de segurança por 5 anos. 4 GB de RAM acomodam
 o Postgres, o console e, mais tarde, a transcrição sem travar.
 
@@ -39,6 +48,9 @@ o Postgres, o console e, mais tarde, a transcrição sem travar.
 4. Em **Snapshots**, ative **Automatic snapshots** (backup diário da máquina inteira).
 
 ## 1.3 Instalar Tailscale e Docker no servidor
+
+**Onde:** no **servidor**, pelo terminal do navegador do Lightsail (o Tailscale ainda não está
+instalado nele).
 
 **Por quê:** o Tailscale vai substituir o SSH público (`--ssh` faz o próprio Tailscale
 autenticar o acesso ao terminal). O Docker roda o banco e o app.
@@ -59,6 +71,8 @@ Saia e entre de novo. A partir daqui, conecte do seu computador com `ssh ubuntu@
 
 ## 1.4 Fechar o firewall
 
+**Onde:** no site do Lightsail, e o teste no terminal do seu computador.
+
 **Por quê:** este é o passo que torna o servidor invisível. Faça só depois de confirmar
 que o acesso pelo Tailscale funciona, senão você perde o acesso à máquina.
 
@@ -67,6 +81,10 @@ inclusive a SSH (porta 22). Confirme que `ssh ubuntu@assistente` continua funcio
 pelo Tailscale. A partir daqui a máquina é invisível para a internet.
 
 ## 1.5 Baixar o código
+
+**Onde:** no **servidor** (`ssh ubuntu@assistente`). A chave precisa ser criada no servidor,
+porque é ele que baixa o código. A chave privada nunca sai de lá; só a pública
+(`github_deploy.pub`) é copiada para o GitHub.
 
 **Por quê de uma deploy key:** é uma chave que só permite **ler** este repositório. Se
 alguém invadir o servidor, não consegue alterar o código no GitHub nem acessar seus
@@ -93,6 +111,8 @@ cd AI_kleverson
 
 ## 1.6 Configurar e subir
 
+**Onde:** no **servidor**, dentro da pasta `AI_kleverson`.
+
 **Por quê:** o `.env` guarda senhas e chaves fora do código. `chmod 600` faz só o dono do
 arquivo conseguir lê-lo. A chave gerada por `gerar-chave` é a que criptografa os tokens
 do Google no banco.
@@ -111,6 +131,8 @@ Para gerar senha e `SESSION_SECRET`: `openssl rand -base64 32`.
 
 ## 1.7 Publicar o console na sua rede privada
 
+**Onde:** no **servidor**; o teste final, no navegador do seu computador.
+
 **Por quê:** `tailscale serve` recebe as conexões da sua rede privada, cuida do HTTPS e
 repassa para o console em `127.0.0.1:8000`, informando quem é você. É assim que o
 console sabe que o acesso é seu.
@@ -127,6 +149,8 @@ Teste: abra o endereço no computador com Tailscale ligado. Deve aparecer o cons
 Desligue o Tailscale e tente de novo: não deve abrir. É assim que tem que ser.
 
 ## Atualizar depois
+
+**Onde:** no **servidor**.
 
 ```bash
 cd ~/AI_kleverson && git pull && docker compose up -d --build
