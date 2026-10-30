@@ -17,7 +17,10 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Permissões (escopos) que pedimos ao Google no login. Só o mínimo necessário.
-# gmail.send fica de fora de propósito: o sistema não consegue enviar e-mail, nem com bug.
+# Nenhuma permissão de escrita no Gmail: gmail.send, gmail.compose e gmail.modify ficam de
+# fora de propósito. As duas últimas também permitem enviar e-mail (o Google descreve a
+# gmail.compose como "gerenciar rascunhos e enviar e-mails"), então sem elas o sistema
+# não consegue enviar nada, nem com bug.
 GOOGLE_SCOPES = [
     # Identifica a pessoa que fez login (padrão OpenID Connect).
     "openid",
@@ -25,8 +28,6 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     # Ler e-mails e anexos, sem poder alterar nada.
     "https://www.googleapis.com/auth/gmail.readonly",
-    # Criar rascunhos. Enviar continua sendo uma ação manual sua no Gmail.
-    "https://www.googleapis.com/auth/gmail.compose",
     # Ler e criar eventos na agenda.
     "https://www.googleapis.com/auth/calendar.events",
     # Ler arquivos do Drive (Docs, Sheets, PDFs anexados por link).

@@ -24,20 +24,30 @@ e cada API precisa ser ligada explicitamente. Ligamos só as três que usamos.
 ## 2.2 Tela de consentimento
 
 **Por quê:** é a tela que o Google mostra no login, listando o que o app pode fazer. Os
-escopos abaixo são o mínimo necessário. **`gmail.send` fica de fora de propósito**: sem
-ele, o sistema não consegue enviar e-mail, nem por bug.
+escopos abaixo são o mínimo necessário. **Nenhum escopo de escrita no Gmail**: `gmail.send`,
+`gmail.compose` e `gmail.modify` ficam de fora de propósito. Cuidado com a `gmail.compose`:
+o nome sugere "só rascunhos", mas o Google a descreve como "gerenciar rascunhos e enviar
+e-mails". Sem nenhuma delas, o sistema não consegue enviar e-mail, nem por bug.
 
 Em **Google Auth Platform** (ou **Tela de consentimento OAuth**, conforme a versão do console):
 
 1. Tipo de usuário: **Externo** (Gmail pessoal). Na conta da empresa, depois, será **Interno**.
-2. Nome do app: `Assistente PM`. E-mails de suporte e contato: o seu.
+2. Nome do app: `Assistente PM` (ou outro de sua escolha). E-mails de suporte e contato: o seu.
+   **Não envie logotipo**: com logotipo, o Google passa a exigir a verificação da marca.
 3. **Acesso a dados / Escopos**: adicione
    - `.../auth/userinfo.email` e `openid`
-   - `.../auth/gmail.readonly` e `.../auth/gmail.compose`
+   - `.../auth/gmail.readonly`
    - `.../auth/calendar.events`
    - `.../auth/drive.readonly`
 4. **Público**: clique em **Publicar app** para ir de "Teste" para **Em produção**.
    Não peça verificação. Isso é o que impede o login de expirar a cada 7 dias.
+
+   **Por que o botão pode estar desabilitado:** o Google exige links públicos de página
+   inicial e de política de privacidade, mesmo para app pessoal. Hospedamos três páginas
+   simples no site da empresa (`expertconsulting.pro/kleverson-ai/`) e cadastramos em
+   **Branding** os domínios autorizados `expertconsulting.pro` e `<sua-rede>.ts.net` (o
+   domínio principal, sem o `assistente.` na frente). Depois de publicar, os avisos
+   "Seu aplicativo precisa ser verificado" são esperados e não bloqueiam o uso.
 
 ## 2.3 Cliente OAuth
 
@@ -74,3 +84,14 @@ Deve mostrar o total de mensagens do Gmail e os próximos eventos da agenda.
 Só que o Google não auditou o app. Ele vale para até 100 usuários, o que basta. O token
 fica criptografado no seu banco, na sua máquina. Se um dia o assistente virar produto
 para outras pessoas, aí sim será preciso a verificação formal do Google.
+
+## Se você conectou antes de 30/10/2026 (permissão de envio)
+
+Até essa data o guia pedia a `gmail.compose`, que permite enviar e-mail. Para tirá-la:
+
+1. Em myaccount.google.com/permissions, abra o app e clique em **Remover acesso**.
+2. No Google Cloud, em **Google Auth Platform → Acesso a dados**, apague o escopo
+   `gmail.compose` e salve.
+3. No servidor: `cd ~/AI_kleverson && git pull && docker compose up -d --build`.
+4. No console, clique em **Conectar conta Google** de novo. A tela de permissões não deve
+   mais mostrar "enviar e-mails".

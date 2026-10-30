@@ -16,7 +16,8 @@ reuniões e chats, organiza tudo por projeto e gera os artefatos de gestão.
 
 Regras que o código garante:
 
-- **Não envia e-mail.** A permissão `gmail.send` não é pedida ao Google; rascunhos usam `gmail.compose`.
+- **Não envia e-mail.** Nenhuma permissão de escrita no Gmail é pedida ao Google
+  (`gmail.send`, `gmail.compose` e `gmail.modify` ficam de fora, porque todas permitem enviar).
 - **Nada público na internet.** O console escuta só em `127.0.0.1`; o acesso é pela rede
   privada do Tailscale, e só o login configurado em `ALLOWED_TAILSCALE_LOGIN` entra.
 - **Todo uso do Claude passa por `app/llm.py`**, que registra tokens e custo e respeita o teto mensal.

@@ -29,8 +29,13 @@ minutos. Um servidor sem porta aberta nem aparece para esses robôs.
 
 - O sistema nunca vê sua senha do Google. Você autoriza no site do Google e pode
   revogar em myaccount.google.com/permissions.
-- **Não pedimos `gmail.send`.** Mesmo com um bug, o sistema não consegue enviar e-mail.
-  Ele só cria rascunhos (`gmail.compose`); enviar é sempre ação sua.
+- **Nenhuma permissão de escrita no Gmail.** Não pedimos `gmail.send`, `gmail.compose`
+  nem `gmail.modify`. Atenção à pegadinha: `gmail.compose` parece ser só "criar rascunhos",
+  mas o Google a descreve como "gerenciar rascunhos e enviar e-mails"; a `gmail.modify`
+  também permite enviar. Sem nenhuma delas, mesmo com um bug, o sistema não consegue
+  enviar e-mail. Rascunhos de resposta, quando existirem, aparecem no console para você
+  copiar. Um teste automático (`tests/test_app.py`) falha se alguma dessas permissões
+  voltar a ser pedida.
 - **PKCE** (`code_verifier`): uma senha de uso único por login. Quem interceptar o código
   que o Google devolve não consegue usá-lo.
 - **`state`**: valor aleatório conferido na volta do Google. Impede que alguém induza o
