@@ -16,6 +16,29 @@
 </section>
 
 <section>
+  <h2>Coleta de e-mail</h2>
+  <p>No bronze: <strong>{{ coleta.emails }}</strong> e-mails e <strong>{{ coleta.files }}</strong> arquivos
+    ({{ coleta.files_without_text }} sem texto extraído).</p>
+  {% if coleta.runs %}
+    <table>
+      <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
+      {% for r in coleta.runs %}
+        <tr>
+          <td>{{ r.started_at.strftime("%d/%m %H:%M") }}</td>
+          <td>{{ r.status }}</td>
+          <td>{{ r.messages_new }}</td>
+          <td>{{ r.attachments_saved }}</td>
+          <td>{{ r.extraction_errors }}</td>
+          <td{% if r.message_errors %} class="erro" title="{{ r.error_detail or '' }}"{% endif %}>{{ r.message_errors }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">Nenhuma coleta ainda. Ela começa sozinha alguns minutos depois de conectar a conta Google.</p>
+  {% endif %}
+</section>
+
+<section>
   <h2>Claude</h2>
   <p>Modelo: <strong>{{ model }}</strong>. Gasto no mês: <strong>US$ {{ "%.4f"|format(spent) }}</strong> de US$ {{ budget }}.</p>
   <form method="post" action="/testes/llm" hx-post="/testes/llm" hx-target="#resultado-llm" hx-indicator="#aguarde">

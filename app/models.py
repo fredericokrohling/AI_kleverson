@@ -255,12 +255,21 @@ class Attachment(Base):
     filename: Mapped[str] = mapped_column(String(500))
     # Tipo do arquivo (ex.: application/pdf).
     mime_type: Mapped[str | None] = mapped_column(String(200))
-    # Caminho do arquivo original no bucket privado; o binário não fica no banco.
+    # Caminho do arquivo original na pasta de arquivos do servidor; o binário não fica
+    # no banco (ver app/ingestion/storage.py).
     object_key: Mapped[str | None] = mapped_column(String(1000))
     # Texto extraído do arquivo, que é o que a IA lê.
     extracted_text: Mapped[str | None] = mapped_column(Text)
     # Se a extração falhou, o motivo fica aqui (para você saber o que não foi lido).
     extraction_error: Mapped[str | None] = mapped_column(Text)
+    # Como o arquivo chegou: "anexo" (dentro do e-mail) ou "link_drive" (link no corpo).
+    origin: Mapped[str] = mapped_column(String(20), server_default="anexo")
+    # Identificador na origem, quando houver (ex.: id do arquivo no Drive).
+    external_ref: Mapped[str | None] = mapped_column(String(500))
+    # Tamanho do arquivo original em bytes.
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    # Impressão digital do arquivo; o mesmo PDF em dez e-mails tem o mesmo valor.
+    content_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
 
 
 # Trechos da transcrição ao vivo. Ficam aqui enquanto a reunião acontece; ao finalizar,
@@ -445,6 +454,43 @@ class LLMCall(Base):
     request_id: Mapped[str | None] = mapped_column(String(100))
     # Mensagem de erro, se a chamada falhou.
     error: Mapped[str | None] = mapped_column(Text)
+
+
+# Cada rodada de um coletor (hoje, o do Gmail). Serve para três coisas: saber de onde a
+# próxima rodada continua, mostrar no console se a coleta está saudável e provar o
+# critério de pronto do bloco 2 ("um mês importado sem erro").
+class IngestionRun(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "ingestion_runs"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Qual fonte foi coletada; index para achar a última rodada de cada fonte rápido.
+    source: Mapped[SourceKind] = mapped_column(_enum(SourceKind, "source_kind"), index=True)
+    # Qual conta foi lida.
+    account_email: Mapped[str | None] = mapped_column(String(320))
+    # Quando a rodada começou.
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Quando terminou; vazio enquanto está rodando (ou se o processo morreu no meio).
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Início da janela pedida ao Gmail ("e-mails depois de...").
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Fim da janela: o momento em que a lista foi pedida. A próxima rodada parte daqui.
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # "em_andamento", "ok" (sem nenhum erro) ou "com_erros".
+    status: Mapped[str] = mapped_column(String(20), server_default="em_andamento")
+    # Quantas mensagens a busca devolveu na janela (novas e já conhecidas).
+    messages_seen: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Quantas eram novas e foram gravadas no bronze.
+    messages_new: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Quantos arquivos (anexos e links do Drive) foram gravados.
+    attachments_saved: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Quantos desses arquivos não tiveram o texto extraído (o original fica guardado).
+    extraction_errors: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Quantas mensagens falharam por inteiro (rede, API); são tentadas de novo depois.
+    message_errors: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Detalhes dos erros de mensagem (id e motivo), para diagnóstico.
+    error_detail: Mapped[str | None] = mapped_column(Text)
 
 
 # Diário de tudo que o sistema faz sozinho. Como você não aprova cada ação, é aqui

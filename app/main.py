@@ -46,6 +46,9 @@ from app.config import get_settings
 # Sessão por requisição e fábrica de sessões.
 from app.db import get_session, get_sessionmaker
 
+# Resumo da coleta de e-mail mostrado na página inicial.
+from app.ingestion.gmail import collection_overview
+
 # Cliente do Claude, erro de teto e soma do gasto mensal.
 from app.llm import BudgetExceededError, LLMClient, month_spend_usd
 
@@ -123,6 +126,8 @@ def index(request: Request, owner: Owner, db: DB):
             "budget": settings.llm_monthly_budget_usd,
             # Modelo em uso.
             "model": settings.llm_model,
+            # Últimas rodadas da coleta do Gmail e totais do bronze.
+            "coleta": collection_overview(db),
         },
     )
 

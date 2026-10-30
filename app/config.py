@@ -88,6 +88,26 @@ class Settings(BaseSettings):
     # Idioma falado nas reuniões.
     transcription_language: str = "pt-BR"
 
+    # Coleta de e-mail (bloco 2).
+    # Pasta onde ficam os arquivos originais (e-mails .eml e anexos). No Docker é um
+    # volume, para sobreviver a atualizações do contêiner.
+    data_dir: str = "/dados"
+    # Filtro de busca do Gmail, na mesma sintaxe da caixa de pesquisa. Por padrão tira
+    # promoções, redes sociais e rascunhos, que só gastariam IA no bloco 3.
+    gmail_query: str = "-category:promotions -category:social -in:drafts"
+    # Na primeira coleta (banco vazio), quantos dias para trás importar.
+    gmail_initial_days: int = 30
+    # Intervalo entre coletas no modo contínuo, em minutos.
+    gmail_poll_minutes: int = 5
+    # Folga, em minutos, que cada coleta volta antes do fim da anterior. Cobre e-mails
+    # que o Gmail indexa com atraso; os repetidos são ignorados pelo id.
+    gmail_overlap_minutes: int = 60
+    # Seguir links do Google Drive (Docs, Sheets, Slides, PDFs) citados nos e-mails.
+    gmail_follow_drive_links: bool = True
+    # Tamanho máximo, em MB, de um arquivo baixado do Drive (anexos do Gmail já vêm
+    # limitados a 25 MB pelo próprio Gmail).
+    drive_max_file_mb: int = 25
+
     # Identificação do app no Google Cloud (criada no guia 02-google-oauth.md).
     google_client_id: str = ""
     # Senha do app no Google Cloud; fica só no .env.

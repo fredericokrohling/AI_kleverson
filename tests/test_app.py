@@ -44,6 +44,8 @@ def test_console_renders_for_owner():
     assert "Nenhuma conta conectada" in response.text
     # Mostra o modelo configurado.
     assert "claude-opus-5-5" in response.text
+    # Mostra a seção da coleta de e-mail, ainda sem nenhuma rodada.
+    assert "Nenhuma coleta ainda" in response.text
 
 
 # O botão de login manda para o Google com os parâmetros certos.

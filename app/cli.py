@@ -118,6 +118,64 @@ def cmd_testar_google(_: argparse.Namespace) -> None:
         print(f"  {start}  {event.get('summary', '(sem título)')}")
 
 
+# Coleta do Gmail: uma rodada, ou sem parar (modo usado pelo serviço "coletor").
+def cmd_coletar_gmail(args: argparse.Namespace) -> None:
+    """Lê os e-mails novos do Gmail e grava no bronze (com anexos e links do Drive)."""
+    # logging mostra o andamento no terminal e em `docker compose logs coletor`.
+    import logging
+
+    # time.sleep espera entre uma rodada e outra.
+    import time
+
+    # Data e hora com fuso.
+    from datetime import UTC, datetime
+
+    # A rodada de coleta.
+    from app.ingestion.gmail import run_from_settings
+
+    # Formato das mensagens: hora, nível e texto.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Configuração.
+    settings = get_settings()
+    # --desde AAAA-MM-DD: transforma o texto em data e hora UTC (meia-noite daquele dia).
+    since = datetime.fromisoformat(args.desde).replace(tzinfo=UTC) if args.desde else None
+    # Repete enquanto estiver no modo contínuo.
+    while True:
+        # Uma rodada.
+        try:
+            # Roda e mostra o resumo.
+            print(run_from_settings(settings, since=since).describe(), flush=True)
+        # Erro na rodada inteira (ex.: Google não conectado, banco fora do ar).
+        except Exception as exc:
+            # Sem modo contínuo, o erro aparece completo e o comando termina com falha.
+            if not args.continuo:
+                raise
+            # No modo contínuo, registra e tenta de novo na próxima rodada.
+            logging.exception("Coleta falhou: %s", exc)
+        # Uma rodada só: termina.
+        if not args.continuo:
+            break
+        # A data inicial só vale para a primeira rodada; as seguintes continuam sozinhas.
+        since = None
+        # Espera o intervalo configurado.
+        time.sleep(settings.gmail_poll_minutes * 60)
+
+
+# Extrai de novo o texto dos arquivos que falharam (útil depois de melhorar um extrator).
+def cmd_reextrair_anexos(_: argparse.Namespace) -> None:
+    """Tenta extrair de novo o texto dos anexos com erro, a partir dos originais guardados."""
+    # A função que faz o trabalho.
+    from app.ingestion.gmail import reextract_attachments
+
+    # A pasta dos originais.
+    from app.ingestion.storage import FileStore
+
+    # Roda e recebe as contagens.
+    tried, fixed = reextract_attachments(get_sessionmaker(), FileStore(get_settings().data_dir))
+    # Mostra o resultado.
+    print(f"{tried} arquivos tentados, {fixed} agora com texto.")
+
+
 # Liga o nome digitado no terminal à função que executa o comando.
 COMMANDS = {
     # python -m app.cli gerar-chave
@@ -126,6 +184,10 @@ COMMANDS = {
     "testar-llm": cmd_testar_llm,
     # python -m app.cli testar-google
     "testar-google": cmd_testar_google,
+    # python -m app.cli coletar-gmail [--desde AAAA-MM-DD] [--continuo]
+    "coletar-gmail": cmd_coletar_gmail,
+    # python -m app.cli reextrair-anexos
+    "reextrair-anexos": cmd_reextrair_anexos,
 }
 
 
@@ -137,8 +199,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     # Registra cada comando do dicionário COMMANDS.
     for name, func in COMMANDS.items():
-        # A ajuda vem da docstring da função; set_defaults guarda qual função rodar.
-        sub.add_parser(name, help=func.__doc__).set_defaults(func=func)
+        # Cria o subcomando; a ajuda vem da docstring da função.
+        command = sub.add_parser(name, help=func.__doc__)
+        # Guarda qual função rodar.
+        command.set_defaults(func=func)
+        # Opções que só o coletar-gmail aceita.
+        if name == "coletar-gmail":
+            # Data inicial da janela, para importar um período específico.
+            command.add_argument("--desde", help="importa e-mails a partir desta data (AAAA-MM-DD)")
+            # Modo contínuo: repete a cada GMAIL_POLL_MINUTES.
+            command.add_argument("--continuo", action="store_true", help="repete sem parar")
     # Lê o que foi digitado.
     args = parser.parse_args(argv)
     # Executa a função do comando escolhido.
