@@ -117,7 +117,8 @@ def http_error(status: int) -> HttpError:
 
 # Drive falso: arquivos por id, com dados e tipo.
 class FakeDrive:
-    # files: id → {"name", "mimeType", "data"}; ids ausentes dão 404.
+    # files: id → {"name", "mimeType", "data", "parents"}; pastas entram só com "parents".
+    # Ids ausentes dão 404.
     def __init__(self, files: dict[str, dict]):
         # Os arquivos.
         self.files_by_id = files
@@ -137,8 +138,14 @@ class FakeDrive:
                 raise http_error(404)
             # Dados do arquivo.
             f = self.files_by_id[fileId]
-            # Só os campos pedidos pelo coletor.
-            return {"id": fileId, "name": f["name"], "mimeType": f["mimeType"], "size": "10"}
+            # Campos pedidos pelo coletor; "parents" são as pastas onde o item está.
+            return {
+                "id": fileId,
+                "name": f.get("name", fileId),
+                "mimeType": f.get("mimeType", "application/vnd.google-apps.folder"),
+                "size": "10",
+                "parents": f.get("parents", []),
+            }
 
         # Devolve a chamada preparada.
         return _Call(respond)

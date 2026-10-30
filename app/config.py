@@ -95,15 +95,19 @@ class Settings(BaseSettings):
     # Filtro de busca do Gmail, na mesma sintaxe da caixa de pesquisa. Por padrão tira
     # promoções, redes sociais e rascunhos, que só gastariam IA no bloco 3.
     gmail_query: str = "-category:promotions -category:social -in:drafts"
-    # Na primeira coleta (banco vazio), quantos dias para trás importar.
-    gmail_initial_days: int = 30
+    # Na primeira coleta (banco vazio), quantos dias para trás importar. 0 = começa a
+    # partir do momento da instalação, sem trazer o histórico.
+    gmail_initial_days: int = 0
     # Intervalo entre coletas no modo contínuo, em minutos.
     gmail_poll_minutes: int = 5
     # Folga, em minutos, que cada coleta volta antes do fim da anterior. Cobre e-mails
     # que o Gmail indexa com atraso; os repetidos são ignorados pelo id.
     gmail_overlap_minutes: int = 60
-    # Seguir links do Google Drive (Docs, Sheets, Slides, PDFs) citados nos e-mails.
-    gmail_follow_drive_links: bool = True
+    # Id da pasta do Google Drive de onde os links citados nos e-mails podem ser baixados
+    # (o trecho depois de /folders/ no endereço da pasta). Arquivos fora dela, inclusive
+    # em subpastas de outras pastas, só ficam registrados como link. Vazio = não baixa
+    # nada do Drive.
+    drive_folder_id: str = ""
     # Tamanho máximo, em MB, de um arquivo baixado do Drive (anexos do Gmail já vêm
     # limitados a 25 MB pelo próprio Gmail).
     drive_max_file_mb: int = 25

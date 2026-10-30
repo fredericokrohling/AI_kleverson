@@ -119,7 +119,20 @@ def _cut(value: str | None, size: int) -> str | None:
 
 # Onde começa a próxima janela.
 def window_start_for(session: Session, settings: Settings, account: str, now: datetime) -> datetime:
-    """Fim da última rodada sem erro, menos a folga; na primeira vez, N dias atrás."""
+    """Fim da última rodada sem erro, menos a folga; na primeira vez, N dias atrás.
+
+    A folga nunca volta antes do início da primeira rodada: se a coleta começou "a partir
+    de agora", e-mails anteriores à instalação continuam de fora.
+    """
+    # Início mais antigo entre todas as rodadas desta conta (o "marco zero" da coleta).
+    first_start = session.scalar(
+        select(func.min(IngestionRun.window_start)).where(
+            # Só Gmail.
+            IngestionRun.source == SourceKind.GMAIL,
+            # Só esta conta.
+            IngestionRun.account_email == account,
+        )
+    )
     # Maior fim de janela entre as rodadas "ok" desta conta.
     last_ok = session.scalar(
         select(func.max(IngestionRun.window_end)).where(
@@ -133,8 +146,14 @@ def window_start_for(session: Session, settings: Settings, account: str, now: da
     )
     # Já houve rodada boa: continua dela, voltando a folga.
     if last_ok is not None:
-        return last_ok - timedelta(minutes=settings.gmail_overlap_minutes)
-    # Primeira coleta: importa os últimos N dias.
+        # Fim da última rodada boa menos a folga.
+        start = last_ok - timedelta(minutes=settings.gmail_overlap_minutes)
+        # Nunca antes do marco zero.
+        return max(start, first_start)
+    # Já houve rodada, mas nenhuma terminou "ok": recomeça do marco zero.
+    if first_start is not None:
+        return first_start
+    # Primeira coleta de todas: N dias atrás (0 = a partir de agora).
     return now - timedelta(days=settings.gmail_initial_days)
 
 
@@ -240,6 +259,8 @@ def _ingest_message(
     message_id: str,
     # Arquivos do Drive já baixados nesta rodada.
     drive_cache: dict[str, DriveFile],
+    # Pastas-mãe já consultadas no Drive nesta rodada (id → ids das pastas acima dela).
+    parents_cache: dict[str, list[str]],
 ) -> tuple[int, int] | None:
     # Baixa o e-mail completo em formato bruto.
     response = (
@@ -324,16 +345,18 @@ def _ingest_message(
                 ready_text=att.text,
             )
         )
-    # Links do Drive, se a opção estiver ligada.
-    if settings.gmail_follow_drive_links and drive is not None:
+    # Links do Drive, só se uma pasta autorizada estiver configurada.
+    if settings.drive_folder_id and drive is not None:
         # Limite em bytes.
         max_bytes = settings.drive_max_file_mb * 1024 * 1024
         # Cada id encontrado.
         for file_id in parsed.drive_file_ids:
             # Mesmo arquivo citado em outro e-mail desta rodada: baixa uma vez só.
             if file_id not in drive_cache:
-                # Baixa e guarda no cache da rodada.
-                drive_cache[file_id] = fetch_drive_file(drive, file_id, max_bytes)
+                # Baixa (se estiver na pasta autorizada) e guarda no cache da rodada.
+                drive_cache[file_id] = fetch_drive_file(
+                    drive, file_id, max_bytes, settings.drive_folder_id, parents_cache
+                )
             # Resultado do download.
             found = drive_cache[file_id]
             # Baixou: guarda e extrai como um anexo.
@@ -443,6 +466,8 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
         errors: list[str] = []
         # Arquivos do Drive já baixados nesta rodada.
         drive_cache: dict[str, DriveFile] = {}
+        # Pastas do Drive já consultadas nesta rodada.
+        parents_cache: dict[str, list[str]] = {}
         # Registra o começo no log.
         log.info("Coleta %s: buscando %r", run.id, query)
         # A listagem também pode falhar (rede); nesse caso a rodada fica "com_erros".
@@ -469,7 +494,14 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
                     try:
                         # Grava a mensagem.
                         result = _ingest_message(
-                            session, gmail, drive, store, settings, message_id, drive_cache
+                            session,
+                            gmail,
+                            drive,
+                            store,
+                            settings,
+                            message_id,
+                            drive_cache,
+                            parents_cache,
                         )
                         # Confirma esta mensagem (o que já foi gravado não se perde).
                         session.commit()
@@ -496,7 +528,7 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
                     summary.attachments_saved += result[0]
                     # Soma os arquivos sem texto.
                     summary.extraction_errors += result[1]
-                    # A cada 100 novas, avisa no log (útil na primeira carga, que é longa).
+                    # A cada 100 novas, avisa no log (útil numa importação com --desde, que é longa).
                     if summary.messages_new % 100 == 0:
                         # Mensagem de andamento.
                         log.info("Coleta %s: %s novas até agora", run.id, summary.messages_new)

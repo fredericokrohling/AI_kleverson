@@ -44,10 +44,15 @@ O Gmail oferece duas formas de saber o que é novo:
 | **Histórico** (`history.list`) | Guarda um marcador; pergunta "o que mudou desde o marcador?" | O marcador expira em cerca de uma semana. A primeira carga precisa de outro caminho. Duas lógicas para manter |
 | **Janela por data + id** (escolhido) | Pergunta "quais e-mails desde tal hora?"; pula os ids que já estão no banco | Pede de novo a lista da folga a cada rodada (barato: 500 ids por chamada) |
 
-A janela serve igual para a primeira carga (30 dias) e para as seguintes (desde a última
-rodada boa, menos 60 minutos de folga). A folga cobre e-mails que o Gmail indexa com
-atraso. Repetir uma janela é inofensivo, porque o banco tem a regra "fonte + id não
-repete".
+A janela serve igual para a primeira rodada e para as seguintes (desde a última rodada
+boa, menos 60 minutos de folga). A folga cobre e-mails que o Gmail indexa com atraso.
+Repetir uma janela é inofensivo, porque o banco tem a regra "fonte + id não repete".
+
+### Por que começar "a partir de agora"
+Você pediu para não carregar o histórico. Por isso `GMAIL_INITIAL_DAYS` vale 0: a primeira
+rodada marca o **marco zero**, e a folga de 60 minutos nunca volta antes dele (senão a
+segunda rodada traria e-mails da hora anterior à instalação). Se um dia quiser o
+histórico, o comando `coletar-gmail --desde AAAA-MM-DD` importa um período específico.
 
 ### Por que pedir o e-mail bruto (format="raw")
 A API do Gmail entrega a mensagem de dois jeitos:
@@ -129,7 +134,7 @@ formato `2026-11-20`, que a IA interpreta sem ambiguidade (ao contrário de `11/
 **Formatos antigos (.doc, .xls, .ppt):** convertê-los exige o LibreOffice dentro da imagem
 Docker, o que acrescenta centenas de MB e um programa grande para manter atualizado. A
 decisão foi **medir antes**: o original fica guardado, o motivo fica registrado, e a
-contagem da primeira importação (guia 05, passo 5.4) diz se vale a pena.
+contagem dos primeiros dias de coleta (guia 05, passo 5.5) diz se vale a pena.
 
 ## Os links do Google Drive
 
@@ -143,7 +148,21 @@ O coletor procura links do Drive no texto e no HTML do e-mail (o Gmail coloca o 
 - **arquivos comuns** (um PDF no Drive) são baixados como estão, até 25 MB;
 - **sem acesso** (arquivo não compartilhado com você): o link fica registrado com o motivo.
 
-Tudo com a permissão `drive.readonly`, que só lê.
+### Só de uma pasta autorizada
+O coletor só baixa arquivos que estão dentro da pasta indicada em `DRIVE_FOLDER_ID`, em
+qualquer nível de subpasta. Para saber, ele pergunta ao Drive quais são as pastas-mãe do
+arquivo, depois as pastas-mãe delas, e assim por diante até achar a pasta autorizada ou
+chegar à raiz. As respostas ficam guardadas durante a rodada, para não repetir a pergunta.
+Sem pasta configurada, o Drive nem é consultado.
+
+Por que pela pasta: o objetivo é não lotar o disco com qualquer arquivo citado em qualquer
+e-mail, principalmente na fase de testes. Uma pasta é fácil de entender e de mudar.
+
+**Importante:** esse limite é do **código**, não da **permissão**. A `drive.readonly` lê o
+Drive inteiro. O Google não tem uma permissão "ler só esta pasta" (a `drive.file`, a mais
+restrita, só enxerga arquivos criados pelo próprio app ou escolhidos num seletor na tela,
+o que não serve para um coletor automático). É diferente do envio de e-mail, que é
+impedido pela própria permissão.
 
 ## Onde isso está no código
 

@@ -56,6 +56,10 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 # Um id de arquivo do Drive com o formato real (letras, números, "-" e "_").
 SHEET_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789"
+# Pasta autorizada do Drive e uma subpasta dela.
+FOLDER_ID = "pasta-autorizada"
+# Subpasta: o arquivo do link fica aqui, um nível abaixo da pasta autorizada.
+SUBFOLDER_ID = "subpasta"
 # Momento fixo, para os testes não dependerem do relógio.
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 
@@ -63,8 +67,8 @@ NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 # Configuração de teste com a pasta de arquivos num diretório temporário do pytest.
 @pytest.fixture
 def settings(tmp_path):
-    # tmp_path é uma pasta nova e vazia para cada teste.
-    return Settings(data_dir=str(tmp_path))
+    # tmp_path é uma pasta nova e vazia para cada teste; a pasta do Drive é a autorizada.
+    return Settings(data_dir=str(tmp_path), drive_folder_id=FOLDER_ID)
 
 
 # Pasta de originais do teste.
@@ -291,14 +295,20 @@ def _gmail() -> FakeGmail:
 
 # Drive falso com a planilha do link.
 def _drive() -> FakeDrive:
-    # Uma planilha nativa do Google, "exportada" como Excel.
+    # Uma planilha nativa do Google, "exportada" como Excel, numa subpasta da autorizada.
     return FakeDrive(
         {
+            # A planilha.
             SHEET_ID: {
                 "name": "Cronograma mestre",
                 "mimeType": "application/vnd.google-apps.spreadsheet",
                 "data": make_xlsx(),
-            }
+                "parents": [SUBFOLDER_ID],
+            },
+            # A subpasta, dentro da pasta autorizada.
+            SUBFOLDER_ID: {"parents": [FOLDER_ID]},
+            # A pasta autorizada, dentro da raiz do Drive.
+            FOLDER_ID: {"parents": ["raiz"]},
         }
     )
 
@@ -315,10 +325,9 @@ def test_first_collection(sessions, settings, store):
     assert (summary.messages_seen, summary.messages_new) == (3, 2)
     # 3 anexos + 1 planilha do Drive; 1 sem texto (o PDF escaneado).
     assert (summary.attachments_saved, summary.extraction_errors) == (4, 1)
-    # Primeira coleta busca os últimos 30 dias, com o filtro padrão.
-    since = int((NOW - timedelta(days=30)).timestamp())
-    # A busca enviada ao Gmail.
-    assert gmail.queries[0] == f"{settings.gmail_query} after:{since}"
+    # Primeira coleta começa "a partir de agora" (GMAIL_INITIAL_DAYS=0), com o filtro padrão.
+    # (O Gmail falso ignora a data e devolve tudo, para testar a gravação.)
+    assert gmail.queries[0] == f"{settings.gmail_query} after:{int(NOW.timestamp())}"
     # Confere o banco.
     with sessions() as s:
         # Item do e-mail rico.
@@ -356,26 +365,31 @@ def test_first_collection(sessions, settings, store):
         assert run.status == "ok" and run.window_end == NOW
 
 
-# Segunda coleta: continua do fim da anterior (menos a folga) e não duplica nada.
-def test_second_collection_is_incremental_and_idempotent(sessions, settings, store):
-    # Mesmos falsos nas duas rodadas.
+# Coletas seguintes: continuam do fim da anterior (menos a folga), sem voltar antes do
+# início da primeira coleta, e não duplicam nada.
+def test_next_collections_are_incremental_and_idempotent(sessions, settings, store):
+    # Mesmos falsos em todas as rodadas.
     gmail, drive = _gmail(), _drive()
-    # Primeira rodada.
+    # Primeira rodada: marco zero em NOW.
     collect_gmail(sessions, gmail, drive, store, settings, now=NOW)
     # Downloads feitos na primeira.
     first_fetches = len(gmail.fetched)
-    # Segunda rodada, 5 minutos depois.
-    later = NOW + timedelta(minutes=5)
+    # Segunda rodada, 2 horas depois.
+    later = NOW + timedelta(hours=2)
     # Roda de novo.
     summary = collect_gmail(sessions, gmail, drive, store, settings, now=later)
     # Nada novo.
     assert summary.messages_new == 0
-    # A janela começa no fim da anterior menos a folga de 60 minutos.
-    since = int((NOW - timedelta(minutes=60)).timestamp())
+    # Fim da anterior menos 60 min cairia antes do marco zero; a janela fica no marco zero.
+    assert gmail.queries[-1].endswith(f"after:{int(NOW.timestamp())}")
+    # Terceira rodada, mais 1 hora depois.
+    collect_gmail(sessions, gmail, drive, store, settings, now=later + timedelta(hours=1))
+    # Agora sim: fim da segunda menos a folga de 60 minutos.
+    since = int((later - timedelta(minutes=60)).timestamp())
     # Confere a busca.
     assert gmail.queries[-1].endswith(f"after:{since}")
     # Só o rascunho (que não é gravado) foi baixado de novo; os outros foram reconhecidos.
-    assert gmail.fetched[first_fetches:] == ["m2"]
+    assert gmail.fetched[first_fetches:] == ["m2", "m2"]
     # Continua com 2 e-mails no banco.
     with sessions() as s:
         # Conta os itens.
@@ -398,11 +412,9 @@ def test_failed_message_is_retried(sessions, settings, store):
     later = NOW + timedelta(minutes=5)
     # Segunda rodada.
     second = collect_gmail(sessions, gmail, drive, store, settings, now=later)
-    # A janela não avançou: como nenhuma rodada terminou "ok", volta a ser a da primeira
-    # coleta (30 dias), em vez de partir do fim da rodada com erro.
-    since = int((later - timedelta(days=30)).timestamp())
-    # Confere a busca.
-    assert gmail.queries[-1].endswith(f"after:{since}")
+    # A janela não avançou: como nenhuma rodada terminou "ok", recomeça do início da
+    # primeira rodada, em vez de partir do fim da rodada com erro.
+    assert gmail.queries[-1].endswith(f"after:{int(NOW.timestamp())}")
     # A m3 entrou agora.
     assert second.status == "ok" and second.messages_new == 1
     # O detalhe do erro ficou registrado na primeira rodada.
@@ -427,16 +439,38 @@ def test_drive_link_without_access(sessions, settings, store):
         assert row.object_key is None and "Sem acesso" in row.extraction_error
 
 
-# Desligar a opção de seguir links não chama o Drive.
-def test_drive_links_can_be_disabled(sessions, tmp_path, store):
-    # Configuração com a opção desligada.
-    settings = Settings(data_dir=str(tmp_path), gmail_follow_drive_links=False)
+# Sem pasta autorizada configurada, o Drive nem é consultado.
+def test_drive_is_off_without_folder(sessions, tmp_path, store):
+    # Configuração sem DRIVE_FOLDER_ID.
+    settings = Settings(data_dir=str(tmp_path))
     # Drive que registra downloads.
     drive = _drive()
     # Roda.
     collect_gmail(sessions, _gmail(), drive, store, settings, now=NOW)
     # Nenhum download.
     assert drive.downloads == []
+    # Nenhuma linha de link do Drive.
+    with sessions() as s:
+        # Procura linhas do Drive.
+        assert s.scalar(select(Attachment).where(Attachment.origin == "link_drive")) is None
+
+
+# Arquivo fora da pasta autorizada: não é baixado; o link fica registrado com o motivo.
+def test_drive_file_outside_folder_is_not_downloaded(sessions, tmp_path, store):
+    # Outra pasta autorizada, que não contém a planilha.
+    settings = Settings(data_dir=str(tmp_path), drive_folder_id="outra-pasta")
+    # Drive que registra downloads.
+    drive = _drive()
+    # Roda.
+    collect_gmail(sessions, _gmail(), drive, store, settings, now=NOW)
+    # Nenhum download.
+    assert drive.downloads == []
+    # O link ficou registrado com o motivo.
+    with sessions() as s:
+        # Linha do Drive.
+        row = s.scalar(select(Attachment).where(Attachment.origin == "link_drive"))
+        # Sem arquivo, com motivo.
+        assert row.object_key is None and "Fora da pasta autorizada" in row.extraction_error
 
 
 # Duas coletas ao mesmo tempo: a segunda desiste sem fazer nada.
