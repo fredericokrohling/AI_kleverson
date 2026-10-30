@@ -12,12 +12,9 @@ HTML e a página troca só aquele pedaço, sem escrever um app JavaScript separa
 # Path manipula caminhos de arquivos de forma independente do sistema operacional.
 from pathlib import Path
 
-# Annotated junta um tipo com informação extra (aqui, qual dependência resolver).
-from typing import Annotated
-
-# Peças do FastAPI: Depends declara dependência; HTTPException devolve erro HTTP;
-# FastAPI é o aplicativo; Request é a requisição recebida.
-from fastapi import Depends, FastAPI, HTTPException, Request
+# Peças do FastAPI: HTTPException devolve erro HTTP; FastAPI é o aplicativo; Request é a
+# requisição recebida.
+from fastapi import FastAPI, HTTPException, Request
 
 # Tipos de resposta: página HTML e redirecionamento para outro endereço.
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,14 +22,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Serve arquivos fixos (o htmx.min.js) direto de uma pasta.
 from fastapi.staticfiles import StaticFiles
 
-# Jinja2 preenche modelos HTML com dados (os arquivos em app/templates).
-from fastapi.templating import Jinja2Templates
-
-# select monta consultas ao banco.
-from sqlalchemy import select
-
-# Session: conversa com o banco.
-from sqlalchemy.orm import Session
+# select monta consultas ao banco; func gera funções SQL (COUNT).
+from sqlalchemy import func, select
 
 # Guarda dados entre requisições num cookie assinado (usado no login do Google).
 from starlette.middleware.sessions import SessionMiddleware
@@ -43,29 +34,38 @@ from app import google_auth
 # Leitura da configuração.
 from app.config import get_settings
 
-# Sessão por requisição e fábrica de sessões.
-from app.db import get_session, get_sessionmaker
+# Fábrica de sessões.
+from app.db import get_sessionmaker
 
 # Resumo da coleta de e-mail mostrado na página inicial.
 from app.ingestion.gmail import collection_overview
 
-# Cliente do Claude, erro de teto e soma do gasto mensal.
-from app.llm import BudgetExceededError, LLMClient, month_spend_usd
+# Cliente do Claude e erro de teto.
+from app.llm import BudgetExceededError, LLMClient
 
 # Tabelas consultadas na página inicial.
-from app.models import AuditLog, OAuthToken
+from app.models import AuditLog, BronzeItem, DriveFolder, DriveItem, OAuthToken, SourceKind
 
-# Criptografia e verificação de acesso.
-from app.security import get_cipher, require_owner
+# Rotas da página Configurações e da navegação pelo Drive.
+from app.routes_config import router as config_router
+
+# Rotas da página Saúde.
+from app.routes_health import router as health_router
+
+# Criptografia.
+from app.security import get_cipher
 
 # Rotas da transcrição ao vivo (WebSocket, legendas, finalização), num módulo separado.
 from app.transcription.routes import router as transcription_router
+
+# Peças comuns: modelos HTML, dono, banco e proteção de POST.
+from app.web import DB, Owner, SameOrigin, templates
 
 # Carrega a configuração uma vez, ao iniciar.
 settings = get_settings()
 # Cria o app. docs_url/redoc_url/openapi_url=None desligam as páginas automáticas de
 # documentação da API, para não expor a estrutura do sistema.
-app = FastAPI(title="Assistente PM", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Kleverson A.I.", docs_url=None, redoc_url=None, openapi_url=None)
 # Middleware é uma camada que roda em toda requisição. Esta cuida do cookie de sessão.
 app.add_middleware(
     # Classe da camada.
@@ -77,18 +77,15 @@ app.add_middleware(
     # "lax": o cookie vai junto ao voltar do Google, mas não em ataques de outros sites.
     same_site="lax",
 )
-# Onde ficam os modelos HTML: pasta templates ao lado deste arquivo.
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # Acrescenta ao app as rotas de transcrição definidas em app/transcription/routes.py.
 app.include_router(transcription_router)
+# Rotas da página Configurações.
+app.include_router(config_router)
+# Rotas da página Saúde.
+app.include_router(health_router)
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
 # mount publica a pasta static no endereço /static.
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-
-# Atalho: "owner: Owner" numa rota faz o FastAPI rodar require_owner antes dela.
-Owner = Annotated[str, Depends(require_owner)]
-# Atalho: "db: DB" numa rota entrega uma sessão do banco aberta para aquela requisição.
-DB = Annotated[Session, Depends(get_session)]
 
 
 # @app.get registra a função como resposta a GET /saude.
@@ -102,10 +99,29 @@ def health() -> dict[str, str]:
 # Página inicial; response_class diz que a resposta é HTML.
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, owner: Owner, db: DB):
-    # Contas Google conectadas, em ordem alfabética.
+    # Contas Google conectadas (a página só avisa se não houver nenhuma).
     accounts = db.scalars(select(OAuthToken).order_by(OAuthToken.account_email)).all()
     # As 20 ações mais recentes do log de auditoria.
     recent = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(20)).all()
+    # Totais do Drive: pastas ativas, arquivos presentes e versões no bronze.
+    drive = {
+        # Pastas monitoradas ligadas.
+        "folders": db.scalar(
+            select(func.count()).select_from(DriveFolder).where(DriveFolder.active.is_(True))
+        ),
+        # Arquivos (não pastas) ainda presentes.
+        "files": db.scalar(
+            select(func.count())
+            .select_from(DriveItem)
+            .where(DriveItem.is_folder.is_(False), DriveItem.removed.is_(False))
+        ),
+        # Versões gravadas.
+        "versions": db.scalar(
+            select(func.count())
+            .select_from(BronzeItem)
+            .where(BronzeItem.source == SourceKind.DRIVE)
+        ),
+    }
     # Preenche o modelo index.html com os dados abaixo.
     return templates.TemplateResponse(
         # A requisição (o Jinja2 precisa dela para montar links).
@@ -116,18 +132,18 @@ def index(request: Request, owner: Owner, db: DB):
         {
             # Seu login.
             "owner": owner,
+            # Item do menu destacado.
+            "menu": "inicio",
+            # Aviso pendente (ex.: depois do login no Google).
+            "flash": request.session.pop("flash", None),
             # Contas conectadas.
             "accounts": accounts,
             # Ações recentes.
             "recent": recent,
-            # Gasto do mês com o Claude.
-            "spent": month_spend_usd(db),
-            # Teto mensal.
-            "budget": settings.llm_monthly_budget_usd,
-            # Modelo em uso.
-            "model": settings.llm_model,
             # Últimas rodadas da coleta do Gmail e totais do bronze.
             "coleta": collection_overview(db),
+            # Totais do Drive.
+            "drive": drive,
         },
     )
 
@@ -182,12 +198,13 @@ def google_callback(request: Request, owner: Owner, db: DB):
     except google_auth.MissingScopesError as exc:
         # Converte em erro HTTP 400 com a mensagem explicativa.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # Volta para a página inicial. 303 faz o navegador usar GET no novo endereço.
-    return RedirectResponse("/", status_code=303)
+    # Volta para as Configurações. 303 faz o navegador usar GET no novo endereço.
+    return RedirectResponse("/config#contas", status_code=303)
 
 
 # Botão "Testar Claude" (chamado via HTMX, devolve só um pedaço de HTML).
-@app.post("/testes/llm", response_class=HTMLResponse)
+# dependencies=[SameOrigin]: recusa o pedido se ele vier de outro site (ver app/web.py).
+@app.post("/testes/llm", response_class=HTMLResponse, dependencies=[SameOrigin])
 def test_llm(request: Request, owner: Owner):
     """Uma chamada mínima ao Claude, para provar chave, registro e custo."""
     # Cria o cliente com a fábrica de sessões e a configuração.

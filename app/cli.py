@@ -120,7 +120,7 @@ def cmd_testar_google(_: argparse.Namespace) -> None:
 
 # Coleta do Gmail: uma rodada, ou sem parar (modo usado pelo serviço "coletor").
 def cmd_coletar_gmail(args: argparse.Namespace) -> None:
-    """Lê os e-mails novos do Gmail e grava no bronze (com anexos e links do Drive)."""
+    """Lê os e-mails novos do Gmail e grava no bronze, com os anexos."""
     # logging mostra o andamento no terminal e em `docker compose logs coletor`.
     import logging
 
@@ -176,6 +176,119 @@ def cmd_reextrair_anexos(_: argparse.Namespace) -> None:
     print(f"{tried} arquivos tentados, {fixed} agora com texto.")
 
 
+# Varredura das pastas monitoradas do Drive (uma rodada).
+def cmd_coletar_drive(_: argparse.Namespace) -> None:
+    """Varre agora as pastas do Drive cadastradas no console e grava as versões novas."""
+    # A rodada de varredura.
+    from app.ingestion.drive_sync import run_from_settings
+
+    # Roda e mostra o resumo.
+    print(run_from_settings(get_settings()).describe())
+
+
+# Testes de saúde (uma rodada), com o resultado no terminal.
+def cmd_verificar_saude(_: argparse.Namespace) -> None:
+    """Testa agora os serviços (banco, Google, Claude, Deepgram, disco, status públicos)."""
+    # Os testes.
+    from app.health import LABELS, run_checks
+
+    # Roda e grava.
+    rows = run_checks(get_sessionmaker(), get_settings())
+    # Uma linha por serviço.
+    for row in rows:
+        # OK, PROBLEMA ou ? (não deu para saber).
+        mark = {True: "OK      ", False: "PROBLEMA", None: "?       "}[row.ok]
+        # Mostra.
+        print(f"{mark} {LABELS.get(row.service, row.service)}: {row.detail}")
+
+
+# O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
+def cmd_agendador(_: argparse.Namespace) -> None:
+    """Roda sem parar: Gmail, pastas do Drive e testes de saúde, cada um no seu intervalo."""
+    # logging mostra o andamento em `docker compose logs coletor`.
+    import logging
+
+    # time.sleep espera entre uma volta e outra.
+    import time
+
+    # Data e hora com fuso, e intervalos.
+    from datetime import UTC, datetime, timedelta
+
+    # Testes de saúde.
+    from app.health import run_checks
+
+    # Varredura do Drive e a regra de "está na hora?".
+    from app.ingestion.drive_sync import drive_scan_due
+
+    # Rodada do Drive (renomeada para não confundir com a do Gmail).
+    from app.ingestion.drive_sync import run_from_settings as run_drive
+
+    # Coleta do Gmail.
+    from app.ingestion.gmail import run_from_settings as run_gmail
+
+    # Formato das mensagens: hora, nível e texto.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Configuração.
+    settings = get_settings()
+    # Fábrica de sessões.
+    sessions = get_sessionmaker()
+    # Última vez que cada tarefa rodou (None = ainda não rodou desde que o serviço subiu).
+    last: dict[str, datetime | None] = {"gmail": None, "drive_falha": None, "saude": None}
+
+    # Diz se já passou o intervalo desde a última vez.
+    def due(name: str, minutes: int, now: datetime) -> bool:
+        # Nunca rodou ou passou o intervalo.
+        return last[name] is None or now - last[name] >= timedelta(minutes=minutes)
+
+    # Roda uma tarefa protegida: erro numa tarefa não derruba o serviço nem as outras.
+    def safe(label: str, job) -> bool:
+        # Tenta.
+        try:
+            # Executa.
+            result = job()
+            # Mostra o resumo, se a tarefa devolver um.
+            if hasattr(result, "describe"):
+                # Uma linha no log.
+                logging.info(result.describe())
+            # Deu certo.
+            return True
+        # Qualquer erro.
+        except Exception:
+            # Rastro completo no log.
+            logging.exception("%s falhou", label)
+            # Falhou.
+            return False
+
+    # Laço sem fim: uma volta por minuto.
+    while True:
+        # Momento desta volta.
+        now = datetime.now(UTC)
+        # Gmail a cada GMAIL_POLL_MINUTES.
+        if due("gmail", settings.gmail_poll_minutes, now):
+            # Marca antes de rodar: com erro, também espera o intervalo para tentar de novo.
+            last["gmail"] = now
+            # Coleta.
+            safe("Coleta do Gmail", lambda: run_gmail(settings))
+        # Drive: quando alguma pasta está atrasada ou acabou de ser cadastrada.
+        with sessions() as session:
+            # Pergunta ao banco.
+            drive_due = drive_scan_due(session, settings, now)
+        # Depois de uma falha geral (ex.: Google desconectado), espera 5 min para insistir.
+        if drive_due and due("drive_falha", 5, now):
+            # Varre; se falhar, guarda o momento da falha.
+            if not safe("Varredura do Drive", lambda: run_drive(settings)):
+                # Momento da falha.
+                last["drive_falha"] = now
+        # Saúde a cada HEALTH_POLL_MINUTES.
+        if due("saude", settings.health_poll_minutes, now):
+            # Marca.
+            last["saude"] = now
+            # Testa e grava.
+            safe("Testes de saúde", lambda: run_checks(sessions, settings))
+        # Espera um minuto até a próxima volta.
+        time.sleep(60)
+
+
 # Liga o nome digitado no terminal à função que executa o comando.
 COMMANDS = {
     # python -m app.cli gerar-chave
@@ -188,6 +301,12 @@ COMMANDS = {
     "coletar-gmail": cmd_coletar_gmail,
     # python -m app.cli reextrair-anexos
     "reextrair-anexos": cmd_reextrair_anexos,
+    # python -m app.cli coletar-drive
+    "coletar-drive": cmd_coletar_drive,
+    # python -m app.cli verificar-saude
+    "verificar-saude": cmd_verificar_saude,
+    # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
+    "agendador": cmd_agendador,
 }
 
 

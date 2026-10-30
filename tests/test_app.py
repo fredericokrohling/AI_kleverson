@@ -40,10 +40,15 @@ def test_console_renders_for_owner():
     response = client.get("/", headers=OWNER)
     # 200 = sucesso.
     assert response.status_code == 200
-    # Banco vazio: a página avisa que não há conta conectada.
-    assert "Nenhuma conta conectada" in response.text
-    # Mostra o modelo configurado.
-    assert "claude-opus-5-5" in response.text
+    # Banco vazio: a página avisa que não há conta conectada e aponta as Configurações.
+    assert (
+        "Nenhuma conta Google conectada" in response.text
+        and 'href="/config#contas"' in response.text
+    )
+    # Menu lateral com os três atalhos e o logo no lugar do título antigo.
+    for link in ('href="/"', 'href="/config"', 'href="/monitoramento"', "/static/logo.png"):
+        # Cada um.
+        assert link in response.text
     # Mostra a seção da coleta de e-mail, ainda sem nenhuma rodada.
     assert "Nenhuma coleta ainda" in response.text
 

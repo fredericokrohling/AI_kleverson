@@ -36,6 +36,9 @@ from app.config import CACHE_WRITE_MULTIPLIER, MODEL_PRICES_USD_PER_MTOK, Settin
 # Tabela de chamadas ao LLM e a função que grava no log de auditoria.
 from app.models import LLMCall, audit
 
+# Modelo e esforço escolhidos no console.
+from app.runtime_settings import current
+
 # Cria um "logger" com o nome deste módulo (app.llm), para identificar a origem da mensagem.
 log = logging.getLogger(__name__)
 
@@ -152,19 +155,23 @@ class LLMClient:
         system: str | None = None,
         # Limite de tamanho da resposta, em tokens.
         max_tokens: int = 16000,
-        # Quanto o modelo deve "pensar": low, medium, high. Mais esforço, mais custo.
-        effort: str = "medium",
+        # Quanto o modelo deve "pensar" (low a max). None = o escolhido no console.
+        effort: str | None = None,
     ) -> LLMResult:
         """Uma pergunta, uma resposta em texto. `purpose` identifica a chamada no log."""
-        # Modelo configurado no .env.
-        model = self._settings.llm_model
         # Teto mensal configurado.
         budget = self._settings.llm_monthly_budget_usd
 
-        # Abre uma sessão só para consultar o gasto e fecha logo em seguida.
+        # Abre uma sessão só para consultar o gasto e as escolhas do console.
         with self._sessions() as session:
             # Quanto já foi gasto neste mês.
             spent_before = month_spend_usd(session)
+            # Modelo e esforço em vigor (console; se nunca mudou, o .env).
+            config = current(session, self._settings)
+        # Modelo escolhido.
+        model = config.llm_model
+        # Esforço pedido por quem chamou ou, se não pediu, o escolhido no console.
+        effort = effort or config.llm_effort
         # Se já atingiu o teto, nem chama a API.
         if spent_before >= budget:
             # f"..." é uma f-string: insere valores no texto; ":.2f" mostra 2 casas.

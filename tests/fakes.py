@@ -117,17 +117,45 @@ def http_error(status: int) -> HttpError:
 
 # Drive falso: arquivos por id, com dados e tipo.
 class FakeDrive:
-    # files: id → {"name", "mimeType", "data", "parents"}; pastas entram só com "parents".
-    # Ids ausentes dão 404.
-    def __init__(self, files: dict[str, dict]):
+    # files: id → {"name", "mimeType", "data", "parents", "version", "size", "trashed"}.
+    # Sem mimeType, o item é uma pasta. Ids ausentes dão 404.
+    def __init__(self, files: dict[str, dict], page_size: int = 2):
         # Os arquivos.
         self.files_by_id = files
         # Quantas vezes cada arquivo foi baixado ou exportado.
         self.downloads: list[str] = []
+        # Itens por página na listagem (pequeno, para testar a paginação).
+        self.page_size = page_size
+        # Pastas cuja listagem deve falhar (simula erro da API).
+        self.failing: set[str] = set()
 
     # drive.files() devolve o próprio objeto.
     def files(self):
         return self
+
+    # Metadados de um item no formato da API.
+    def _meta(self, file_id: str) -> dict:
+        # Dados guardados.
+        f = self.files_by_id[file_id]
+        # Campos que o sistema pede.
+        meta = {
+            "id": file_id,
+            "name": f.get("name", file_id),
+            "mimeType": f.get("mimeType", "application/vnd.google-apps.folder"),
+            "parents": f.get("parents", []),
+            "webViewLink": f"https://drive.google.com/x/{file_id}",
+            "modifiedTime": f.get("modifiedTime", "2026-10-30T10:00:00.000Z"),
+        }
+        # Pastas não têm versão nem tamanho na prática.
+        if "mimeType" in f:
+            # Versão (muda a cada alteração).
+            meta["version"] = str(f.get("version", "1"))
+            # Tamanho em bytes (o Drive não informa para Docs, Sheets e Slides).
+            if not f["mimeType"].startswith("application/vnd.google-apps."):
+                # Tamanho informado ou o dos dados.
+                meta["size"] = str(f.get("size", len(f.get("data", b""))))
+        # Devolve.
+        return meta
 
     # Metadados.
     def get(self, fileId, fields, supportsAllDrives):  # noqa: N803 (nome da API)
@@ -136,16 +164,39 @@ class FakeDrive:
             # Arquivo inexistente: 404.
             if fileId not in self.files_by_id:
                 raise http_error(404)
-            # Dados do arquivo.
-            f = self.files_by_id[fileId]
-            # Campos pedidos pelo coletor; "parents" são as pastas onde o item está.
-            return {
-                "id": fileId,
-                "name": f.get("name", fileId),
-                "mimeType": f.get("mimeType", "application/vnd.google-apps.folder"),
-                "size": "10",
-                "parents": f.get("parents", []),
-            }
+            # Dados no formato da API.
+            return self._meta(fileId)
+
+        # Devolve a chamada preparada.
+        return _Call(respond)
+
+    # Listagem de uma pasta: entende só o filtro "'<id>' in parents and trashed = false".
+    def list(self, q, fields, pageSize, pageToken, **_):  # noqa: N803 (nome da API)
+        # Função que produz a resposta.
+        def respond():
+            # Id da pasta, entre as primeiras aspas.
+            parent = q.split("'")[1]
+            # Falha simulada.
+            if parent in self.failing:
+                raise http_error(403)
+            # Itens da pasta, fora da lixeira, em ordem de id.
+            ids = sorted(
+                i
+                for i, f in self.files_by_id.items()
+                if parent in f.get("parents", []) and not f.get("trashed")
+            )
+            # Posição da página pedida.
+            start = int(pageToken or 0)
+            # Página atual.
+            page = ids[start : start + self.page_size]
+            # Resposta com os itens.
+            response = {"files": [self._meta(i) for i in page]}
+            # Ainda há itens: devolve o marcador da próxima página.
+            if start + self.page_size < len(ids):
+                # Posição da próxima página.
+                response["nextPageToken"] = str(start + self.page_size)
+            # Devolve.
+            return response
 
         # Devolve a chamada preparada.
         return _Call(respond)

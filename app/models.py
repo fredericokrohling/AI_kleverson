@@ -93,6 +93,8 @@ class SourceKind(StrEnum):
     GOOGLE_CHAT = "google_chat"
     # Algo que você digitou à mão no console.
     MANUAL = "manual"
+    # Arquivo de uma pasta monitorada do Google Drive (cada versão vira um item).
+    DRIVE = "drive"
 
 
 # Tipos de fato que a camada silver reconhece (base para RAID e plano de ação).
@@ -491,6 +493,139 @@ class IngestionRun(Base):
     message_errors: Mapped[int] = mapped_column(Integer, server_default="0")
     # Detalhes dos erros de mensagem (id e motivo), para diagnóstico.
     error_detail: Mapped[str | None] = mapped_column(Text)
+
+
+# Configurações que você muda pelo console (modelo do Claude, esforço, idioma da
+# transcrição). Ficam no banco, e não no .env, para valer sem reiniciar nada. Quando uma
+# chave não existe aqui, vale o padrão do .env (ver app/runtime_settings.py).
+class AppSetting(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "app_settings"
+
+    # Nome da configuração (ex.: "llm_model"); é a chave primária.
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    # Valor em JSON (texto, número ou lista, conforme a configuração).
+    value: Mapped[Any] = mapped_column(JSONB)
+    # Quando foi alterada pela última vez.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+# --- Google Drive e tags ------------------------------------------------------
+
+
+# Uma etiqueta que diz a que o conteúdo se refere (ex.: "Projeto CRM", "Arquitetura").
+class Tag(Timestamped, Base):
+    # Nome da tabela no banco.
+    __tablename__ = "tags"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Nome da tag; não pode repetir.
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
+# Uma pasta do Drive que você mandou monitorar (a "raiz" do monitoramento).
+class DriveFolder(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "drive_folders"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Id da pasta no Google Drive; a mesma pasta não entra duas vezes.
+    drive_id: Mapped[str] = mapped_column(String(200), unique=True)
+    # Nome da pasta no Drive.
+    name: Mapped[str] = mapped_column(String(1000))
+    # Monitorando? Remover pelo console só desliga (os arquivos e as tags ficam).
+    active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # Quando foi cadastrada.
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Última varredura completa; vazio = ainda não varrida (a próxima rodada faz na hora).
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Erro da última varredura, se houve.
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+# Um arquivo ou subpasta encontrado dentro de uma pasta monitorada. Espelha a árvore
+# do Drive: cada item aponta para a pasta-mãe pelo id do Drive.
+class DriveItem(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "drive_items"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Id no Google Drive; sem repetição.
+    drive_id: Mapped[str] = mapped_column(String(200), unique=True)
+    # A pasta monitorada que o encontrou.
+    folder_id: Mapped[int] = mapped_column(ForeignKey("drive_folders.id"), index=True)
+    # Id do Drive da pasta-mãe; vazio na própria pasta monitorada. index: listar o
+    # conteúdo de uma pasta fica rápido.
+    parent_drive_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    # Nome do arquivo ou da pasta.
+    name: Mapped[str] = mapped_column(String(1000))
+    # Caminho legível a partir da pasta monitorada (ex.: "CRM/Contratos/plano.xlsx").
+    path: Mapped[str] = mapped_column(Text, server_default="")
+    # Tipo MIME no Drive.
+    mime_type: Mapped[str | None] = mapped_column(String(200))
+    # É pasta?
+    is_folder: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Última alteração no Drive.
+    modified_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Número de versão do Drive; muda a cada alteração do arquivo.
+    version: Mapped[str | None] = mapped_column(String(50))
+    # Tamanho em bytes (o Drive não informa para Docs, Sheets e Slides).
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    # Link para abrir no Drive.
+    web_link: Mapped[str | None] = mapped_column(Text)
+    # True quando sumiu da pasta (apagado ou movido para fora); o histórico continua.
+    removed: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Última varredura em que foi visto.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Versão mais recente gravada no bronze.
+    bronze_item_id: Mapped[int | None] = mapped_column(ForeignKey("bronze_items.id"))
+    # Impressão digital do texto da versão mais recente: se não mudou, não grava de novo.
+    content_sha256: Mapped[str | None] = mapped_column(String(64))
+    # Motivo de o arquivo não ter sido lido (grande demais, tipo não suportado...).
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+# Tag colocada diretamente num arquivo ou numa pasta. A herança (pasta → conteúdo) não é
+# gravada aqui: a view drive_item_effective_tags calcula na hora da consulta.
+class DriveItemTag(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "drive_item_tags"
+
+    # O arquivo ou pasta; apagou o item, some o vínculo.
+    drive_item_id: Mapped[int] = mapped_column(
+        ForeignKey("drive_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    # A tag; apagou a tag, some de todos os itens (CASCADE).
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    # Quando foi colocada.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# --- Saúde ----------------------------------------------------------------------
+
+
+# Resultado de um teste de saúde (um serviço, um momento).
+class HealthCheck(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "health_checks"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Quando o teste rodou; index para achar o último de cada serviço rápido.
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Qual serviço (ex.: "gmail", "status:github").
+    service: Mapped[str] = mapped_column(String(50), index=True)
+    # True = funcionando; False = com problema; vazio = não deu para saber.
+    ok: Mapped[bool | None] = mapped_column(Boolean)
+    # Quanto tempo a resposta levou, em milissegundos.
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # Explicação curta do resultado.
+    detail: Mapped[str | None] = mapped_column(Text)
 
 
 # Diário de tudo que o sistema faz sozinho. Como você não aprova cada ação, é aqui

@@ -209,3 +209,30 @@ def test_refusal_is_reported(sessions):
     result = LLMClient(sessions, get_settings(), fake).generate(purpose="teste", prompt="oi")
     # O atalho refused indica a recusa.
     assert result.refused
+
+
+# Modelo e esforço escolhidos no console valem nas chamadas seguintes.
+def test_console_choice_is_used(sessions):
+    # Grava as escolhas como o console faria.
+    from app.runtime_settings import set_value
+
+    # Uma sessão.
+    with sessions() as s:
+        # Sonnet.
+        set_value(s, get_settings(), "llm_model", "claude-sonnet-5-5")
+        # Esforço alto.
+        set_value(s, get_settings(), "llm_effort", "high")
+        # Grava.
+        s.commit()
+    # Cliente falso.
+    fake, messages = _client(_response(model="claude-sonnet-5-5"))
+    # Sem esforço explícito: vale o do console.
+    LLMClient(sessions, get_settings(), fake).generate(purpose="teste", prompt="oi")
+    # Esforço explícito de quem chama: vale o explícito.
+    LLMClient(sessions, get_settings(), fake).generate(purpose="teste", prompt="oi", effort="low")
+    # Modelo e esforço da primeira chamada.
+    assert messages.calls[0]["model"] == "claude-sonnet-5-5"
+    # Esforço do console.
+    assert messages.calls[0]["output_config"] == {"effort": "high"}
+    # Esforço explícito.
+    assert messages.calls[1]["output_config"] == {"effort": "low"}

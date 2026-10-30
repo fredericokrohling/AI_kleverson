@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · Kleverson A.I.{% endblock %}
+{% macro tag_form(target) %}
+  <form class="linha" style="margin:4px 0 0" method="post" action="/config/drive/itens/{{ target.id }}/tags">
+    <input name="nome" required maxlength="100" list="sugestoes" placeholder="tag" size="14" aria-label="Tag para {{ target.name }}">
+    <input type="hidden" name="voltar" value="{{ here }}">
+    <button class="mini" type="submit">+ tag</button>
+  </form>
+{% endmacro %}
+{% macro tag_list(target) %}
+  {% for t in tags.get(target.id, []) %}
+    {% if t.inherited %}
+      <span class="tag herdada" title="Herdada de uma pasta acima; retire-a lá">{{ t.name }}</span>
+    {% else %}
+      <span class="tag">{{ t.name }}
+        <form class="inline" method="post" action="/config/drive/itens/{{ target.id }}/tags/{{ t.tag_id }}/retirar">
+          <input type="hidden" name="voltar" value="{{ here }}">
+          <button class="mini" type="submit" title="Retirar a tag" aria-label="Retirar {{ t.name }}">×</button>
+        </form>
+      </span>
+    {% endif %}
+  {% endfor %}
+{% endmacro %}
+{% block content %}
+<p class="muted"><a href="/config#drive">Pastas do Drive</a>
+  {% for t in trail %} / {% if not loop.last %}<a href="/config/drive/itens/{{ t.id }}">{{ t.name }}</a>{% else %}<strong>{{ t.name }}</strong>{% endif %}{% endfor %}
+</p>
+<datalist id="sugestoes">{% for t in all_tags %}<option value="{{ t.name }}">{% endfor %}</datalist>
+
+<section>
+  <h2>{{ item.name }}</h2>
+  <div>Tags: {{ tag_list(item) }} {% if not tags.get(item.id) %}<span class="muted">nenhuma</span>{% endif %}</div>
+  {{ tag_form(item) }}
+  <p class="muted">Tags com borda cheia foram colocadas aqui; as tracejadas vêm de uma pasta acima.
+    {% if item.is_folder %}Tudo dentro desta pasta herda as tags dela.{% endif %}
+    {% if item.web_link %}<a href="{{ item.web_link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}</p>
+  {% if item.error %}<p class="erro">Não foi lido: {{ item.error }}</p>{% endif %}
+</section>
+
+{% if item.is_folder %}
+<section>
+  <h2>Conteúdo</h2>
+  {% if children %}
+    <div class="tabela"><table>
+      <tr><th>Nome</th><th>Tags</th><th>Alterado em</th><th>Situação</th></tr>
+      {% for c in children %}
+        <tr>
+          <td>
+            {% if c.is_folder %}📁 <a href="/config/drive/itens/{{ c.id }}">{{ c.name }}</a>
+            {% else %}📄 <a href="/config/drive/itens/{{ c.id }}">{{ c.name }}</a>{% endif %}
+          </td>
+          <td>{{ tag_list(c) }}{{ tag_form(c) }}</td>
+          <td>{{ c.modified_time.strftime("%d/%m/%Y %H:%M") if c.modified_time else "" }}</td>
+          <td>
+            {% if c.removed %}<span class="muted">saiu da pasta</span>
+            {% elif c.is_folder %}<span class="muted">pasta</span>
+            {% elif c.error %}<span class="erro" title="{{ c.error }}">não lido</span>
+            {% elif c.bronze_item_id %}<span class="ok">lido</span>
+            {% else %}<span class="muted">aguardando</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Pasta vazia{% if not removidos %} (ou ainda não varrida){% endif %}.</p>
+  {% endif %}
+  <p class="muted">
+    {% if removidos %}<a href="{{ request.url.path }}">Esconder itens que saíram da pasta</a>
+    {% else %}<a href="{{ request.url.path }}?removidos=true">Mostrar também itens que saíram da pasta</a>{% endif %}
+  </p>
+</section>
+{% endif %}
+{% endblock %}

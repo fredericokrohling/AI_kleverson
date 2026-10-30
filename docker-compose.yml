@@ -6,7 +6,8 @@
 #   db       → o Postgres;
 #   migrate  → aplica as migrações do banco e termina;
 #   app      → o console, que só sobe se a migração deu certo;
-#   coletor  → lê o Gmail a cada poucos minutos e grava no bronze (bloco 2).
+#   coletor  → agendador: Gmail a cada 5 min, pastas do Drive a cada 30 min e testes
+#              de saúde a cada 10 min.
 
 services:
   # Banco de dados.
@@ -59,17 +60,23 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/saude')"]
       interval: 30s
       retries: 3
+    volumes:
+      # Arquivos originais, só leitura (a página Saúde mede o espaço em disco por aqui).
+      - arquivos:/dados:ro
+      # Pasta .git do repositório, só leitura: a página Saúde lê qual versão está instalada.
+      - ./.git:/repo-git:ro
 
-  # Coletor do Gmail: um processo separado do console, que repete a coleta sem parar.
-  # Separado para que uma coleta longa (a primeira importa 30 dias) ou um erro nela não
-  # afete o console, e vice-versa.
+  # Coletor: um processo separado do console que roda as tarefas periódicas (Gmail,
+  # pastas do Drive, testes de saúde). Separado para que uma coleta longa ou um erro nela
+  # não afete o console, e vice-versa.
   coletor:
     build: .
     restart: unless-stopped
     env_file: .env
-    # Modo contínuo: uma rodada a cada GMAIL_POLL_MINUTES (padrão 5).
-    command: ["python", "-m", "app.cli", "coletar-gmail", "--continuo"]
-    # Os e-mails originais (.eml) e os anexos ficam neste volume, fora do contêiner.
+    # Agendador: cada tarefa no seu intervalo (GMAIL_POLL_MINUTES, DRIVE_POLL_MINUTES,
+    # HEALTH_POLL_MINUTES).
+    command: ["python", "-m", "app.cli", "agendador"]
+    # Os originais (e-mails .eml, anexos, arquivos do Drive) ficam neste volume.
     volumes:
       - arquivos:/dados
     # Mesma regra do console: só sobe com o banco migrado.

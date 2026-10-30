@@ -1,26 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
-<section>
-  <h2>Contas Google conectadas</h2>
-  {% if accounts %}
-    <table>
-      <tr><th>Conta</th><th>Atualizado em</th></tr>
-      {% for a in accounts %}
-        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at.strftime("%d/%m/%Y %H:%M") }}</td></tr>
-      {% endfor %}
-    </table>
-  {% else %}
-    <p class="muted">Nenhuma conta conectada ainda.</p>
-  {% endif %}
-  <p><a href="/auth/google/login">Conectar conta Google</a></p>
-</section>
-
+<h1>Início</h1>
+{% if not accounts %}
+  <div class="aviso-caixa">Nenhuma conta Google conectada. Conecte em <a href="/config#contas">Configurações → Contas conectadas</a>.</div>
+{% endif %}
 <section>
   <h2>Coleta de e-mail</h2>
   <p>No bronze: <strong>{{ coleta.emails }}</strong> e-mails e <strong>{{ coleta.files }}</strong> arquivos
     ({{ coleta.files_without_text }} sem texto extraído).</p>
   {% if coleta.runs %}
-    <table>
+    <div class="tabela"><table>
       <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
       {% for r in coleta.runs %}
         <tr>
@@ -32,31 +21,28 @@
           <td{% if r.message_errors %} class="erro" title="{{ r.error_detail or '' }}"{% endif %}>{{ r.message_errors }}</td>
         </tr>
       {% endfor %}
-    </table>
+    </table></div>
   {% else %}
     <p class="muted">Nenhuma coleta ainda. Ela começa sozinha alguns minutos depois de conectar a conta Google.</p>
   {% endif %}
 </section>
 
 <section>
-  <h2>Claude</h2>
-  <p>Modelo: <strong>{{ model }}</strong>. Gasto no mês: <strong>US$ {{ "%.4f"|format(spent) }}</strong> de US$ {{ budget }}.</p>
-  <form method="post" action="/testes/llm" hx-post="/testes/llm" hx-target="#resultado-llm" hx-indicator="#aguarde">
-    <button type="submit">Testar Claude</button>
-  </form>
-  <span id="aguarde" class="htmx-indicator muted">aguarde...</span>
-  <div id="resultado-llm"></div>
+  <h2>Pastas do Drive</h2>
+  <p>{{ drive.folders }} pasta(s) monitorada(s), {{ drive.files }} arquivo(s) encontrados e
+    <strong>{{ drive.versions }}</strong> versão(ões) gravadas no bronze.
+    <a href="/config#drive">Gerenciar pastas e tags</a></p>
 </section>
 
 <section>
   <h2>Últimas ações</h2>
   {% if recent %}
-    <table>
+    <div class="tabela"><table>
       <tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Alvo</th></tr>
       {% for r in recent %}
         <tr><td>{{ r.created_at.strftime("%d/%m %H:%M") }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td><td>{{ r.target or "" }}</td></tr>
       {% endfor %}
-    </table>
+    </table></div>
   {% else %}
     <p class="muted">Nada registrado ainda.</p>
   {% endif %}

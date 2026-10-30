@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Configurações · Kleverson A.I.{% endblock %}
+{% block content %}
+<h1>Configurações</h1>
+<p class="muted">
+  <a href="#contas">Contas conectadas</a> · <a href="#claude">Claude</a> · <a href="#transcricao">Transcrição</a> ·
+  <a href="#drive">Pastas do Drive</a> · <a href="#tags">Tags</a>
+</p>
+
+<section id="contas">
+  <h2>Contas conectadas</h2>
+  {% if accounts %}
+    <div class="tabela"><table>
+      <tr><th>Conta</th><th>Atualizado em</th></tr>
+      {% for a in accounts %}
+        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at.strftime("%d/%m/%Y %H:%M") }}</td></tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhuma conta conectada ainda.</p>
+  {% endif %}
+  <p><a href="/auth/google/login">Conectar conta Google</a></p>
+</section>
+
+<section id="claude">
+  <h2>Claude</h2>
+  <p>Em uso: <strong>{{ models.get(current.llm_model, current.llm_model) }}</strong>, esforço
+    <strong>{{ efforts.get(current.llm_effort, current.llm_effort) }}</strong>.
+    Gasto no mês: <strong>US$ {{ "%.4f"|format(spent) }}</strong> de US$ {{ budget }}.</p>
+  <form class="linha" method="post" action="/config/claude">
+    <label>Modelo
+      <select name="modelo">
+        {% for value, label in models.items() %}
+          <option value="{{ value }}" {{ 'selected' if value == current.llm_model }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Esforço
+      <select name="esforco">
+        {% for value, label in efforts.items() %}
+          <option value="{{ value }}" {{ 'selected' if value == current.llm_effort }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Salvar</button>
+  </form>
+  <p class="muted">Esforço é quanto o modelo pensa antes de responder. Mais esforço, respostas mais cuidadosas,
+    porém mais caras e lentas. Médio é o padrão do Opus 5.5; Extra alto e Máximo ficam para análises difíceis.</p>
+  <form method="post" action="/testes/llm" hx-post="/testes/llm" hx-target="#resultado-llm" hx-indicator="#aguarde">
+    <button type="submit">Testar Claude</button>
+    <span id="aguarde" class="htmx-indicator muted">aguarde...</span>
+  </form>
+  <div id="resultado-llm"></div>
+</section>
+
+<section id="transcricao">
+  <h2>Transcrição de reuniões</h2>
+  <form class="linha" method="post" action="/config/transcricao">
+    <label>Idioma
+      <select name="idioma">
+        {% for value, label in languages.items() %}
+          <option value="{{ value }}" {{ 'selected' if value == current.transcription_language }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Salvar</button>
+  </form>
+  <p class="muted">Vale a partir da próxima transcrição iniciada na extensão. "Automático" reconhece português e
+    inglês na mesma reunião, inclusive trocando no meio da frase; num idioma só, escolher o idioma certo costuma
+    acertar um pouco mais.</p>
+</section>
+
+<section id="drive">
+  <h2>Pastas do Drive monitoradas</h2>
+  <p class="muted">Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e
+    subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco.</p>
+  <form class="linha" method="post" action="/config/drive/pastas">
+    <input name="link" required size="50" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta">
+    <button type="submit">Monitorar pasta</button>
+  </form>
+  {% if folders %}
+    <div class="tabela"><table>
+      <tr><th>Pasta</th><th>Tags</th><th>Última varredura</th><th></th></tr>
+      {% for f in folders %}
+        {% set root = roots.get(f.drive_id) %}
+        <tr>
+          <td>
+            {% if root %}<a href="/config/drive/itens/{{ root.id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}
+            {% if not f.active %}<span class="muted">(desligada)</span>{% endif %}
+          </td>
+          <td>
+            {% if root %}
+              {% for t in root_tags.get(root.id, []) %}<span class="tag {{ 'herdada' if t.inherited }}">{{ t.name }}</span>{% endfor %}
+            {% endif %}
+          </td>
+          <td>
+            {% if f.last_error %}<span class="erro" title="{{ f.last_error }}">erro: {{ f.last_error[:80] }}</span>
+            {% elif f.last_scan_at %}{{ f.last_scan_at.strftime("%d/%m %H:%M") }}
+            {% elif f.active %}<span class="muted">aguardando a primeira</span>{% endif %}
+          </td>
+          <td>
+            {% if f.active %}
+              <form class="inline" method="post" action="/config/drive/pastas/{{ f.id }}/remover">
+                <button class="perigo mini" type="submit" title="Para de monitorar; nada é apagado">Parar</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+    <form method="post" action="/config/drive/varrer"><button type="submit">Varrer agora</button></form>
+  {% else %}
+    <p class="muted">Nenhuma pasta cadastrada.</p>
+  {% endif %}
+</section>
+
+<section id="tags">
+  <h2>Tags</h2>
+  <p class="muted">Uma tag diz a que o conteúdo se refere (ex.: "Projeto CRM"). Coloque tags numa pasta clicando no
+    nome dela acima: tudo dentro da pasta herda as tags, inclusive arquivos que chegarem depois.</p>
+  <form class="linha" method="post" action="/config/tags">
+    <input name="nome" required maxlength="100" placeholder="Nome da nova tag" aria-label="Nome da nova tag">
+    <button type="submit">Criar tag</button>
+  </form>
+  {% if tags %}
+    <div class="tabela"><table>
+      <tr><th>Tag</th><th>Colocada em</th><th>Renomear</th><th></th></tr>
+      {% for tag, count in tags %}
+        <tr>
+          <td><span class="tag">{{ tag.name }}</span></td>
+          <td>{{ count }} item(ns)</td>
+          <td>
+            <form class="linha" style="margin:0" method="post" action="/config/tags/{{ tag.id }}/renomear">
+              <input name="nome" required maxlength="100" value="{{ tag.name }}" aria-label="Novo nome de {{ tag.name }}">
+              <button class="mini" type="submit">Salvar</button>
+            </form>
+          </td>
+          <td>
+            <form class="inline" method="post" action="/config/tags/{{ tag.id }}/apagar"
+                  onsubmit='return confirm({{ ("Apagar a tag " ~ tag.name ~ " de todas as pastas e arquivos?")|tojson }})'>
+              <button class="perigo mini" type="submit">Apagar</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhuma tag ainda.</p>
+  {% endif %}
+</section>
+{% endblock %}

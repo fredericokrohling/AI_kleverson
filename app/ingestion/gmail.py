@@ -1,11 +1,11 @@
-"""Coletor do Gmail: lê e-mails novos e grava no bronze, com anexos e links do Drive.
+"""Coletor do Gmail: lê e-mails novos e grava no bronze, com os anexos.
 
 Fluxo de uma rodada:
 1. Garante que só uma coleta roda por vez (trava no Postgres).
 2. Calcula a janela: desde o fim da última rodada sem erro, menos uma folga.
 3. Pede ao Gmail a lista de ids na janela e separa os que ainda não estão no banco.
 4. Para cada id novo: baixa o e-mail bruto, guarda o .eml, desmonta, guarda os anexos,
-   extrai o texto, segue os links do Drive e grava tudo numa transação só.
+   extrai o texto, registra os links do Drive e grava tudo numa transação só.
 5. Registra a rodada em ingestion_runs.
 
 Por que janela por data + id em vez do "histórico" do Gmail (history.list): o histórico
@@ -19,6 +19,12 @@ Erros: uma mensagem que falha (rede, API) não derruba a rodada. Ela é contada,
 termina "com_erros" e a próxima rodada recomeça da última janela sem erro, tentando de
 novo só o que falta. Falha ao ler um anexo não é erro de mensagem: o e-mail é gravado e
 o motivo fica em attachments.extraction_error.
+
+Links do Drive: só são registrados (origem "link_drive", com o id do arquivo), não
+baixados. O conteúdo do Drive entra pelas pastas monitoradas (app/ingestion/drive_sync.py),
+que você escolhe no console; um arquivo citado por link e guardado numa dessas pastas já
+está no bronze, com as tags dele. Baixar tudo que aparece em link encheria o disco com
+arquivos que você não escolheu.
 """
 
 # base64 decodifica o e-mail bruto, que o Gmail entrega em base64 "para URL".
@@ -44,9 +50,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 # Tipo da configuração.
 from app.config import Settings
-
-# Baixar arquivos do Drive.
-from app.ingestion.drive import DriveFile, fetch_drive_file
 
 # Desmontar o e-mail.
 from app.ingestion.email_parser import parse_email
@@ -249,18 +252,10 @@ def _ingest_message(
     session: Session,
     # Cliente da API do Gmail.
     gmail,
-    # Cliente da API do Drive.
-    drive,
     # Pasta dos originais.
     store: FileStore,
-    # Configuração.
-    settings: Settings,
     # Id da mensagem no Gmail.
     message_id: str,
-    # Arquivos do Drive já baixados nesta rodada.
-    drive_cache: dict[str, DriveFile],
-    # Pastas-mãe já consultadas no Drive nesta rodada (id → ids das pastas acima dela).
-    parents_cache: dict[str, list[str]],
 ) -> tuple[int, int] | None:
     # Baixa o e-mail completo em formato bruto.
     response = (
@@ -345,54 +340,22 @@ def _ingest_message(
                 ready_text=att.text,
             )
         )
-    # Links do Drive, só se uma pasta autorizada estiver configurada.
-    if settings.drive_folder_id and drive is not None:
-        # Limite em bytes.
-        max_bytes = settings.drive_max_file_mb * 1024 * 1024
-        # Cada id encontrado.
-        for file_id in parsed.drive_file_ids:
-            # Mesmo arquivo citado em outro e-mail desta rodada: baixa uma vez só.
-            if file_id not in drive_cache:
-                # Baixa (se estiver na pasta autorizada) e guarda no cache da rodada.
-                drive_cache[file_id] = fetch_drive_file(
-                    drive, file_id, max_bytes, settings.drive_folder_id, parents_cache
-                )
-            # Resultado do download.
-            found = drive_cache[file_id]
-            # Baixou: guarda e extrai como um anexo.
-            if found.data is not None:
-                # Monta a linha.
-                rows.append(
-                    _attachment_row(
-                        session,
-                        store,
-                        filename=found.filename,
-                        mime_type=found.mime_type,
-                        data=found.data,
-                        origin="link_drive",
-                        external_ref=file_id,
-                    )
-                )
-            # Não baixou: registra o link com o motivo, para você saber que existe.
-            else:
-                # Linha sem arquivo.
-                rows.append(
-                    Attachment(
-                        filename=_cut(found.filename, 500),
-                        mime_type=_cut(found.mime_type, 200),
-                        extraction_error=found.error,
-                        origin="link_drive",
-                        external_ref=file_id,
-                    )
-                )
+    # Links do Drive: registra cada arquivo citado, sem baixar (ver o topo do módulo).
+    for file_id in parsed.drive_file_ids:
+        # Linha sem arquivo e sem erro: só diz "este e-mail cita este arquivo do Drive".
+        rows.append(
+            Attachment(filename=f"drive:{file_id}", origin="link_drive", external_ref=file_id)
+        )
     # Liga cada arquivo ao item e prepara a gravação.
     for row in rows:
         # Id do item gerado pelo flush.
         row.bronze_item_id = item.id
         # Prepara.
         session.add(row)
-    # Quantos arquivos e quantos ficaram sem texto.
-    return len(rows), sum(1 for r in rows if r.extraction_error)
+    # Quantos arquivos e quantos ficaram sem texto (links não contam como arquivo).
+    files = [r for r in rows if r.origin != "link_drive"]
+    # Devolve as duas contagens.
+    return len(files), sum(1 for r in files if r.extraction_error)
 
 
 # Ponto de entrada do módulo: uma rodada completa.
@@ -401,8 +364,6 @@ def collect_gmail(
     sessions: sessionmaker[Session],
     # Cliente da API do Gmail (nos testes, um falso).
     gmail,
-    # Cliente da API do Drive (nos testes, um falso).
-    drive,
     # Pasta dos originais.
     store: FileStore,
     # Configuração.
@@ -414,7 +375,7 @@ def collect_gmail(
     # "Agora"; os testes fixam um valor para não depender do relógio.
     now: datetime | None = None,
 ) -> RunSummary:
-    """Uma rodada de coleta. gmail e drive são os clientes das APIs do Google."""
+    """Uma rodada de coleta. gmail é o cliente da API do Gmail."""
     # Momento de referência da rodada.
     now = now or datetime.now(UTC)
     # Resumo que será devolvido.
@@ -431,7 +392,7 @@ def collect_gmail(
         # try/finally: a trava é solta mesmo se algo der errado.
         try:
             # Faz o trabalho.
-            _run(sessions, gmail, drive, store, settings, since, now, summary)
+            _run(sessions, gmail, store, settings, since, now, summary)
         # Sempre executa.
         finally:
             # Solta a trava.
@@ -443,7 +404,7 @@ def collect_gmail(
 
 
 # O trabalho da rodada, já com a trava pega.
-def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummary) -> None:
+def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> None:
     # Qual conta está conectada (getProfile é uma chamada barata).
     account = gmail.users().getProfile(userId="me").execute(num_retries=3)["emailAddress"]
     # Sessão principal da rodada.
@@ -464,10 +425,6 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
         query = f"{settings.gmail_query} after:{int(start.timestamp())}".strip()
         # Detalhes dos erros desta rodada.
         errors: list[str] = []
-        # Arquivos do Drive já baixados nesta rodada.
-        drive_cache: dict[str, DriveFile] = {}
-        # Pastas do Drive já consultadas nesta rodada.
-        parents_cache: dict[str, list[str]] = {}
         # Registra o começo no log.
         log.info("Coleta %s: buscando %r", run.id, query)
         # A listagem também pode falhar (rede); nesse caso a rodada fica "com_erros".
@@ -493,16 +450,7 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
                     # Cada mensagem é independente.
                     try:
                         # Grava a mensagem.
-                        result = _ingest_message(
-                            session,
-                            gmail,
-                            drive,
-                            store,
-                            settings,
-                            message_id,
-                            drive_cache,
-                            parents_cache,
-                        )
+                        result = _ingest_message(session, gmail, store, message_id)
                         # Confirma esta mensagem (o que já foi gravado não se perde).
                         session.commit()
                     # Qualquer erro nesta mensagem.
@@ -641,12 +589,8 @@ def run_from_settings(settings: Settings, since: datetime | None = None) -> RunS
         creds = load_credentials(session, get_cipher(), settings)
     # Cliente do Gmail.
     gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    # Cliente do Drive.
-    drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     # Roda a coleta.
-    return collect_gmail(
-        sessions, gmail, drive, FileStore(settings.data_dir), settings, since=since
-    )
+    return collect_gmail(sessions, gmail, FileStore(settings.data_dir), settings, since=since)
 
 
 # Dicionário usado pelo console: últimas rodadas e totais.
@@ -663,8 +607,10 @@ def collection_overview(session: Session, limit: int = 5) -> dict[str, Any]:
     emails = session.scalar(
         select(func.count()).select_from(BronzeItem).where(BronzeItem.source == SourceKind.GMAIL)
     )
-    # Total de arquivos.
-    files = session.scalar(select(func.count()).select_from(Attachment))
+    # Total de arquivos (links do Drive só registrados não contam).
+    files = session.scalar(
+        select(func.count()).select_from(Attachment).where(Attachment.origin != "link_drive")
+    )
     # Arquivos sem texto.
     files_without_text = session.scalar(
         select(func.count()).select_from(Attachment).where(Attachment.extraction_error.is_not(None))
