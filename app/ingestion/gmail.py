@@ -528,7 +528,7 @@ def _run(sessions, gmail, drive, store, settings, since, now, summary: RunSummar
                     summary.attachments_saved += result[0]
                     # Soma os arquivos sem texto.
                     summary.extraction_errors += result[1]
-                    # A cada 100 novas, avisa no log (útil numa importação com --desde, que é longa).
+                    # A cada 100 novas, avisa no log (útil numa importação longa com --desde).
                     if summary.messages_new % 100 == 0:
                         # Mensagem de andamento.
                         log.info("Coleta %s: %s novas até agora", run.id, summary.messages_new)
