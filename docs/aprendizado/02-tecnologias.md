@@ -93,6 +93,16 @@ Critérios usados em todas as escolhas, nesta ordem:
   não). Se faltar ou vier errado, o erro aparece na hora de subir, não no meio do uso.
 - **Onde:** `app/config.py`.
 
+### pypdf, python-docx, openpyxl e python-pptx
+- **O que são:** bibliotecas que leem PDF, Word (.docx), Excel (.xlsx) e PowerPoint (.pptx)
+  e devolvem o texto.
+- **Por quê:** os anexos dos e-mails viram texto para a IA ler no bloco 3. As quatro são
+  Python puro: nenhum programa externo precisa ser instalado no servidor.
+- **Alternativas:** PyMuPDF (lê PDF melhor, mas a licença AGPL é restritiva), LibreOffice
+  (lê até os formatos antigos do Office, mas acrescenta centenas de MB à imagem), serviços
+  pagos de extração (mandariam seus documentos para terceiros).
+- **Onde:** `app/ingestion/extractors.py`. Detalhes em [06-ingestao-email.md](06-ingestao-email.md).
+
 ## Serviços externos
 
 ### Claude (API da Anthropic)
