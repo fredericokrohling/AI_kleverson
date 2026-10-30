@@ -58,8 +58,10 @@ def test_google_login_redirects_to_google():
     assert location.startswith("https://accounts.google.com/")
     # Pede acesso offline (refresh token).
     assert "access_type=offline" in location
-    # Nunca pede permissão de enviar e-mail.
-    assert "gmail.send" not in location
+    # Nunca pede permissão de enviar e-mail, nem as que também permitem enviar.
+    for scope in ("gmail.send", "gmail.compose", "gmail.modify", "mail.google.com"):
+        # Cada uma delas fora do pedido ao Google.
+        assert scope not in location
     # Usa PKCE.
     assert "code_challenge=" in location
 
