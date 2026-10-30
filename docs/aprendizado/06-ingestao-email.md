@@ -140,29 +140,23 @@ contagem dos primeiros dias de coleta (guia 05, passo 5.5) diz se vale a pena.
 
 Em empresas que usam Google Workspace, o cronograma raramente vem anexado: vem um link.
 O coletor procura links do Drive no texto e no HTML do e-mail (o Gmail coloca o link no
-`href`, invisível no texto) e:
+`href`, invisível no texto) e **registra** cada um: uma linha em `attachments` com origem
+`link_drive` e o id do arquivo. Nada é baixado.
 
-- **Docs, Sheets e Slides** são exportados para Word, Excel e PowerPoint. Assim o mesmo
-  extrator serve, e a planilha mantém todas as abas (exportar para CSV traria só a
-  primeira);
-- **arquivos comuns** (um PDF no Drive) são baixados como estão, até 25 MB;
-- **sem acesso** (arquivo não compartilhado com você): o link fica registrado com o motivo.
+### Por que só registrar
+A primeira versão deste bloco baixava o arquivo do link quando ele estava dentro de uma
+pasta autorizada (`DRIVE_FOLDER_ID`). Ela foi substituída pelas **pastas monitoradas**,
+cadastradas no console (guia [07](07-console-drive-saude.md)): o sistema lê a pasta
+inteira e grava uma versão nova a cada mudança, com tags. Um arquivo citado num e-mail e
+guardado numa pasta monitorada já está no bronze; o registro do link liga o e-mail a ele
+pelo id. Baixar de novo pelo link seria duplicar, e baixar links de fora das pastas encheria
+o disco com arquivos que você não escolheu.
 
-### Só de uma pasta autorizada
-O coletor só baixa arquivos que estão dentro da pasta indicada em `DRIVE_FOLDER_ID`, em
-qualquer nível de subpasta. Para saber, ele pergunta ao Drive quais são as pastas-mãe do
-arquivo, depois as pastas-mãe delas, e assim por diante até achar a pasta autorizada ou
-chegar à raiz. As respostas ficam guardadas durante a rodada, para não repetir a pergunta.
-Sem pasta configurada, o Drive nem é consultado.
-
-Por que pela pasta: o objetivo é não lotar o disco com qualquer arquivo citado em qualquer
-e-mail, principalmente na fase de testes. Uma pasta é fácil de entender e de mudar.
-
-**Importante:** esse limite é do **código**, não da **permissão**. A `drive.readonly` lê o
-Drive inteiro. O Google não tem uma permissão "ler só esta pasta" (a `drive.file`, a mais
-restrita, só enxerga arquivos criados pelo próprio app ou escolhidos num seletor na tela,
-o que não serve para um coletor automático). É diferente do envio de e-mail, que é
-impedido pela própria permissão.
+**Importante:** o limite de pastas é do **código**, não da **permissão**. A
+`drive.readonly` lê o Drive inteiro. O Google não tem uma permissão "ler só esta pasta" (a
+`drive.file`, a mais restrita, só enxerga arquivos criados pelo próprio app ou escolhidos
+num seletor na tela, o que não serve para um coletor automático). É diferente do envio de
+e-mail, que é impedido pela própria permissão.
 
 ## Onde isso está no código
 
@@ -171,7 +165,7 @@ Comece por `app/ingestion/__init__.py`, que indica a ordem de leitura:
 - `app/ingestion/storage.py`: guarda dos originais.
 - `app/ingestion/extractors.py`: arquivo vira texto.
 - `app/ingestion/email_parser.py`: `.eml` vira cabeçalhos, corpo, anexos e links.
-- `app/ingestion/drive.py`: links do Drive.
+- `app/ingestion/drive.py`: download e exportação de arquivos do Drive (usado pelo monitor de pastas, guia 07).
 - `app/ingestion/gmail.py`: o coletor.
 - `migrations/versions/0003_coleta_de_e_mail.py`: as mudanças no banco.
 - `tests/test_ingestion.py` e `tests/fakes.py`: os testes, com Gmail e Drive falsos.

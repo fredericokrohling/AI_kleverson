@@ -1,4 +1,4 @@
-# Assistente PM
+# Kleverson A.I. (Assistente PM)
 
 Assistente de IA para o dia a dia de program e project management: lê e-mails, agenda,
 reuniões e chats, organiza tudo por projeto e gera os artefatos de gestão.
@@ -39,6 +39,7 @@ Siga na ordem:
 3. [Claude: chave da API](docs/setup/03-anthropic.md)
 4. [Transcrição em tempo real](docs/setup/04-transcricao.md)
 5. [Coleta de e-mail](docs/setup/05-email.md)
+6. [Console: pastas do Drive, tags, configurações e saúde](docs/setup/06-console.md)
 
 ## Desenvolvimento local
 

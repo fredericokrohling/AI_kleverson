@@ -12,6 +12,7 @@ consideradas e onde ela aparece no código.
 4. [Ciclo de desenvolvimento: Git, PR, testes e CI](04-ciclo-de-desenvolvimento.md)
 5. [Transcrição em tempo real: como funciona e por quê (Deepgram, WebSocket, áudio)](05-transcricao.md)
 6. [Ingestão de e-mail: janela de coleta, e-mail bruto, anexos e links do Drive](06-ingestao-email.md)
+7. [Console: pastas do Drive, tags herdadas, configurações e saúde](07-console-drive-saude.md)
 
 ## Como ler o código
 

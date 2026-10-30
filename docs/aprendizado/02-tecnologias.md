@@ -50,6 +50,8 @@ Critérios usados em todas as escolhas, nesta ordem:
 - **Por quê:** o console precisa ser mínimo. Sem HTMX, teríamos que escrever um segundo
   aplicativo em JavaScript (React, Vue), com outra linguagem e outro processo de build.
 - **Onde:** `app/templates/`.
+- **Formulários:** os botões das Configurações enviam formulários HTML comuns. O FastAPI
+  precisa da biblioteca **python-multipart** para ler esses formulários.
 
 ### MCP (fase posterior, bloco 7)
 - **O que é:** Model Context Protocol, um padrão aberto para o Claude (no app ou no
