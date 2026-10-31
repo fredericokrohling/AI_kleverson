@@ -37,6 +37,9 @@ from app.config import get_settings
 # Fábrica de sessões.
 from app.db import get_sessionmaker
 
+# Lista de arquivos sem texto.
+from app.ingestion.failures import list_failures
+
 # Resumo da coleta de e-mail mostrado na página inicial.
 from app.ingestion.gmail import collection_overview
 
@@ -48,6 +51,9 @@ from app.models import AuditLog, BronzeItem, DriveFolder, DriveItem, OAuthToken,
 
 # Rotas da página Configurações e da navegação pelo Drive.
 from app.routes_config import router as config_router
+
+# Botões "Tentar de novo" dos arquivos sem texto.
+from app.routes_failures import router as failures_router
 
 # Rotas da página Saúde.
 from app.routes_health import router as health_router
@@ -83,6 +89,8 @@ app.include_router(transcription_router)
 app.include_router(config_router)
 # Rotas da página Saúde.
 app.include_router(health_router)
+# Rotas de "Tentar de novo".
+app.include_router(failures_router)
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
 # mount publica a pasta static no endereço /static.
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -144,6 +152,8 @@ def index(request: Request, owner: Owner, db: DB):
             "coleta": collection_overview(db),
             # Totais do Drive.
             "drive": drive,
+            # Arquivos sem texto (anexos e Drive), com código e motivo.
+            "failures": list_failures(db),
         },
     )
 

@@ -19,6 +19,9 @@ from sqlalchemy import select, text
 # Configuração.
 from app.config import Settings
 
+# Explicação dos erros da API do Drive.
+from app.ingestion.drive import explain
+
 # O que está sendo testado: cadastro e varredura.
 from app.ingestion.drive_sync import (
     add_folder,
@@ -28,6 +31,15 @@ from app.ingestion.drive_sync import (
     sync_drive,
 )
 
+# Extração, para simular um extrator melhor, e separação do código do erro.
+from app.ingestion.extractors import Extraction, split_error
+
+# Arquivos sem texto: lista e "Tentar de novo".
+from app.ingestion.failures import list_failures, retry
+
+# Coleta do Gmail, para gerar um anexo com erro.
+from app.ingestion.gmail import collect_gmail
+
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
 
@@ -35,7 +47,7 @@ from app.ingestion.storage import FileStore
 from app.main import app
 
 # Tabelas.
-from app.models import AuditLog, BronzeItem, DriveFolder, DriveItem, SourceKind
+from app.models import Attachment, AuditLog, BronzeItem, DriveFolder, DriveItem, SourceKind
 
 # Tags.
 from app.tags import (
@@ -48,7 +60,7 @@ from app.tags import (
 )
 
 # Falsos e geradores de arquivos.
-from tests.fakes import FakeDrive, make_docx, make_pdf, make_xlsx
+from tests.fakes import FakeDrive, FakeGmail, http_error, make_docx, make_email, make_pdf, make_xlsx
 
 # Id da pasta monitorada (com o tamanho mínimo de um id do Drive).
 ROOT = "pastaCRM000001"
@@ -526,3 +538,181 @@ def test_add_folder_without_google(sessions):
     with sessions() as s:
         # Sem pastas.
         assert s.scalar(select(DriveFolder)) is None
+
+
+# --- Arquivos sem texto e "Tentar de novo" ---------------------------------------
+
+
+# O motivo informado pelo Google vira código e explicação; sem motivo, vale o HTTP.
+@pytest.mark.parametrize(
+    ("status", "reason", "code"),
+    [
+        (403, "cannotDownloadFile", "DRIVE_DOWNLOAD_BLOQUEADO"),
+        (403, "cannotExportFile", "DRIVE_DOWNLOAD_BLOQUEADO"),
+        (403, "exportSizeLimitExceeded", "DRIVE_EXPORTACAO_GRANDE"),
+        (403, "domainPolicy", "DRIVE_POLITICA_EMPRESA"),
+        (403, "insufficientFilePermissions", "DRIVE_SEM_ACESSO"),
+        (404, None, "DRIVE_SEM_ACESSO"),
+        (500, None, "DRIVE_HTTP_500"),
+    ],
+)
+def test_explain_reasons(status, reason, code):
+    # Separa o código da mensagem.
+    found, message = split_error(explain(http_error(status, reason)))
+    # Código esperado, com o HTTP na explicação.
+    assert found == code and f"HTTP {status}" in message
+
+
+# Mensagens antigas, sem código, continuam aparecendo.
+def test_split_error_without_code():
+    # Sem código.
+    assert split_error("Formato antigo") == (None, "Formato antigo")
+    # Sem erro.
+    assert split_error(None) == (None, "")
+
+
+# Download bloqueado pelo dono: aparece na lista; depois de liberado, "Tentar de novo" lê.
+def test_retry_blocked_download(sessions, drive, store, settings):
+    # O dono do PDF bloqueou o download para quem só lê.
+    drive.blocked["pdf1"] = "cannotDownloadFile"
+    # Cadastra e varre.
+    _add(sessions, drive)
+    # Varre.
+    sync_drive(sessions, drive, store, settings, now=NOW)
+    # Confere a lista.
+    with sessions() as s:
+        # Linhas por nome.
+        rows = {f.name: f for f in list_failures(s)}
+        # O bloqueado e o grande demais, ambos com código; pastas e o resto não entram.
+        assert set(rows) == {"Ata.pdf", "Video.pdf"}
+        # Código do bloqueio.
+        assert rows["Ata.pdf"].code == "DRIVE_DOWNLOAD_BLOQUEADO"
+        # Código do tamanho.
+        assert rows["Video.pdf"].code == "DRIVE_ARQUIVO_GRANDE"
+        # Id para o botão.
+        pdf_id = rows["Ata.pdf"].ref_id
+        # Sem a conta Google, não dá para baixar de novo.
+        assert retry(s, store, settings, "drive", pdf_id).startswith("[GOOGLE_DESCONECTADO]")
+        # Ainda bloqueado: a mesma explicação volta.
+        assert "DRIVE_DOWNLOAD_BLOQUEADO" in retry(s, store, settings, "drive", pdf_id, drive)
+        # O dono libera o download.
+        del drive.blocked["pdf1"]
+        # Agora funciona.
+        assert retry(s, store, settings, "drive", pdf_id, drive) is None
+        # Grava.
+        s.commit()
+    # Confere.
+    with sessions() as s:
+        # O PDF ganhou a versão com texto e saiu da lista.
+        assert "Ata da reuniao" in s.get(BronzeItem, _item(s, "pdf1").bronze_item_id).body_text
+        # Sai da lista.
+        assert {f.name for f in list_failures(s)} == {"Video.pdf"}
+        # As três tentativas ficaram na auditoria.
+        assert (
+            s.scalar(
+                select(text("count(*)"))
+                .select_from(AuditLog)
+                .where(AuditLog.action == "arquivo.tentar_de_novo")
+            )
+            == 3
+        )
+
+
+# Arquivo baixado mas sem texto: "Tentar de novo" relê o original, sem chamar o Drive.
+def test_retry_reextracts_drive_version(sessions, drive, store, settings, monkeypatch):
+    # Um PDF escaneado (sem texto) na pasta.
+    drive.files_by_id["scan1"] = {
+        "name": "Arquitetura.pdf",
+        "mimeType": "application/pdf",
+        "data": make_pdf(),
+        "parents": [ROOT],
+    }
+    # Cadastra e varre.
+    _add(sessions, drive)
+    # Varre.
+    sync_drive(sessions, drive, store, settings, now=NOW)
+    # Downloads até aqui.
+    downloads = len(drive.downloads)
+    # Simula um extrator melhor (por exemplo, com leitura de imagem).
+    from app.ingestion import drive_sync
+
+    # Troca o extrator.
+    monkeypatch.setattr(drive_sync, "extract_text", lambda *a: Extraction("Diagrama: CRM -> ERP"))
+    # Tenta de novo.
+    with sessions() as s:
+        # Linha do escaneado.
+        row = next(f for f in list_failures(s) if f.name == "Arquitetura.pdf")
+        # Código do PDF sem texto.
+        assert row.code == "PDF_SEM_TEXTO"
+        # Sem cliente do Drive: não precisa dele.
+        assert retry(s, store, settings, "drive", row.ref_id) is None
+        # Grava.
+        s.commit()
+    # Confere.
+    with sessions() as s:
+        # Versão atual.
+        bronze = s.get(BronzeItem, _item(s, "scan1").bronze_item_id)
+        # Texto novo, sem erro.
+        assert bronze.body_text == "Diagrama: CRM -> ERP" and bronze.extra["erro_extracao"] is None
+    # Nenhum download novo.
+    assert len(drive.downloads) == downloads
+
+
+# Anexo de e-mail: lista na página inicial, botões e avisos com o código.
+def test_failures_on_home_page(sessions, store, settings, monkeypatch):
+    # Um e-mail com um PDF escaneado.
+    gmail = FakeGmail(
+        {"m1": {"raw": make_email(attachments=[("scan.pdf", "application/pdf", make_pdf())])}}
+    )
+    # Coleta.
+    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    # As rotas usam a configuração do teste (mesma pasta de originais).
+    from app import routes_failures
+
+    # Troca a configuração.
+    monkeypatch.setattr(routes_failures, "get_settings", lambda: settings)
+    # Cliente.
+    client = TestClient(app)
+    # A página inicial mostra o anexo, o assunto e o código.
+    page = client.get("/", headers=OWNER).text
+    # Nome, origem e código.
+    assert "scan.pdf" in page and "Cronograma do Projeto Atlas" in page and "PDF_SEM_TEXTO" in page
+    # Id do anexo.
+    with sessions() as s:
+        # O anexo.
+        attachment_id = s.scalar(select(Attachment.id).where(Attachment.filename == "scan.pdf"))
+    # Tenta de novo: continua sem texto, e o aviso mostra o código.
+    client.post(
+        "/arquivos/tentar",
+        data={"origem": "anexo", "id": attachment_id},
+        headers=SAME,
+        follow_redirects=False,
+    )
+    # Aviso de erro.
+    assert "Ainda com erro: [PDF_SEM_TEXTO]" in client.get("/", headers=OWNER).text
+    # Origem adulterada: aviso, sem quebrar.
+    client.post(
+        "/arquivos/tentar",
+        data={"origem": "outra", "id": attachment_id},
+        headers=SAME,
+        follow_redirects=False,
+    )
+    # Aviso.
+    assert "Origem desconhecida" in client.get("/", headers=OWNER).text
+    # Simula um extrator melhor.
+    from app.ingestion import failures
+
+    # Troca o extrator.
+    monkeypatch.setattr(failures, "extract_text", lambda *a: Extraction("texto por OCR"))
+    # Tenta todos.
+    client.post("/arquivos/tentar-todos", headers=SAME, follow_redirects=False)
+    # Aviso com as contagens; a lista some.
+    page = client.get("/", headers=OWNER).text
+    # Contagens.
+    assert "1 arquivo(s) tentado(s), 1 agora com texto." in page
+    # O anexo ficou com texto.
+    with sessions() as s:
+        # Texto gravado.
+        assert s.get(Attachment, attachment_id).extracted_text == "texto por OCR"
+    # Sem o cabeçalho de origem, o POST é recusado.
+    assert client.post("/arquivos/tentar-todos", headers=OWNER).status_code == 403

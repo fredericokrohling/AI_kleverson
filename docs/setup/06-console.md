@@ -4,7 +4,7 @@ Resultado: o console ganha um menu lateral com três atalhos:
 
 | Ícone | Página | O que tem |
 | --- | --- | --- |
-| Casa | Início | Coleta de e-mail, pastas do Drive (totais) e últimas ações |
+| Casa | Início | Coleta de e-mail, pastas do Drive (totais), arquivos sem texto e últimas ações |
 | Engrenagem | Configurações | Contas conectadas, Claude (modelo, esforço, gasto, teste), idioma da transcrição, pastas do Drive monitoradas e tags |
 | Coração | Saúde | Situação de cada serviço, versão instalada x versão nova, botões de terminal |
 
@@ -93,11 +93,48 @@ clique **+ tag**; se a tag não existir, ela é criada.
 - A tabela mostra o último teste de cada serviço e o histórico curto (bolinhas).
   **Testar agora** roda todos na hora.
 - Se aparecer "Os testes automáticos não rodam há X min", o serviço `coletor` está parado.
-  Use **Ver serviços** (6.6) ou, no servidor, `docker compose ps`.
+  Use **Ver serviços** (6.7) ou, no servidor, `docker compose ps`.
 - **Versão instalada:** mostra o PR em uso e avisa se a `main` tem novidade. **Verificar
   atualização** consulta o GitHub na hora.
 
-## 6.6 Botões de terminal (uma vez, no seu computador)
+## 6.6 Arquivos sem texto (página inicial)
+
+**Onde:** no console, página inicial, seção **Arquivos sem texto**.
+
+A lista mostra cada anexo de e-mail ou arquivo do Drive que não virou texto. Em cada linha
+aparecem o nome, a origem (assunto do e-mail ou caminho no Drive), a data, o **código do
+erro** e a explicação. Enquanto um arquivo não vira texto, a IA não sabe o que há nele.
+
+- **Tentar de novo** (em cada linha): lê o arquivo outra vez. Se funcionar, aparece
+  "Funcionou" e a linha some. Se não, aparece "Ainda com erro", com o código.
+- **Tentar todos de novo**: faz o mesmo para a lista inteira e mostra quantos foram
+  resolvidos.
+- Cada tentativa fica registrada em **Últimas ações**.
+
+Quando vale a pena tentar de novo: depois que o dono liberar o download ou compartilhar o
+arquivo com você, ou depois de uma atualização do sistema que passe a ler um formato novo.
+Para anexos e arquivos já baixados, a tentativa relê o original guardado, sem ir ao Google.
+
+| Código | O que significa | O que fazer |
+| --- | --- | --- |
+| `PDF_SEM_TEXTO` | PDF escaneado ou só com imagens | Aguardar a leitura de imagens (backlog) |
+| `IMAGEM_SEM_OCR` | Imagem (PNG, JPG...) | Aguardar a leitura de imagens (backlog) |
+| `OFFICE_ANTIGO` | `.doc`, `.xls` ou `.ppt` antigos | Salvar como `.docx`, `.xlsx` ou `.pptx` e reenviar |
+| `TIPO_NAO_SUPORTADO` | Formato que o sistema não lê | Nada; fica registrado |
+| `FALHA_LEITURA` | Arquivo corrompido ou protegido por senha | Pedir uma cópia sem senha |
+| `DRIVE_DOWNLOAD_BLOQUEADO` | O dono bloqueou "baixar, imprimir e copiar" para quem só lê | Pedir ao dono que libere, ou que dê acesso de comentarista ou editor; depois, Tentar de novo |
+| `DRIVE_SEM_ACESSO` | Arquivo apagado ou não compartilhado com a conta conectada | Pedir acesso; depois, Tentar de novo |
+| `DRIVE_POLITICA_EMPRESA` | A empresa dona do arquivo bloqueia aplicativos externos | Só o administrador da empresa resolve |
+| `DRIVE_EXPORTACAO_GRANDE` | Docs, Sheets ou Slides acima de 10 MB (limite do Google) | Dividir o arquivo |
+| `DRIVE_ARQUIVO_GRANDE` | Arquivo acima de `DRIVE_MAX_FILE_MB` | Aumentar o limite no `.env` (6.8) e Tentar de novo |
+| `DRIVE_TIPO_NAO_EXPORTAVEL` | Formulário, Desenho e outros tipos do Google sem exportação útil | Nada; fica registrado |
+| `DRIVE_HTTP_<n>` | Outro erro do Google (ex.: `DRIVE_HTTP_500`) | Tentar de novo mais tarde |
+| `GOOGLE_DESCONECTADO` | A conta Google não está conectada | Conectar em Configurações → Contas conectadas |
+| `SEM_ORIGINAL` | Registro antigo sem arquivo guardado | Nada a reprocessar |
+
+Mensagens sem código são de registros gravados antes dos códigos existirem.
+
+## 6.7 Botões de terminal (uma vez, no seu computador)
 
 Os botões **Abrir terminal no servidor**, **Ver serviços**, **Ver logs**, **Reiniciar
 serviços** e **Aplicar atualização** abrem um terminal **no seu computador**, que conecta ao
@@ -136,7 +173,7 @@ usuario@nome`.
 
 Sem o atalho, a mesma página tem os comandos para copiar e colar.
 
-## 6.7 Ajustes opcionais (no `.env`)
+## 6.8 Ajustes opcionais (no `.env`)
 
 Depois de mudar o `.env`, rode `docker compose up -d`.
 
@@ -147,7 +184,7 @@ Depois de mudar o `.env`, rode `docker compose up -d`.
 | `HEALTH_POLL_MINUTES` | `10` | Intervalo entre testes de saúde automáticos |
 | `LLM_EFFORT` | `medium` | Esforço padrão do Claude, até alguém mudar pelo console |
 
-## 6.8 Comandos úteis
+## 6.9 Comandos úteis
 
 ```bash
 # Varrer as pastas do Drive agora, vendo o resultado no terminal

@@ -18,6 +18,9 @@ Bibliotecas (todas Python puro, sem programas externos no servidor):
 # io.BytesIO faz bytes na memória se comportarem como um arquivo aberto.
 import io
 
+# re: expressões regulares, para separar o código do erro da explicação.
+import re
+
 # dataclass cria classes simples de dados.
 from dataclasses import dataclass
 
@@ -38,6 +41,35 @@ class Extraction:
     text: str | None
     # Motivo da falha, em português; None quando deu certo.
     error: str | None = None
+
+
+# Códigos de erro: uma palavra fixa no começo da mensagem, entre colchetes, por exemplo
+# "[PDF_SEM_TEXTO] PDF sem texto...". O texto explica para você; o código é estável e
+# serve para contar e filtrar os erros (no console e em consultas SQL), mesmo que a
+# explicação mude de redação. Os códigos usados estão na tabela de docs/setup/06-console.md.
+_CODE = re.compile(r"^\[([A-Z0-9_]+)\]\s*(.*)$", re.DOTALL)
+
+
+# Monta a mensagem com o código na frente.
+def coded(code: str, message: str) -> str:
+    """Ex.: coded("PDF_SEM_TEXTO", "PDF sem texto.") → "[PDF_SEM_TEXTO] PDF sem texto." """
+    # Código entre colchetes, espaço, explicação.
+    return f"[{code}] {message}"
+
+
+# Separa o código da explicação.
+def split_error(error: str | None) -> tuple[str | None, str]:
+    """Devolve (código, explicação); mensagem sem código vira (None, texto)."""
+    # Sem erro.
+    if not error:
+        return None, ""
+    # Procura o padrão "[CODIGO] texto".
+    match = _CODE.match(error)
+    # Achou: devolve as duas partes.
+    if match:
+        return match.group(1), match.group(2)
+    # Mensagem antiga, gravada antes dos códigos.
+    return None, error
 
 
 # Tipos MIME que identificam cada formato. Os e-mails às vezes mandam o tipo genérico
@@ -117,16 +149,25 @@ def extract_text(data: bytes, filename: str | None, mime_type: str | None) -> Ex
         # Mensagem explicando o que fazer.
         return Extraction(
             None,
-            "Formato antigo do Office (.doc, .xls ou .ppt) ainda não é convertido; "
-            "o original está guardado.",
+            coded(
+                "OFFICE_ANTIGO",
+                "Formato antigo do Office (.doc, .xls ou .ppt) ainda não é convertido; "
+                "o original está guardado.",
+            ),
         )
     # Imagem: sem leitura de texto em imagem (OCR) por enquanto.
     if kind == "imagem":
-        return Extraction(None, "Imagem: leitura de texto em imagem (OCR) não implementada.")
+        return Extraction(
+            None,
+            coded("IMAGEM_SEM_OCR", "Imagem: leitura de texto em imagem (OCR) não implementada."),
+        )
     # Formato que não sabemos ler.
     if kind not in readers:
         # Informa o tipo para você saber o que apareceu.
-        return Extraction(None, f"Tipo de arquivo não suportado: {mime_type or filename}.")
+        return Extraction(
+            None,
+            coded("TIPO_NAO_SUPORTADO", f"Tipo de arquivo não suportado: {mime_type or filename}."),
+        )
     # Tenta ler; qualquer erro da biblioteca vira mensagem.
     try:
         # Chama a função do formato.
@@ -134,13 +175,19 @@ def extract_text(data: bytes, filename: str | None, mime_type: str | None) -> Ex
     # Exception pega erros comuns (arquivo corrompido, protegido por senha...).
     except Exception as exc:
         # type(exc).__name__ é o nome do erro (ex.: "BadZipFile"), útil para diagnóstico.
-        return Extraction(None, f"Falha ao ler {kind}: {type(exc).__name__}: {exc}")
+        return Extraction(
+            None, coded("FALHA_LEITURA", f"Falha ao ler {kind}: {type(exc).__name__}: {exc}")
+        )
     # Arquivo lido, mas sem nenhum texto.
     if not text.strip():
         # PDF sem texto quase sempre é um documento escaneado (só imagem).
         if kind == "pdf":
             return Extraction(
-                None, "PDF sem texto: provavelmente digitalizado (imagem); OCR não implementado."
+                None,
+                coded(
+                    "PDF_SEM_TEXTO",
+                    "PDF sem texto: provavelmente digitalizado (imagem); OCR não implementado.",
+                ),
             )
         # Outros formatos vazios: grava texto vazio, não é erro.
         return Extraction("")

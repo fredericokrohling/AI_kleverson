@@ -25,6 +25,9 @@ from dataclasses import dataclass
 # HttpError é o erro que a biblioteca do Google levanta quando a API recusa o pedido.
 from googleapiclient.errors import HttpError
 
+# Mensagens de erro com código.
+from app.ingestion.extractors import coded
+
 # Formato do Office para o qual cada tipo nativo do Google é exportado, e a extensão.
 _EXPORTS = {
     # Google Docs → Word.
@@ -60,15 +63,63 @@ class DriveFile:
     error: str | None = None
 
 
-# Traduz erros da API do Google em frases que explicam o que aconteceu.
+# Motivos que o Google informa no erro (campo "reason") e o que significam para você.
+_REASONS = {
+    # O dono desligou "baixar, imprimir e copiar" para quem só tem leitura.
+    "cannotDownloadFile": (
+        "DRIVE_DOWNLOAD_BLOQUEADO",
+        "O dono do arquivo bloqueou o download para quem só tem leitura.",
+    ),
+    # Mesma restrição, na exportação de Docs, Sheets e Slides.
+    "cannotExportFile": (
+        "DRIVE_DOWNLOAD_BLOQUEADO",
+        "O dono do arquivo bloqueou a exportação para quem só tem leitura.",
+    ),
+    # Docs, Sheets e Slides acima de 10 MB não são exportados pela API.
+    "exportSizeLimitExceeded": (
+        "DRIVE_EXPORTACAO_GRANDE",
+        "Arquivo grande demais para o Google exportar (limite de 10 MB).",
+    ),
+    # Política da empresa dona do arquivo impede apps de terceiros.
+    "domainPolicy": (
+        "DRIVE_POLITICA_EMPRESA",
+        "A política da empresa dona do arquivo bloqueia o acesso por aplicativos.",
+    ),
+    # O arquivo não foi compartilhado com a conta conectada.
+    "insufficientFilePermissions": (
+        "DRIVE_SEM_ACESSO",
+        "A conta conectada não tem acesso a este arquivo.",
+    ),
+    # Arquivo inexistente ou não visível para a conta conectada.
+    "notFound": (
+        "DRIVE_SEM_ACESSO",
+        "Arquivo não encontrado: apagado ou não compartilhado com a conta conectada.",
+    ),
+}
+
+
+# Traduz erros da API do Google em frases que explicam o que aconteceu, com código.
 def explain(exc: HttpError) -> str:
     # Código HTTP da resposta (403, 404...).
     status = exc.resp.status
-    # 403/404: sem acesso ao arquivo (não foi compartilhado com você) ou apagado.
+    # Motivos detalhados que o Google mandou (lista de dicionários; pode vir vazia).
+    details = exc.error_details if isinstance(exc.error_details, list) else []
+    # Cada motivo informado.
+    for detail in details:
+        # Motivo conhecido: usa a explicação da tabela.
+        if isinstance(detail, dict) and detail.get("reason") in _REASONS:
+            # Código e texto.
+            code, text = _REASONS[detail["reason"]]
+            # Mensagem com o código HTTP no fim, para diagnóstico.
+            return coded(code, f"{text} (HTTP {status})")
+    # 403/404 sem motivo conhecido: sem acesso ou apagado.
     if status in (403, 404):
-        return f"Sem acesso ao arquivo no Drive ou arquivo apagado (HTTP {status})."
+        return coded(
+            "DRIVE_SEM_ACESSO",
+            f"Sem acesso ao arquivo no Drive ou arquivo apagado (HTTP {status}).",
+        )
     # Outros erros: mostra o código e o motivo informado pelo Google.
-    return f"O Drive recusou o pedido (HTTP {status}): {exc.reason}"
+    return coded(f"DRIVE_HTTP_{status}", f"O Drive recusou o pedido (HTTP {status}): {exc.reason}")
 
 
 # Tipo MIME de pasta no Drive.
@@ -92,7 +143,13 @@ def download(drive, meta: dict, max_bytes: int) -> DriveFile:
             return DriveFile(file_id, f"{name}{suffix}", export_mime, data)
         # Outro tipo nativo do Google (Formulários, Desenhos, atalhos): sem exportação útil.
         if mime and mime.startswith("application/vnd.google-apps."):
-            return DriveFile(file_id, name, mime, None, f"Tipo do Google não exportável: {mime}.")
+            return DriveFile(
+                file_id,
+                name,
+                mime,
+                None,
+                coded("DRIVE_TIPO_NAO_EXPORTAVEL", f"Tipo do Google não exportável: {mime}."),
+            )
         # Arquivo comum maior que o limite: não baixa, para não lotar o disco.
         if int(meta.get("size") or 0) > max_bytes:
             # Mostra o tamanho em MB.
@@ -103,7 +160,10 @@ def download(drive, meta: dict, max_bytes: int) -> DriveFile:
                 name,
                 mime,
                 None,
-                f"Arquivo de {size_mb:.0f} MB acima do limite DRIVE_MAX_FILE_MB.",
+                coded(
+                    "DRIVE_ARQUIVO_GRANDE",
+                    f"Arquivo de {size_mb:.0f} MB acima do limite DRIVE_MAX_FILE_MB.",
+                ),
             )
         # Arquivo comum: baixa o conteúdo como está.
         data = (

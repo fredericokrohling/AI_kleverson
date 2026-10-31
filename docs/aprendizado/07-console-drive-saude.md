@@ -55,6 +55,42 @@ aparece com as tags que o arquivo tem **agora**.
 >
 > **Revisitar** se a árvore passar de centenas de milhares de itens.
 
+## Arquivos sem texto e "Tentar de novo"
+
+Um anexo ou arquivo que não vira texto é invisível para a IA. A coleta não para por causa
+dele (o e-mail entra do mesmo jeito), então a falha precisa aparecer em algum lugar: a
+página inicial lista esses arquivos, com um **código de erro** e um botão para tentar de
+novo.
+
+### Código no começo da mensagem
+Cada erro é gravado como `[CODIGO] explicação` (ex.: `[PDF_SEM_TEXTO] PDF sem texto...`).
+O código é estável e serve para procurar na tabela do guia de instalação; a explicação é
+para leitura. Quando o erro vem do Google, o sistema lê o **motivo** que o Google informa
+(`cannotDownloadFile`, `domainPolicy`...) e traduz: um 403 pode ser "o dono bloqueou o
+download", "a empresa bloqueia aplicativos" ou "não foi compartilhado com você", e cada um
+pede uma ação diferente.
+
+> **Decisão: onde guardar o código do erro**
+> Avaliamos **A — uma coluna nova `codigo_erro` nas tabelas** e **B — o código no começo
+> da própria mensagem**, e optamos por **B**:
+> - Erros ficam em três lugares (anexos, itens do Drive e o JSON das versões). Com A,
+>   seriam três colunas novas e uma migração.
+> - A mensagem já é exibida inteira em vários pontos; com o código nela, todos mostram o
+>   código sem mudança.
+> - Uma função (`split_error`) separa as duas partes para a tabela da página inicial.
+>
+> **Revisitar** se precisarmos filtrar ou contar erros por código em consultas pesadas.
+
+### O que "Tentar de novo" faz
+- **Já baixado, só a leitura falhou** (PDF escaneado, imagem): relê o original guardado
+  no disco. Não chama o Google. Serve para quando o sistema ganhar um leitor novo.
+- **Download falhou** (bloqueado, sem acesso): pergunta ao Drive de novo e baixa. Serve
+  para quando o dono liberar o arquivo.
+
+O texto extraído de uma versão pode ser atualizado: ele é derivado do original, que nunca
+muda. O original e a versão continuam os mesmos; o bronze segue sendo o registro fiel do
+que chegou.
+
 ## Configurações pelo console
 
 Modelo do Claude, esforço e idioma da transcrição ficam na tabela `app_settings`. O `.env`
@@ -139,7 +175,9 @@ esperar os 30 minutos.
 
 ## Onde isso está no código
 
-- `app/ingestion/drive_sync.py`: cadastro de pastas e varredura.
+- `app/ingestion/drive_sync.py`: cadastro de pastas, varredura e nova tentativa no Drive.
+- `app/ingestion/failures.py` e `app/routes_failures.py`: lista de arquivos sem texto e
+  botões "Tentar de novo".
 - `app/tags.py`: tags e leitura da herança.
 - `app/runtime_settings.py`: configurações do console.
 - `app/health.py`: testes de saúde e versão instalada.

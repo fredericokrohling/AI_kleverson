@@ -60,8 +60,8 @@ from app.config import Settings
 # Download do conteúdo e tradução de erros do Drive.
 from app.ingestion.drive import FOLDER_MIME, download, explain
 
-# Extração de texto (a mesma dos anexos de e-mail).
-from app.ingestion.extractors import extract_text
+# Extração de texto (a mesma dos anexos de e-mail) e mensagens com código.
+from app.ingestion.extractors import coded, extract_text
 
 # Guardar os originais.
 from app.ingestion.storage import FileStore, safe_suffix
@@ -76,10 +76,13 @@ log = logging.getLogger(__name__)
 _LOCK_KEY = 20_003
 
 # Campos pedidos ao Drive para cada item; pedir só o necessário deixa a resposta menor.
-_FIELDS = (
-    "nextPageToken, files(id, name, mimeType, modifiedTime, version, size, webViewLink,"
-    " lastModifyingUser(displayName, emailAddress))"
+_ITEM_FIELDS = (
+    "id, name, mimeType, modifiedTime, version, size, webViewLink,"
+    " lastModifyingUser(displayName, emailAddress)"
 )
+
+# Na listagem, os mesmos campos para cada item, mais o marcador da próxima página.
+_FIELDS = f"nextPageToken, files({_ITEM_FIELDS})"
 
 # Limite de pastas por varredura de uma raiz (protege contra árvores gigantes ou ciclos).
 _MAX_FOLDERS = 5_000
@@ -421,8 +424,10 @@ def _list_children(drive, parent_id: str):
     token = None
     # Repete até acabar.
     while True:
-        # files.list com filtro "dentro desta pasta e fora da lixeira". supportsAllDrives e
-        # includeItemsFromAllDrives incluem drives compartilhados de empresas.
+        # files.list com filtro "dentro desta pasta e fora da lixeira". supportsAllDrives,
+        # includeItemsFromAllDrives e corpora="allDrives" incluem drives compartilhados de
+        # empresas (sem corpora, a busca pode se limitar ao "Meu Drive" e ao que foi
+        # compartilhado diretamente com você).
         response = (
             drive.files()
             .list(
@@ -432,6 +437,7 @@ def _list_children(drive, parent_id: str):
                 pageToken=token,
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
+                corpora="allDrives",
             )
             .execute(num_retries=3)
         )
@@ -488,11 +494,28 @@ def _sync_item(
     # Pastas não têm conteúdo para baixar.
     if item.is_folder:
         return item
+    # Lê a versão, se for nova.
+    _read_version(session, drive, store, item, meta, max_bytes, summary)
+    # Devolve.
+    return item
+
+
+# Baixa, extrai e grava a versão atual de um arquivo, se for nova (ou se force=True).
+def _read_version(
+    session: Session,
+    drive,
+    store: FileStore,
+    item: DriveItem,
+    meta: dict[str, Any],
+    max_bytes: int,
+    summary: SyncSummary,
+    force: bool = False,
+) -> None:
     # Versão informada pelo Drive.
     version = str(meta.get("version") or meta.get("modifiedTime") or "")
-    # Mesma versão já lida com sucesso: nada a fazer.
-    if version == item.version and item.error is None:
-        return item
+    # Mesma versão já lida com sucesso: nada a fazer (a menos que peçam para forçar).
+    if version == item.version and item.error is None and not force:
+        return
     # Baixa (ou exporta).
     found = download(drive, meta, max_bytes)
     # Não deu para baixar: guarda o motivo; a próxima rodada tenta de novo.
@@ -501,8 +524,8 @@ def _sync_item(
         item.error = found.error
         # Conta.
         summary.file_errors += 1
-        # Devolve.
-        return item
+        # Fim.
+        return
     # Lê o texto.
     result = extract_text(found.data, found.filename, found.mime_type)
     # Impressão digital do texto (ou dos bytes, se não houver texto).
@@ -513,8 +536,8 @@ def _sync_item(
     if digest == item.content_sha256:
         # Versão atual.
         item.version, item.error = version, None
-        # Devolve.
-        return item
+        # Fim.
+        return
     # Id único desta versão no bronze.
     external_id = f"{item.drive_id}:{version}"
     # Pode já existir (ex.: rodada anterior caiu depois de gravar).
@@ -575,8 +598,85 @@ def _sync_item(
     item.bronze_item_id = bronze.id
     # Guarda a impressão digital, a versão e limpa o erro.
     item.content_sha256, item.version, item.error = digest, version, None
-    # Devolve.
-    return item
+
+
+# Motivo de um arquivo do Drive não ter texto agora (download ou extração), ou None.
+def item_failure(session: Session, item: DriveItem) -> str | None:
+    """O erro de download do item ou, se baixou, o erro de extração da versão atual."""
+    # Falhou no download.
+    if item.error:
+        return item.error
+    # Versão atual no bronze.
+    bronze = session.get(BronzeItem, item.bronze_item_id) if item.bronze_item_id else None
+    # Erro de extração guardado nos metadados da versão.
+    return (bronze.extra or {}).get("erro_extracao") if bronze is not None else None
+
+
+# "Tentar de novo" do console para um arquivo do Drive.
+def retry_drive_item(
+    session: Session, drive, store: FileStore, settings: Settings, item_id: int
+) -> str | None:
+    """Tenta ler o arquivo agora. Devolve None se deu certo; senão o erro (com código)."""
+    # O item.
+    item = session.get(DriveItem, item_id)
+    # Não existe ou é pasta.
+    if item is None or item.is_folder:
+        raise ValueError("Arquivo do Drive não encontrado.")
+    # Versão atual no bronze.
+    bronze = session.get(BronzeItem, item.bronze_item_id) if item.bronze_item_id else None
+    # Já baixado, só a extração falhou: extrai de novo do original guardado, sem o Drive.
+    if item.error is None and bronze is not None and bronze.extra.get("arquivo"):
+        return _reextract_version(store, item, bronze)
+    # Falhou no download e o Google não está conectado: não há como tentar.
+    if drive is None:
+        return coded("GOOGLE_DESCONECTADO", "Conecte a conta Google para baixar de novo.")
+    # Falhou no download: pergunta ao Drive os dados atuais do arquivo.
+    try:
+        # Mesmos campos da listagem.
+        meta = (
+            drive.files()
+            .get(fileId=item.drive_id, fields=_ITEM_FIELDS, supportsAllDrives=True)
+            .execute(num_retries=3)
+        )
+    # Sem acesso, apagado, bloqueado.
+    except HttpError as exc:
+        # Guarda e devolve o motivo.
+        item.error = explain(exc)
+        # Motivo.
+        return item.error
+    # Lê de novo, mesmo que a versão seja a mesma.
+    _read_version(
+        session,
+        drive,
+        store,
+        item,
+        meta,
+        settings.drive_max_file_mb * 1024 * 1024,
+        SyncSummary(),
+        force=True,
+    )
+    # Resultado: o erro de download ou de extração, ou None.
+    return item_failure(session, item)
+
+
+# Extrai de novo o texto de uma versão a partir do original guardado no disco.
+def _reextract_version(store: FileStore, item: DriveItem, bronze: BronzeItem) -> str | None:
+    # Caminho do original (o nome tem a extensão, que diz o formato ao extrator).
+    key = bronze.extra["arquivo"]
+    # Extrai.
+    result = extract_text(store.read(key), key, None)
+    # Texto derivado do original (o original não muda): pode ser atualizado.
+    bronze.body_text = (result.text or "").replace("\x00", "")
+    # Novo dicionário: o SQLAlchemy só percebe a mudança do JSON se o objeto for outro.
+    bronze.extra = {**bronze.extra, "erro_extracao": result.error}
+    # Com texto, a impressão digital passa a ser a do texto (como numa leitura normal).
+    if result.text:
+        # Atualiza nos dois lugares, para a próxima varredura comparar certo.
+        bronze.content_sha256 = item.content_sha256 = hashlib.sha256(
+            result.text.encode()
+        ).hexdigest()
+    # Erro, se ainda houver.
+    return result.error
 
 
 # Conveniência para a linha de comando e o agendador: monta tudo a partir da configuração.

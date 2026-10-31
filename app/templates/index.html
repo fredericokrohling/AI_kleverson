@@ -27,6 +27,36 @@
   {% endif %}
 </section>
 
+<section id="erros">
+  <h2>Arquivos sem texto</h2>
+  {% if failures %}
+    <p class="muted">Estes arquivos foram guardados, mas o texto não pôde ser lido, então a IA não os enxerga.
+      O código diz o motivo; "Tentar de novo" lê outra vez (útil depois que o dono liberar o download, por exemplo).</p>
+    <div class="tabela"><table>
+      <tr><th>Arquivo</th><th>Origem</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
+      {% for f in failures %}
+        <tr>
+          <td>{{ f.name }}</td>
+          <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
+          <td>{{ f.when.strftime("%d/%m %H:%M") if f.when else "" }}</td>
+          <td><code>{{ f.code or "—" }}</code></td>
+          <td>{{ f.message }}</td>
+          <td>
+            <form class="inline" method="post" action="/arquivos/tentar">
+              <input type="hidden" name="origem" value="{{ f.kind }}">
+              <input type="hidden" name="id" value="{{ f.ref_id }}">
+              <button class="mini" type="submit">Tentar de novo</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+    <form method="post" action="/arquivos/tentar-todos"><button type="submit">Tentar todos de novo</button></form>
+  {% else %}
+    <p class="muted">Nenhum arquivo sem texto.</p>
+  {% endif %}
+</section>
+
 <section>
   <h2>Pastas do Drive</h2>
   <p>{{ drive.folders }} pasta(s) monitorada(s), {{ drive.files }} arquivo(s) encontrados e

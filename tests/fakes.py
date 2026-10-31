@@ -14,6 +14,9 @@ import base64
 # io.BytesIO: arquivo na memória, para salvar os documentos gerados.
 import io
 
+# json monta o corpo do erro no formato do Google.
+import json
+
 # EmailMessage monta e-mails no formato padrão.
 from email.message import EmailMessage
 
@@ -109,10 +112,15 @@ class FakeGmail:
         return _Call(respond)
 
 
-# Monta um HttpError com o código pedido (403, 404...).
-def http_error(status: int) -> HttpError:
-    # A resposta HTTP falsa e um corpo qualquer.
-    return HttpError(httplib2.Response({"status": status}), b"erro")
+# Monta um HttpError com o código pedido (403, 404...) e, se pedido, o motivo do Google.
+def http_error(status: int, reason: str | None = None) -> HttpError:
+    # Sem motivo: corpo qualquer, como num erro sem detalhes.
+    if reason is None:
+        return HttpError(httplib2.Response({"status": status}), b"erro")
+    # Com motivo: corpo no formato da API do Drive ({"error": {"errors": [{"reason"}]}}).
+    body = {"error": {"code": status, "message": reason, "errors": [{"reason": reason}]}}
+    # Erro com o corpo em JSON.
+    return HttpError(httplib2.Response({"status": status}), json.dumps(body).encode())
 
 
 # Drive falso: arquivos por id, com dados e tipo.
@@ -128,6 +136,8 @@ class FakeDrive:
         self.page_size = page_size
         # Pastas cuja listagem deve falhar (simula erro da API).
         self.failing: set[str] = set()
+        # Arquivos cujo download deve falhar: id → motivo do Google (ex.: cannotDownloadFile).
+        self.blocked: dict[str, str] = {}
 
     # drive.files() devolve o próprio objeto.
     def files(self):
@@ -207,6 +217,9 @@ class FakeDrive:
         def respond():
             # Registra.
             self.downloads.append(fileId)
+            # Download bloqueado, com o motivo do Google.
+            if fileId in self.blocked:
+                raise http_error(403, self.blocked[fileId])
             # Conteúdo.
             return self.files_by_id[fileId]["data"]
 
