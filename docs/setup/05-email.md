@@ -108,8 +108,9 @@ rodada com erro persistente**. Para conferir a qualquer momento:
      "SELECT extraction_error, count(*) FROM attachments WHERE extraction_error IS NOT NULL GROUP BY 1 ORDER BY 2 DESC;"
    ```
 
-   Anote quantos são "Formato antigo do Office" e "PDF sem texto". Esses números decidem se
-   vale incluir a conversão de formatos antigos e a leitura de imagem (OCR) depois.
+   Anote quantos são "Formato antigo do Office". Esse número decide se vale incluir a
+   conversão de formatos antigos depois. Imagens e PDFs digitalizados são lidos pelo
+   Claude desde o guia 7 ([07-leitura-imagens.md](07-leitura-imagens.md)).
 
 4. Espaço em disco usado pelos originais:
 

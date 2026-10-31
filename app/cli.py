@@ -202,9 +202,20 @@ def cmd_verificar_saude(_: argparse.Namespace) -> None:
         print(f"{mark} {LABELS.get(row.service, row.service)}: {row.detail}")
 
 
+# Lê agora, com o Claude, as imagens e PDFs digitalizados que estão na fila.
+def cmd_ler_imagens(_: argparse.Namespace) -> None:
+    # Import local, como nos outros comandos.
+    from app.ingestion.vision_queue import run_from_settings
+
+    # Uma rodada.
+    summary = run_from_settings(get_settings())
+    # Mostra o resumo, ou por que não rodou.
+    print(summary.describe() if summary else "Nada a ler (fila vazia, sem chave ou teto do mês).")
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, pastas do Drive e testes de saúde, cada um no seu intervalo."""
+    """Roda sem parar: Gmail, Drive, leitura pelo Claude e saúde, cada um no seu intervalo."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -226,6 +237,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
     # Coleta do Gmail.
     from app.ingestion.gmail import run_from_settings as run_gmail
 
+    # Rodada de leitura de imagens e PDFs digitalizados pelo Claude.
+    from app.ingestion.vision_queue import run_from_settings as run_vision
+
     # Formato das mensagens: hora, nível e texto.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # Configuração.
@@ -233,7 +247,12 @@ def cmd_agendador(_: argparse.Namespace) -> None:
     # Fábrica de sessões.
     sessions = get_sessionmaker()
     # Última vez que cada tarefa rodou (None = ainda não rodou desde que o serviço subiu).
-    last: dict[str, datetime | None] = {"gmail": None, "drive_falha": None, "saude": None}
+    last: dict[str, datetime | None] = {
+        "gmail": None,
+        "drive_falha": None,
+        "visao": None,
+        "saude": None,
+    }
 
     # Diz se já passou o intervalo desde a última vez.
     def due(name: str, minutes: int, now: datetime) -> bool:
@@ -279,6 +298,13 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             if not safe("Varredura do Drive", lambda: run_drive(settings)):
                 # Momento da falha.
                 last["drive_falha"] = now
+        # Leitura pelo Claude a cada 5 minutos (depois da coleta, para pegar o que acabou
+        # de chegar). Sem chave, com o teto atingido ou com a fila vazia, não faz nada.
+        if due("visao", 5, now):
+            # Marca.
+            last["visao"] = now
+            # Lê a fila.
+            safe("Leitura pelo Claude", lambda: run_vision(settings))
         # Saúde a cada HEALTH_POLL_MINUTES.
         if due("saude", settings.health_poll_minutes, now):
             # Marca.
@@ -303,6 +329,8 @@ COMMANDS = {
     "reextrair-anexos": cmd_reextrair_anexos,
     # python -m app.cli coletar-drive
     "coletar-drive": cmd_coletar_drive,
+    # python -m app.cli ler-imagens
+    "ler-imagens": cmd_ler_imagens,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)

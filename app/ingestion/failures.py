@@ -18,7 +18,8 @@ achar a mensagem. "Dispensar" tira a linha da lista sem apagar nada (por exemplo
 de exportar o diagrama à mão para a pasta monitorada).
 
 Tentar de novo:
-- anexo: extrai de novo a partir do original guardado no disco;
+- anexo: extrai de novo a partir do original guardado no disco (imagem e PDF
+  digitalizado vão para o Claude na hora, sem esperar a rodada do coletor);
 - Drive: se o arquivo já foi baixado, extrai de novo do original; se o download falhou,
   pergunta ao Drive e baixa outra vez.
 """
@@ -41,11 +42,17 @@ from app.config import Settings
 # Tentativa de novo e motivo atual de um arquivo do Drive.
 from app.ingestion.drive_sync import item_failure, retry_drive_item
 
-# Extração, mensagens com código.
-from app.ingestion.extractors import coded, extract_text, split_error
+# Mensagens com código.
+from app.ingestion.extractors import coded, split_error
 
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
+
+# Leitura pelo Claude (imagens e PDFs digitalizados).
+from app.ingestion.vision import VisionReader, extract_or_read
+
+# Gravação do resultado no anexo e nas cópias do mesmo conteúdo.
+from app.ingestion.vision_queue import apply_attachment_text
 
 # Tabelas usadas.
 from app.models import Attachment, BronzeItem, DriveItem, audit
@@ -171,7 +178,9 @@ def _citing_emails(session: Session, drive_ids: list[str]) -> dict[str, BronzeIt
 
 
 # "Tentar de novo" para um anexo de e-mail.
-def retry_attachment(session: Session, store: FileStore, attachment_id: int) -> str | None:
+def retry_attachment(
+    session: Session, store: FileStore, attachment_id: int, vision: VisionReader | None = None
+) -> str | None:
     """Extrai de novo a partir do original. Devolve None se deu certo; senão o erro."""
     # O anexo.
     row = session.get(Attachment, attachment_id)
@@ -189,14 +198,14 @@ def retry_attachment(session: Session, store: FileStore, attachment_id: int) -> 
         )
         # Devolve.
         return row.extraction_error
-    # Lê o original e extrai.
-    result = extract_text(store.read(row.object_key), row.filename, row.mime_type)
-    # Texto sem caractere nulo (o Postgres não aceita).
-    row.extracted_text = result.text.replace("\x00", "") if result.text else None
-    # Erro atual (None se agora deu certo).
-    row.extraction_error = result.error
-    # Devolve.
-    return result.error
+    # Lê o original e extrai; imagem ou PDF digitalizado vai para o Claude.
+    result, notice = extract_or_read(
+        store.read(row.object_key), row.filename, row.mime_type, vision
+    )
+    # Grava no anexo e nas cópias do mesmo arquivo que esperavam o Claude.
+    apply_attachment_text(session, row, result)
+    # O aviso (sem chave, teto do mês) ou o erro.
+    return notice or result.error
 
 
 # "Tentar de novo" de uma linha, qualquer que seja a origem. Registra na auditoria.
@@ -207,16 +216,20 @@ def retry(
     kind: str,
     ref_id: int,
     drive=None,
+    vision: VisionReader | None = None,
 ) -> str | None:
-    """Devolve None se deu certo; senão o erro (com código). drive: cliente da API do Drive."""
+    """Devolve None se deu certo; senão o erro (com código).
+
+    drive: cliente da API do Drive. vision: leitor do Claude (None = sem chave).
+    """
     # Anexo de e-mail.
     if kind == "anexo":
         # Reextrai.
-        error = retry_attachment(session, store, ref_id)
+        error = retry_attachment(session, store, ref_id, vision)
     # Arquivo do Drive.
     elif kind == "drive":
         # Tenta (o cliente só é usado se o download tiver falhado).
-        error = retry_drive_item(session, drive, store, settings, ref_id)
+        error = retry_drive_item(session, drive, store, settings, ref_id, vision)
     # Origem desconhecida (formulário adulterado).
     else:
         raise ValueError(f"Origem desconhecida: {kind}")
@@ -261,7 +274,11 @@ def dismiss(session: Session, kind: str, ref_id: int) -> None:
 
 # "Tentar todos de novo".
 def retry_all(
-    session: Session, store: FileStore, settings: Settings, drive=None
+    session: Session,
+    store: FileStore,
+    settings: Settings,
+    drive=None,
+    vision: VisionReader | None = None,
 ) -> tuple[int, int]:
     """Tenta cada arquivo da lista. Devolve (tentados, resolvidos)."""
     # Contadores.
@@ -276,7 +293,7 @@ def retry_all(
         # Tenta; um erro inesperado num arquivo não impede os outros.
         try:
             # Resultado.
-            error = retry(session, store, settings, failure.kind, failure.ref_id, drive)
+            error = retry(session, store, settings, failure.kind, failure.ref_id, drive, vision)
         # Erro inesperado (rede, disco).
         except Exception:
             # Segue para o próximo.

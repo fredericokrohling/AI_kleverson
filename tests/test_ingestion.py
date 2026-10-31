@@ -146,11 +146,11 @@ def test_extension_wins_over_generic_mime():
     ("data", "filename", "mime", "expected"),
     [
         # PDF escaneado (sem texto).
-        (make_pdf(""), "scan.pdf", PDF, "OCR"),
+        (make_pdf(""), "scan.pdf", PDF, "PDF_SEM_TEXTO"),
         # Word antigo.
         (b"\xd0\xcf\x11\xe0", "velho.doc", "application/msword", "Formato antigo"),
-        # Imagem.
-        (b"\x89PNG", "foto.png", "image/png", "OCR"),
+        # Imagem corrompida (ou formato que o Pillow não abre, como HEIC).
+        (b"\x89PNG", "foto.png", "image/png", "IMAGEM_FORMATO"),
         # Arquivo corrompido que diz ser Excel.
         (b"isto nao e um zip", "quebrado.xlsx", XLSX, "Falha ao ler xlsx"),
         # Tipo desconhecido.
@@ -338,7 +338,7 @@ def test_first_collection(sessions, settings, store):
         # Planilha anexada com texto.
         assert "Homologação" in files["plano.xlsx"].extracted_text
         # PDF escaneado com o motivo.
-        assert "OCR" in files["scan.pdf"].extraction_error
+        assert "PDF_SEM_TEXTO" in files["scan.pdf"].extraction_error
         # O caractere nulo foi removido (o Postgres não aceita).
         assert files["notas.txt"].extracted_text == "linhacom nulo"
         # Link do Drive: só registrado, sem arquivo e sem erro.

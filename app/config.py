@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     # Fração do teto que dispara o alerta no log de auditoria (0.8 = 80%).
     llm_budget_alert_ratio: Decimal = Decimal("0.8")
 
+    # Leitura de imagens e PDFs escaneados pelo Claude.
+    # Modelo usado nessa leitura; vazio = o mesmo escolhido no console para o resto.
+    vision_model: str = ""
+    # Máximo de páginas de um PDF escaneado enviado ao Claude (o custo cresce por página).
+    vision_max_pdf_pages: int = 30
+    # Quantos arquivos o coletor manda ao Claude por rodada (uma rodada a cada 5 minutos).
+    vision_files_per_run: int = 10
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.

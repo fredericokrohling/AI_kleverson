@@ -149,14 +149,16 @@ class LLMClient:
         *,
         # Para que serve a chamada (vai para o registro de custo).
         purpose: str,
-        # A pergunta ou instrução.
-        prompt: str,
+        # A pergunta ou instrução: texto, ou uma lista de blocos (imagem, PDF e texto).
+        prompt: str | list[dict],
         # Instrução de sistema opcional (papel, regras fixas).
         system: str | None = None,
         # Limite de tamanho da resposta, em tokens.
         max_tokens: int = 16000,
         # Quanto o modelo deve "pensar" (low a max). None = o escolhido no console.
         effort: str | None = None,
+        # Modelo para esta chamada. None = o escolhido no console.
+        model: str | None = None,
     ) -> LLMResult:
         """Uma pergunta, uma resposta em texto. `purpose` identifica a chamada no log."""
         # Teto mensal configurado.
@@ -168,8 +170,8 @@ class LLMClient:
             spent_before = month_spend_usd(session)
             # Modelo e esforço em vigor (console; se nunca mudou, o .env).
             config = current(session, self._settings)
-        # Modelo escolhido.
-        model = config.llm_model
+        # Modelo pedido por quem chamou ou, se não pediu, o escolhido no console.
+        model = model or config.llm_model
         # Esforço pedido por quem chamou ou, se não pediu, o escolhido no console.
         effort = effort or config.llm_effort
         # Se já atingiu o teto, nem chama a API.
@@ -185,7 +187,7 @@ class LLMClient:
             "model": model,
             # Tamanho máximo da resposta.
             "max_tokens": max_tokens,
-            # A conversa: aqui, uma única mensagem sua.
+            # A conversa: aqui, uma única mensagem sua (texto ou blocos).
             "messages": [{"role": "user", "content": prompt}],
             # Nível de esforço do modelo.
             "output_config": {"effort": effort},

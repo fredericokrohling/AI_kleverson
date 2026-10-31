@@ -24,6 +24,9 @@ from app.ingestion.failures import dismiss, retry, retry_all
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
 
+# Leitor do Claude para imagens e PDFs digitalizados (None sem chave da Anthropic).
+from app.ingestion.vision import vision_reader
+
 # Peças comuns: dono, banco e proteção de POST.
 from app.web import DB, Owner, SameOrigin
 
@@ -60,7 +63,9 @@ def retry_one(
         # O cliente do Drive só é criado para arquivos do Drive.
         drive = _drive_or_none(db) if origem == "drive" else None
         # Resultado: None = funcionou.
-        error = retry(db, FileStore(settings.data_dir), settings, origem, id, drive)
+        error = retry(
+            db, FileStore(settings.data_dir), settings, origem, id, drive, vision_reader(settings)
+        )
         # Grava o resultado (texto novo ou erro novo).
         db.commit()
     # Arquivo inexistente ou origem inválida.
@@ -85,7 +90,9 @@ def retry_everything(request: Request, owner: Owner, db: DB):
     # Configuração.
     settings = get_settings()
     # Tenta todos.
-    tried, fixed = retry_all(db, FileStore(settings.data_dir), settings, _drive_or_none(db))
+    tried, fixed = retry_all(
+        db, FileStore(settings.data_dir), settings, _drive_or_none(db), vision_reader(settings)
+    )
     # Grava.
     db.commit()
     # Aviso com as contagens.

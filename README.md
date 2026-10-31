@@ -40,6 +40,7 @@ Siga na ordem:
 4. [Transcrição em tempo real](docs/setup/04-transcricao.md)
 5. [Coleta de e-mail](docs/setup/05-email.md)
 6. [Console: pastas do Drive, tags, configurações e saúde](docs/setup/06-console.md)
+7. [Leitura de imagens e PDFs digitalizados pelo Claude](docs/setup/07-leitura-imagens.md)
 
 ## Desenvolvimento local
 
