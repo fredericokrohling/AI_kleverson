@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     # Repositório no GitHub, para conferir se há versão nova.
     github_repo: str = "fredericokrohling/AI_kleverson"
 
+    # Fuso horário do console: define o "dia atual" do Processamento e a hora exibida.
+    # O banco guarda tudo em UTC; a conversão é só na tela.
+    console_timezone: str = "America/Sao_Paulo"
+
     # Identificação do app no Google Cloud (criada no guia 02-google-oauth.md).
     google_client_id: str = ""
     # Senha do app no Google Cloud; fica só no .env.

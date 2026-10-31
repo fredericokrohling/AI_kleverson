@@ -1,0 +1,40 @@
+{# Seção Processamento: incluída na página inicial e devolvida sozinha pelo /processamento (HTMX). #}
+<section id="processamento">
+  <h2>Processamento</h2>
+  <form class="linha" action="/" method="get"
+        hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML" hx-trigger="change">
+    <label>Dia <input type="date" name="data" value="{{ p.day.isoformat() }}" max="{{ p.today.isoformat() }}"></label>
+    <noscript><button type="submit">Ver</button></noscript>
+    {% if not p.is_today %}
+      <a href="/#processamento" hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML">Voltar para hoje</a>
+    {% endif %}
+  </form>
+  {% if p.rows %}
+    <div class="rolagem-processamento"{% if p.scroll_to_end %} data-rolar-fim{% endif %}>
+      <table class="processamento">
+        <thead><tr><th>Hora</th><th>Quem</th><th>Ação</th><th>Alvo</th><th>Detalhes</th></tr></thead>
+        <tbody>
+          {% for r in p.rows %}
+            <tr><td>{{ r.created_at | local("%H:%M:%S") }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td><td title="{{ r.target or '' }}">{{ r.target or "" }}</td>
+              {% set detalhes = r.details.items() | map("join", "=") | join(", ") if r.details else "" %}
+              <td title="{{ detalhes }}">{{ detalhes }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <nav class="paginas" aria-label="Páginas do dia">
+      {% set dia = p.day.isoformat() %}
+      {% if p.page > 1 %}
+        <a href="/?data={{ dia }}&pagina={{ p.page - 1 }}#processamento" title="Eventos anteriores"
+           hx-get="/processamento?data={{ dia }}&pagina={{ p.page - 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9664;</a>
+      {% else %}<span class="muted">&#9664;</span>{% endif %}
+      <span class="muted">Página {{ p.page }} de {{ p.pages }} · {{ p.total }} evento(s) em {{ p.day.strftime("%d/%m/%Y") }}</span>
+      {% if p.page < p.pages %}
+        <a href="/?data={{ dia }}&pagina={{ p.page + 1 }}#processamento" title="Eventos seguintes"
+           hx-get="/processamento?data={{ dia }}&pagina={{ p.page + 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9654;</a>
+      {% else %}<span class="muted">&#9654;</span>{% endif %}
+    </nav>
+  {% else %}
+    <p class="muted">Nenhum evento em {{ p.day.strftime("%d/%m/%Y") }}.</p>
+  {% endif %}
+</section>

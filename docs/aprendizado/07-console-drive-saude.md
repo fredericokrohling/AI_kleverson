@@ -148,6 +148,17 @@ saídos do próprio console.
 Os testes rodam no serviço `coletor`. Se ele cair, os testes param, e a página avisa
 "os testes automáticos não rodam há X min". É assim que o próprio coletor é vigiado.
 
+### Coração vermelho
+Toda página do console mostra o menu, então o estado do coração não pode depender de
+cada rota lembrar de calculá-lo. O `Jinja2Templates` aceita **context processors**:
+funções que rodam a cada página e acrescentam dados a ela. `app/web.py` registra uma que
+consulta o último teste de cada serviço (`has_problem` em `app/health.py`).
+
+Regras: vermelho se algum serviço falhou no **último** teste (uma falha antiga, já
+recuperada, não conta) ou se os testes pararam há mais de 3 intervalos. "Não deu para
+saber" não conta, para uma página de status fora do ar não acender alarme falso. Se o
+próprio banco não responder, o coração fica vermelho.
+
 ### Versão instalada
 O contêiner lê a pasta `.git` do projeto (montada só para leitura) para saber qual commit
 está rodando. A API pública do GitHub diz a que PR esse commit pertence e quantos commits a
@@ -172,6 +183,29 @@ O script (`scripts/terminal-local/kleverson-terminal.sh`) só aceita uma lista f
 O texto do link nunca vira comando: ele só escolhe uma linha da lista. As ações que mudam o
 servidor mostram o que vai acontecer e pedem confirmação no terminal.
 
+## Processamento: o diário por dia
+
+A seção lê a tabela `audit_log`, um dia por vez, em ordem cronológica, 30 eventos por
+página. A caixa mostra 6 linhas (altura fixa em CSS: cada linha tem 25 px) e rola até 30.
+No dia de hoje, a página abre na última página e um script curto rola a caixa até o fim,
+para os 6 eventos mais recentes aparecerem primeiro. Num dia escolhido no calendário,
+abre no começo. Trocar de dia ou de página usa o HTMX: só a seção é recarregada.
+
+> **Decisão: em que fuso mostrar os horários**
+> Avaliamos **A — mostrar em UTC, como o banco guarda** e **B — guardar em UTC e
+> converter na tela para o fuso do console (`CONSOLE_TIMEZONE`)**, e optamos por **B**:
+> - Em UTC, o "dia atual" viraria às 21h de Brasília, e os eventos da noite apareceriam
+>   no dia seguinte.
+> - Guardar em UTC continua certo: não depende de horário de verão nem de onde o servidor
+>   está. Só a exibição muda.
+
+## Conteúdo coletado
+
+A página `/conteudo` mostra o texto como a IA vai ler. É uma versão simples da busca
+do bloco 4: procura com `ILIKE` (contém, sem diferenciar maiúsculas) no assunto e no
+texto. Serve bem para o volume de uma pessoa; a busca por significado (pgvector) vem
+depois.
+
 ## Um agendador só
 
 O serviço `coletor` rodava só o Gmail. Agora roda o `agendador` (`python -m app.cli
@@ -182,6 +216,8 @@ esperar os 30 minutos.
 ## Onde isso está no código
 
 - `app/ingestion/drive_sync.py`: cadastro de pastas, varredura e nova tentativa no Drive.
+- `app/activity.py`: seção Processamento.
+- `app/routes_content.py`: conteúdo coletado.
 - `app/ingestion/failures.py` e `app/routes_failures.py`: lista de arquivos sem texto e
   botões "Tentar de novo".
 - `app/tags.py`: tags e leitura da herança.

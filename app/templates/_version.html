@@ -20,4 +20,4 @@
       {% if v.latest_pr %}· <a href="{{ v.latest_pr.url }}" target="_blank" rel="noopener">PR #{{ v.latest_pr.number }}</a>{% endif %}</p>
   {% endif %}
 {% endif %}
-<p class="muted">Consultado às {{ v.checked_at.strftime("%H:%M") }} (UTC).</p>
+<p class="muted">Consultado às {{ v.checked_at | local("%H:%M") }}.</p>

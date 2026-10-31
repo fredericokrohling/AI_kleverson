@@ -4,9 +4,9 @@ Resultado: o console ganha um menu lateral com três atalhos:
 
 | Ícone | Página | O que tem |
 | --- | --- | --- |
-| Casa | Início | Coleta de e-mail, Drive (totais), arquivos sem texto e últimas ações |
+| Casa | Início | Coleta de e-mail, Drive (totais), arquivos sem texto e Processamento |
 | Engrenagem | Configurações | Contas conectadas, Claude (modelo, esforço, gasto, teste), idioma da transcrição, pastas do Drive monitoradas e tags |
-| Coração | Saúde | Situação de cada serviço, versão instalada x versão nova, botões de terminal |
+| Coração | Saúde | Situação de cada serviço, versão instalada x versão nova, botões de terminal. Fica **vermelho** quando algum serviço falha |
 
 Pré-requisitos: guias 1 a 5 concluídos. **Nada muda no Google:** as permissões continuam
 só de leitura.
@@ -91,6 +91,10 @@ clique **+ tag**; se a tag não existir, ela é criada.
 
 **Onde:** no console, ícone de coração.
 
+- **Coração vermelho** no menu: algum serviço falhou no último teste, ou os testes
+  automáticos pararam há mais de 30 minutos (o `coletor` caiu). Volta à cor normal sozinho
+  quando o teste seguinte passar. "Não deu para saber" (por exemplo, página de status de um
+  fornecedor fora do ar) não deixa o coração vermelho.
 - A tabela mostra o último teste de cada serviço e o histórico curto (bolinhas).
   **Testar agora** roda todos na hora.
 - Se aparecer "Os testes automáticos não rodam há X min", o serviço `coletor` está parado.
@@ -116,7 +120,7 @@ explicação. Enquanto um arquivo não vira texto, a IA não sabe o que há nele
 - **Dispensar**: tira a linha da lista sem apagar nada. Use depois de resolver à mão (por
   exemplo, depois de exportar o diagrama do Lucid como PDF ou PNG para a pasta monitorada).
   "Tentar de novo" num item dispensado o devolve à lista se ainda falhar.
-- Cada tentativa e cada aviso dispensado ficam registrados em **Últimas ações**.
+- Cada tentativa e cada aviso dispensado ficam registrados em **Processamento** (6.6.2).
 
 **Arquivos citados por link:** um link do Drive num e-mail é lido em até 1 minuto, mesmo
 que o arquivo não esteja numa pasta sua, desde que a sua conta tenha acesso. Depois, ele é
@@ -146,6 +150,31 @@ Para anexos e arquivos já baixados, a tentativa relê o original guardado, sem 
 | `SEM_ORIGINAL` | Registro antigo sem arquivo guardado | Nada a reprocessar |
 
 Mensagens sem código são de registros gravados antes dos códigos existirem.
+
+### 6.6.1 Ver o conteúdo coletado
+
+**Onde:** página inicial → **Coleta de e-mail** → **Ver o conteúdo coletado**, ou clique no
+nome de um arquivo na lista acima.
+
+Mostra o texto exatamente como a IA vai ler: o corpo de cada e-mail, o texto extraído de
+cada anexo (clique no nome do anexo para abrir), e cada versão dos arquivos do Drive. A
+busca procura uma palavra no assunto e no texto; sem busca, aparecem os 50 mais recentes.
+
+### 6.6.2 Processamento
+
+**Onde:** página inicial, última seção.
+
+É o diário do que o sistema e você fizeram (coletas, varreduras, tags, tentativas).
+
+- **Sem escolher data:** mostra o dia de hoje, já rolado até os **6 eventos mais
+  recentes**. Role para cima para ver os anteriores (até 30 na mesma página).
+- **Escolhendo uma data no calendário:** mostra aquele dia a partir do **primeiro
+  evento**.
+- Mais de 30 eventos no dia: as setas **◀ ▶** trocam de página.
+- A coluna **Detalhes** mostra os dados de cada ação (por exemplo, `de=A, para=B` ao
+  renomear uma tag).
+- Os horários do console seguem o fuso `CONSOLE_TIMEZONE` (padrão: Brasília). O banco
+  guarda tudo em UTC; a conversão é só na tela.
 
 ## 6.7 Botões de terminal (uma vez, no seu computador)
 
@@ -196,6 +225,7 @@ Depois de mudar o `.env`, rode `docker compose up -d`.
 | `DRIVE_MAX_FILE_MB` | `25` | Maior arquivo comum baixado do Drive (Docs, Sheets e Slides têm limite de 10 MB do Google) |
 | `HEALTH_POLL_MINUTES` | `10` | Intervalo entre testes de saúde automáticos |
 | `LLM_EFFORT` | `medium` | Esforço padrão do Claude, até alguém mudar pelo console |
+| `CONSOLE_TIMEZONE` | `America/Sao_Paulo` | Fuso dos horários do console e do "dia atual" do Processamento |
 
 ## 6.9 Comandos úteis
 

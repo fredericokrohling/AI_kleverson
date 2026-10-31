@@ -19,6 +19,9 @@ from sqlalchemy import select
 # Módulo de saúde (para trocar partes por falsos).
 from app import health
 
+# Seção Processamento.
+from app.activity import PAGE_SIZE, activity_page, parse_day
+
 # Configuração.
 from app.config import Settings, get_settings
 
@@ -26,7 +29,7 @@ from app.config import Settings, get_settings
 from app.main import app
 
 # Tabelas.
-from app.models import AppSetting, AuditLog, HealthCheck
+from app.models import AppSetting, Attachment, AuditLog, BronzeItem, HealthCheck, SourceKind
 
 # Configurações do console.
 from app.runtime_settings import current, get_value, set_value
@@ -293,3 +296,210 @@ def test_transcription_uses_console_language(sessions, monkeypatch):
         assert ws.receive_json()["tipo"] == "erro"
     # O idioma do console chegou.
     assert seen == ["multi"]
+
+
+# --- Coração do menu ------------------------------------------------------------------
+
+
+# Vermelho quando o último teste de algum serviço falhou ou os testes pararam.
+def test_heart_turns_red(sessions):
+    # Configuração com intervalo de 10 min.
+    settings = Settings(health_poll_minutes=10)
+    # Sem testes ainda: sem alarme.
+    with sessions() as s:
+        # Instalação nova.
+        assert not health.has_problem(s, settings, NOW)
+        # Banco falhou antes e voltou; Claude ok; Deepgram "não sei".
+        s.add_all(
+            [
+                HealthCheck(checked_at=NOW - timedelta(minutes=10), service="banco", ok=False),
+                HealthCheck(checked_at=NOW, service="banco", ok=True),
+                HealthCheck(checked_at=NOW, service="claude", ok=True),
+                HealthCheck(checked_at=NOW, service="deepgram", ok=None),
+            ]
+        )
+        # Grava.
+        s.commit()
+        # Tudo normal agora: a falha antiga não conta.
+        assert not health.has_problem(s, settings, NOW)
+        # O Claude falha no teste seguinte.
+        s.add(HealthCheck(checked_at=NOW + timedelta(minutes=1), service="claude", ok=False))
+        # Grava.
+        s.commit()
+        # Problema.
+        assert health.has_problem(s, settings, NOW + timedelta(minutes=1))
+        # Volta.
+        s.add(HealthCheck(checked_at=NOW + timedelta(minutes=2), service="claude", ok=True))
+        # Grava.
+        s.commit()
+        # Normal de novo.
+        assert not health.has_problem(s, settings, NOW + timedelta(minutes=2))
+        # Testes parados há mais de 3 intervalos (coletor fora do ar): problema.
+        assert health.has_problem(s, settings, NOW + timedelta(minutes=40))
+
+
+# A página mostra o coração com a classe "alerta" só quando há problema.
+def test_heart_in_menu(sessions):
+    # Um teste recente com falha.
+    with sessions() as s:
+        # Agora mesmo.
+        s.add(HealthCheck(checked_at=datetime.now(UTC), service="gmail", ok=False))
+        # Grava.
+        s.commit()
+    # Qualquer página tem o menu.
+    page = client.get("/config", headers=OWNER).text
+    # Coração vermelho, com o título explicando.
+    assert "alerta" in page and "há serviço com problema" in page
+    # O Gmail volta.
+    with sessions() as s:
+        # Novo resultado.
+        s.add(
+            HealthCheck(
+                checked_at=datetime.now(UTC) + timedelta(seconds=1), service="gmail", ok=True
+            )
+        )
+        # Grava.
+        s.commit()
+    # Coração normal.
+    assert "há serviço com problema" not in client.get("/config", headers=OWNER).text
+
+
+# --- Processamento --------------------------------------------------------------------
+
+
+# Grava n eventos a partir de um instante, um por minuto.
+def _events(sessions, start: datetime, n: int, prefix: str) -> None:
+    # Uma sessão.
+    with sessions() as s:
+        # Cada evento.
+        for i in range(n):
+            # Ação numerada.
+            s.add(
+                AuditLog(
+                    actor="sistema",
+                    action=f"{prefix}.{i:02d}",
+                    created_at=start + timedelta(minutes=i),
+                )
+            )
+        # Grava.
+        s.commit()
+
+
+# Hoje: última página (mais recentes). Outro dia: primeira página. Dia pelo fuso de Brasília.
+def test_activity_page(sessions):
+    # "Agora": 31/10 às 01:00 UTC = 30/10 às 22:00 em Brasília.
+    now = datetime(2026, 10, 31, 1, 0, tzinfo=UTC)
+    # 35 eventos "hoje" (30/10 em Brasília), começando às 20:00 de Brasília (23:00 UTC).
+    _events(sessions, datetime(2026, 10, 30, 23, 0, tzinfo=UTC), 35, "hoje")
+    # 3 eventos no dia 29/10 em Brasília.
+    _events(sessions, datetime(2026, 10, 29, 12, 0, tzinfo=UTC), 3, "ontem")
+    # Consulta.
+    with sessions() as s:
+        # Padrão: hoje, na última página.
+        p = activity_page(s, "America/Sao_Paulo", now=now)
+        # 30/10 (em UTC já seria 31/10), 35 eventos, página 2 de 2, rolagem no fim.
+        assert (p.day.isoformat(), p.total, p.page, p.pages) == ("2026-10-30", 35, 2, 2)
+        # Os 5 últimos, em ordem cronológica, e a rolagem abre no fim.
+        assert [r.action for r in p.rows] == [
+            f"hoje.{i}" for i in range(30, 35)
+        ] and p.scroll_to_end
+        # Página 1: os 30 primeiros do dia, o primeiro em cima.
+        first = activity_page(s, "America/Sao_Paulo", page=1, now=now)
+        # Tamanho e ordem.
+        assert len(first.rows) == PAGE_SIZE and first.rows[0].action == "hoje.00"
+        # A página 1 de hoje não rola para o fim (ela não tem os mais recentes).
+        assert not first.scroll_to_end
+        # Outro dia: primeira página, primeiro evento em cima, sem rolar para o fim.
+        other = activity_page(s, "America/Sao_Paulo", parse_day("2026-10-29"), now=now)
+        # Três eventos, do primeiro ao último.
+        assert [r.action for r in other.rows] == ["ontem.00", "ontem.01", "ontem.02"]
+        # Abre no começo.
+        assert not other.scroll_to_end and not other.is_today
+        # Data inválida ou no futuro: volta para hoje.
+        assert activity_page(s, "America/Sao_Paulo", parse_day("abc"), now=now).is_today
+        # Futuro.
+        assert activity_page(s, "America/Sao_Paulo", parse_day("2030-01-01"), now=now).is_today
+        # Página fora do limite: fica na última.
+        assert activity_page(s, "America/Sao_Paulo", page=99, now=now).page == 2
+
+
+# A seção aparece na página inicial e sozinha, pelo HTMX.
+def test_activity_section(sessions):
+    # Um evento agora, com detalhes.
+    with sessions() as s:
+        # Como a renomeação de tag registra.
+        s.add(
+            AuditLog(
+                actor="dona", action="tag.renomear", target="1", details={"de": "A", "para": "B"}
+            )
+        )
+        # Grava.
+        s.commit()
+    # Página inicial.
+    page = client.get("/", headers=OWNER).text
+    # Título novo, evento, detalhes e rolagem no fim.
+    assert "Processamento" in page and "tag.renomear" in page and "de=A, para=B" in page
+    # Rolagem no fim (hoje, última página).
+    assert "data-rolar-fim" in page
+    # Só a seção, num dia sem eventos.
+    part = client.get("/processamento?data=2026-01-02", headers=OWNER).text
+    # Sem o resto da página, com aviso e link de volta para hoje.
+    assert (
+        "<html" not in part and "Nenhum evento em 02/01/2026" in part and "Voltar para hoje" in part
+    )
+
+
+# --- Conteúdo coletado ----------------------------------------------------------------
+
+
+# Lista com busca e página de um e-mail com o texto do anexo.
+def test_content_pages(sessions):
+    # Um e-mail com anexo lido e outro sem relação.
+    with sessions() as s:
+        # E-mail.
+        email = BronzeItem(
+            source=SourceKind.GMAIL,
+            external_id="m1",
+            occurred_at=NOW,
+            author="Ana <ana@cliente.com>",
+            subject="Cronograma Atlas",
+            body_text="Segue o cronograma.",
+            content_sha256="a" * 64,
+        )
+        # Outro.
+        other = BronzeItem(
+            source=SourceKind.GMAIL,
+            external_id="m2",
+            occurred_at=NOW,
+            subject="Almoço",
+            body_text="Vamos?",
+            content_sha256="b" * 64,
+        )
+        # Grava os dois.
+        s.add_all([email, other])
+        # Gera os ids.
+        s.flush()
+        # Anexo com texto.
+        s.add(
+            Attachment(
+                bronze_item_id=email.id,
+                filename="plano.xlsx",
+                extracted_text="### Planilha: Cronograma\nHomologação | 2026-11-20",
+            )
+        )
+        # Grava.
+        s.commit()
+        # Id do e-mail.
+        email_id = email.id
+    # Busca por palavra do texto.
+    page = client.get("/conteudo?q=cronograma", headers=OWNER).text
+    # Acha o e-mail, não o outro.
+    assert "Cronograma Atlas" in page and "Almoço" not in page
+    # Hora no fuso de Brasília (12:00 UTC = 09:00).
+    assert "30/10/2026 09:00" in page
+    # Página do e-mail.
+    page = client.get(f"/conteudo/{email_id}", headers=OWNER).text
+    # Corpo e texto do anexo.
+    assert "Segue o cronograma." in page and "Homologação | 2026-11-20" in page
+    # Inexistente: 404.
+    assert client.get("/conteudo/999999", headers=OWNER).status_code == 404

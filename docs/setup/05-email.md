@@ -156,9 +156,7 @@ docker compose start coletor   # retoma de onde parou
 
 - **Word, Excel e PowerPoint antigos** (`.doc`, `.xls`, `.ppt`, anteriores a 2007): o
   original fica guardado, mas o texto ainda não é extraído.
-- **PDF escaneado e imagens:** sem leitura de texto em imagem (OCR).
+- **PDF escaneado e imagens:** ainda sem leitura; será feita pelo Claude no próximo bloco.
 - **Links do Lucid e do Canva:** o conteúdo fica fora do Google e não é lido. O link
   aparece em **Arquivos sem texto**, com o remetente e a data do e-mail, para você
   exportar o diagrama como PDF ou PNG para uma pasta monitorada.
-- **Horários no console estão em UTC** (3 horas à frente de Brasília), como no restante
-  do console hoje.

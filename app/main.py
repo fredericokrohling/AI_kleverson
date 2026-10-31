@@ -31,6 +31,9 @@ from starlette.middleware.sessions import SessionMiddleware
 # Módulo de login no Google.
 from app import google_auth
 
+# Seção Processamento (diário de ações por dia).
+from app.activity import activity_page, parse_day
+
 # Leitura da configuração.
 from app.config import get_settings
 
@@ -47,10 +50,13 @@ from app.ingestion.gmail import collection_overview
 from app.llm import BudgetExceededError, LLMClient
 
 # Tabelas consultadas na página inicial.
-from app.models import AuditLog, BronzeItem, DriveFolder, DriveItem, OAuthToken, SourceKind
+from app.models import BronzeItem, DriveFolder, DriveItem, OAuthToken, SourceKind
 
 # Rotas da página Configurações e da navegação pelo Drive.
 from app.routes_config import router as config_router
+
+# Rotas do conteúdo coletado (ver o texto que a IA lê).
+from app.routes_content import router as content_router
 
 # Botões "Tentar de novo" dos arquivos sem texto.
 from app.routes_failures import router as failures_router
@@ -91,6 +97,8 @@ app.include_router(config_router)
 app.include_router(health_router)
 # Rotas de "Tentar de novo".
 app.include_router(failures_router)
+# Conteúdo coletado.
+app.include_router(content_router)
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
 # mount publica a pasta static no endereço /static.
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -104,13 +112,27 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# Página inicial; response_class diz que a resposta é HTML.
+# Só a seção Processamento, para o HTMX trocar de dia ou de página sem recarregar tudo.
+@app.get("/processamento", response_class=HTMLResponse)
+def processing(
+    request: Request, owner: Owner, db: DB, data: str | None = None, pagina: int | None = None
+):
+    # Eventos do dia e da página pedidos.
+    activity = activity_page(db, get_settings().console_timezone, parse_day(data), pagina)
+    # Devolve só o pedaço da página.
+    return templates.TemplateResponse(request, "_processamento.html", {"p": activity})
+
+
+# Página inicial; response_class diz que a resposta é HTML. data e pagina (opcionais)
+# escolhem o dia e a página da seção Processamento quando o navegador não usa HTMX.
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, owner: Owner, db: DB):
+def index(
+    request: Request, owner: Owner, db: DB, data: str | None = None, pagina: int | None = None
+):
     # Contas Google conectadas (a página só avisa se não houver nenhuma).
     accounts = db.scalars(select(OAuthToken).order_by(OAuthToken.account_email)).all()
-    # As 20 ações mais recentes do log de auditoria.
-    recent = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(20)).all()
+    # Processamento: eventos do dia (hoje, por padrão).
+    activity = activity_page(db, get_settings().console_timezone, parse_day(data), pagina)
     # Totais do Drive: pastas ativas, arquivos presentes e versões no bronze.
     drive = {
         # Pastas monitoradas ligadas.
@@ -156,8 +178,8 @@ def index(request: Request, owner: Owner, db: DB):
             "flash": request.session.pop("flash", None),
             # Contas conectadas.
             "accounts": accounts,
-            # Ações recentes.
-            "recent": recent,
+            # Seção Processamento.
+            "p": activity,
             # Últimas rodadas da coleta do Gmail e totais do bronze.
             "coleta": collection_overview(db),
             # Totais do Drive.

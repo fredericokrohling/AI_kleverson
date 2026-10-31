@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Kleverson A.I.{% endblock %}</title>
   <script src="/static/htmx.min.js"></script>
+  <script>
+    // Caixas marcadas com data-rolar-fim abrem já no fim (Processamento de hoje: os 6 eventos
+    // mais recentes). Roda ao abrir a página e depois de cada troca feita pelo HTMX.
+    function rolarParaFim() {
+      document.querySelectorAll("[data-rolar-fim]").forEach(function (el) { el.scrollTop = el.scrollHeight; });
+    }
+    document.addEventListener("DOMContentLoaded", rolarParaFim);
+    document.addEventListener("htmx:afterSettle", rolarParaFim);
+  </script>
   <style>
     /* Cores em variáveis: o modo escuro troca só os valores. --marca é o azul-marinho do logo. */
     :root { --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #fff; --bg2: #f6f8fa; --accent: #0969da;
@@ -27,6 +36,8 @@
                  border-radius: 10px; text-decoration: none; }
     nav.menu a:hover { opacity: 1; background: rgba(255,255,255,.08); }
     nav.menu a.ativo { opacity: 1; background: rgba(255,255,255,.16); }
+    /* Coração vermelho: algum serviço com problema no último teste. */
+    nav.menu a.alerta { color: #ff5a5f; opacity: 1; }
     nav.menu svg { width: 24px; height: 24px; }
     main { flex: 1; min-width: 0; max-width: 1040px; padding: 24px 16px; }
     section { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; scroll-margin-top: 72px; }
@@ -45,6 +56,18 @@
                     color: var(--fg); max-width: 100%; }
     form.linha { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
     form.inline { display: inline; }
+    /* Texto coletado: quebra as linhas longas e limita a altura, com rolagem. */
+    pre.texto { white-space: pre-wrap; word-break: break-word; max-height: 480px; overflow: auto; background: var(--bg2);
+                padding: 12px; border-radius: 6px; font-size: .85rem; }
+    /* Processamento: fonte 9 pt; cada linha tem 25 px (16 de texto + 8 de margem + 1 de borda),
+       então 175 px mostram o cabeçalho e 6 eventos; o resto (até 30) fica na rolagem. */
+    .rolagem-processamento { max-height: 175px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+    table.processamento { font-size: 9pt; }
+    table.processamento td, table.processamento th { padding: 4px 8px; line-height: 16px; white-space: nowrap; }
+    table.processamento thead th { position: sticky; top: 0; background: var(--bg); }
+    table.processamento td:nth-child(n+4) { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+    nav.paginas { display: flex; gap: 12px; align-items: center; margin-top: 8px; font-size: .85rem; }
+    nav.paginas a { text-decoration: none; }
     .aviso-caixa { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; background: var(--bg2); border: 1px solid var(--line); }
     .aviso-caixa.erro { border-color: var(--erro); }
     /* Etiquetas de tag: cheia = própria; tracejada = herdada da pasta de cima. */
@@ -68,7 +91,9 @@
       <a href="/config" title="Configurações" aria-label="Configurações" class="{{ 'ativo' if menu == 'config' }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </a>
-      <a href="/monitoramento" title="Saúde do sistema" aria-label="Saúde do sistema" class="{{ 'ativo' if menu == 'saude' }}">
+      {% set saude_titulo = "Saúde do sistema: há serviço com problema" if saude_alerta else "Saúde do sistema" %}
+      <a href="/monitoramento" title="{{ saude_titulo }}" aria-label="{{ saude_titulo }}"
+         class="{{ 'ativo' if menu == 'saude' }} {{ 'alerta' if saude_alerta }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
       </a>
     </nav>
