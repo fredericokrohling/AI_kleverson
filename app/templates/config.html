@@ -13,7 +13,7 @@
     <div class="tabela"><table>
       <tr><th>Conta</th><th>Atualizado em</th></tr>
       {% for a in accounts %}
-        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at.strftime("%d/%m/%Y %H:%M") }}</td></tr>
+        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at | local("%d/%m/%Y %H:%M") }}</td></tr>
       {% endfor %}
     </table></div>
   {% else %}
@@ -95,7 +95,7 @@
           </td>
           <td>
             {% if f.last_error %}<span class="erro" title="{{ f.last_error }}">erro: {{ f.last_error[:80] }}</span>
-            {% elif f.last_scan_at %}{{ f.last_scan_at.strftime("%d/%m %H:%M") }}
+            {% elif f.last_scan_at %}{{ f.last_scan_at | local }}
             {% elif f.active %}<span class="muted">aguardando a primeira</span>{% endif %}
           </td>
           <td>

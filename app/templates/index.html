@@ -7,13 +7,13 @@
 <section>
   <h2>Coleta de e-mail</h2>
   <p>No bronze: <strong>{{ coleta.emails }}</strong> e-mails e <strong>{{ coleta.files }}</strong> arquivos
-    ({{ coleta.files_without_text }} sem texto extraído).</p>
+    ({{ coleta.files_without_text }} sem texto extraído). <a href="/conteudo">Ver o conteúdo coletado</a></p>
   {% if coleta.runs %}
     <div class="tabela"><table>
       <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
       {% for r in coleta.runs %}
         <tr>
-          <td>{{ r.started_at.strftime("%d/%m %H:%M") }}</td>
+          <td>{{ r.started_at | local }}</td>
           <td>{{ r.status }}</td>
           <td>{{ r.messages_new }}</td>
           <td>{{ r.attachments_saved }}</td>
@@ -37,10 +37,10 @@
       <tr><th>Arquivo</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
       {% for f in failures %}
         <tr>
-          <td>{{ f.name }}</td>
+          <td>{% if f.item_id %}<a href="/conteudo/{{ f.item_id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
           <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
           <td>{{ f.sender or "" }}</td>
-          <td>{{ f.when.strftime("%d/%m/%Y %H:%M") if f.when else "" }}</td>
+          <td>{{ f.when | local("%d/%m/%Y %H:%M") }}</td>
           <td><code>{{ f.code or "—" }}</code></td>
           <td>{{ f.message }}</td>
           <td>
@@ -74,17 +74,5 @@
     <a href="/config#drive">Gerenciar pastas e tags</a></p>
 </section>
 
-<section>
-  <h2>Últimas ações</h2>
-  {% if recent %}
-    <div class="tabela"><table>
-      <tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Alvo</th></tr>
-      {% for r in recent %}
-        <tr><td>{{ r.created_at.strftime("%d/%m %H:%M") }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td><td>{{ r.target or "" }}</td></tr>
-      {% endfor %}
-    </table></div>
-  {% else %}
-    <p class="muted">Nada registrado ainda.</p>
-  {% endif %}
-</section>
+{% include "_processamento.html" %}
 {% endblock %}

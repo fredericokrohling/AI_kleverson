@@ -448,6 +448,39 @@ def last_run_at(session: Session) -> datetime | None:
     return session.scalar(select(func.max(HealthCheck.checked_at)))
 
 
+# Há algum problema agora? (o coração do menu fica vermelho)
+def has_problem(session: Session, settings: Settings, now: datetime | None = None) -> bool:
+    """True se algum serviço falhou no último teste ou se os testes pararam de rodar."""
+    # Momento de referência.
+    now = now or datetime.now(UTC)
+    # Último teste de qualquer serviço.
+    last = last_run_at(session)
+    # Nenhum teste ainda (instalação nova): sem dados, sem alarme.
+    if last is None:
+        return False
+    # Os testes pararam (coletor fora do ar): isso já é um problema.
+    if now - last > timedelta(minutes=3 * settings.health_poll_minutes):
+        return True
+    # Momento do teste mais recente de cada serviço.
+    newest = (
+        select(HealthCheck.service, func.max(HealthCheck.checked_at).label("m"))
+        .group_by(HealthCheck.service)
+        .subquery()
+    )
+    # Quantos serviços têm o último resultado = falha (vazio, "não deu para saber", não conta).
+    failing = session.scalar(
+        select(func.count())
+        .select_from(HealthCheck)
+        .join(
+            newest,
+            (HealthCheck.service == newest.c.service) & (HealthCheck.checked_at == newest.c.m),
+        )
+        .where(HealthCheck.ok.is_(False))
+    )
+    # Algum com falha.
+    return bool(failing)
+
+
 # --- Versão instalada -----------------------------------------------------------------
 
 

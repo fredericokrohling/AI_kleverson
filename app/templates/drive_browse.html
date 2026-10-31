@@ -50,7 +50,7 @@
             {% else %}📄 <a href="/config/drive/itens/{{ c.id }}">{{ c.name }}</a>{% endif %}
           </td>
           <td>{{ tag_list(c) }}{{ tag_form(c) }}</td>
-          <td>{{ c.modified_time.strftime("%d/%m/%Y %H:%M") if c.modified_time else "" }}</td>
+          <td>{{ c.modified_time | local("%d/%m/%Y %H:%M") }}</td>
           <td>
             {% if c.removed %}<span class="muted">saiu da pasta</span>
             {% elif c.is_folder %}<span class="muted">pasta</span>

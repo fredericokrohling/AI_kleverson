@@ -17,9 +17,6 @@ import logging
 # re: expressões regulares (padrões de texto), usadas para validar o id da sessão.
 import re
 
-# Path: caminhos de arquivos.
-from pathlib import Path
-
 # Annotated: tipo com informação extra (qual dependência resolver).
 from typing import Annotated
 
@@ -28,9 +25,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 
 # Resposta em HTML.
 from fastapi.responses import HTMLResponse
-
-# Modelos HTML.
-from fastapi.templating import Jinja2Templates
 
 # BaseModel valida o JSON recebido; Field define limites (tamanho máximo etc.).
 from pydantic import BaseModel, Field
@@ -59,12 +53,13 @@ from app.transcription import store
 # Fábrica do serviço de transcrição configurado.
 from app.transcription.providers import create_provider
 
+# Modelos HTML: os mesmos do console (com o estado do coração do menu).
+from app.web import templates
+
 # Logger deste módulo.
 log = logging.getLogger(__name__)
 # Grupo de rotas; o main.py acrescenta este grupo ao app.
 router = APIRouter()
-# Modelos HTML ficam em app/templates (duas pastas acima deste arquivo, mais "templates").
-templates = Jinja2Templates(directory=Path(__file__).parent.parent / "templates")
 
 # Atalho: exige o login do dono (ver app/security.py).
 Owner = Annotated[str, Depends(require_owner)]

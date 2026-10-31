@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/conteudo">&larr; Conteúdo coletado</a></p>
+<h1>{{ item.subject or "(sem assunto)" }}</h1>
+<section>
+  <p>
+    <strong>{{ label }}</strong> · {{ item.occurred_at | local("%d/%m/%Y %H:%M") }}
+    {% if item.author %} · {{ item.author }}{% endif %}
+    {% if item.extra.get("link") %} · <a href="{{ item.extra.link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}
+  </p>
+  {% if item.extra.get("caminho") %}<p class="muted">Caminho: {{ item.extra.caminho }}</p>{% endif %}
+  {% if item.extra.get("erro_extracao") %}<p class="erro">Sem texto: {{ item.extra.erro_extracao }}</p>{% endif %}
+  <h2>Texto</h2>
+  {% if item.body_text %}
+    <pre class="texto">{{ item.body_text }}</pre>
+  {% else %}
+    <p class="muted">Sem texto.</p>
+  {% endif %}
+</section>
+
+{% if attachments %}
+<section>
+  <h2>Arquivos do e-mail</h2>
+  {% for a in attachments %}
+    {% if a.origin == "anexo" %}
+      <details>
+        <summary>{{ a.filename }}{% if a.extraction_error %} <span class="erro">· sem texto</span>{% endif %}</summary>
+        {% if a.extraction_error %}<p class="erro">{{ a.extraction_error }}</p>{% endif %}
+        {% if a.extracted_text %}<pre class="texto">{{ a.extracted_text }}</pre>{% endif %}
+      </details>
+    {% elif a.origin == "link_drive" %}
+      {% set d = linked.get(a.external_ref) %}
+      <p>Link do Drive:
+        {% if d and d.bronze_item_id %}
+          <a href="/conteudo/{{ d.bronze_item_id }}">{{ d.name }}</a> (versão lida mais recente)
+        {% elif d and d.error %}
+          {{ d.name }} <span class="erro">· {{ d.error }}</span>
+        {% else %}
+          <span class="muted">{{ a.external_ref }} · ainda não lido (em até 1 minuto)</span>
+        {% endif %}
+      </p>
+    {% else %}
+      <p>Link externo: <a href="{{ a.external_ref }}" target="_blank" rel="noopener">{{ a.filename }}</a>
+        <span class="muted">· {{ a.extraction_error }}</span></p>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if versions | length > 1 %}
+<section>
+  <h2>Versões deste arquivo</h2>
+  <div class="tabela"><table>
+    <tr><th>Alterado em</th><th>Por</th><th>Versão</th></tr>
+    {% for v in versions %}
+      <tr>
+        <td>{% if v.id == item.id %}<strong>{{ v.occurred_at | local("%d/%m/%Y %H:%M") }}</strong> (esta){% else %}<a href="/conteudo/{{ v.id }}">{{ v.occurred_at | local("%d/%m/%Y %H:%M") }}</a>{% endif %}</td>
+        <td>{{ v.author or "" }}</td>
+        <td>{{ v.extra.get("versao", "") }}</td>
+      </tr>
+    {% endfor %}
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

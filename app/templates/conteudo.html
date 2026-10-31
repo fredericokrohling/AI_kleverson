@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Conteúdo coletado</h1>
+<section>
+  <p class="muted">O texto que a IA vai ler: corpo dos e-mails, texto extraído dos anexos e de cada versão dos arquivos do Drive.</p>
+  <form class="linha" method="get" action="/conteudo">
+    <input type="search" name="q" value="{{ q }}" placeholder="Palavra no assunto ou no texto" aria-label="Procurar">
+    <select name="fonte" aria-label="Fonte">
+      <option value="">Todas as fontes</option>
+      {% for kind, label in labels.items() %}
+        <option value="{{ kind.value }}" {{ "selected" if fonte == kind.value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Procurar</button>
+  </form>
+  {% if items %}
+    <div class="tabela"><table>
+      <tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th></tr>
+      {% for i in items %}
+        <tr>
+          <td>{{ i.occurred_at | local("%d/%m/%Y %H:%M") }}</td>
+          <td>{{ labels.get(i.source, i.source) }}</td>
+          <td><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
+          <td>{{ i.author or "" }}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+    {% if items | length == limit %}<p class="muted">Mostrando os {{ limit }} mais recentes. Use a busca para achar itens mais antigos.</p>{% endif %}
+  {% else %}
+    <p class="muted">Nada encontrado.</p>
+  {% endif %}
+</section>
+{% endblock %}

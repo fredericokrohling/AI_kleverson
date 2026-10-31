@@ -72,6 +72,8 @@ class Failure:
     sender: str | None = None
     # False quando "Tentar de novo" não adianta (link do Lucid ou do Canva).
     retryable: bool = True
+    # Item do bronze para abrir em "Conteúdo coletado" (o e-mail, ou a versão do arquivo).
+    item_id: int | None = None
 
 
 # Lista os arquivos que estão sem texto agora.
@@ -103,6 +105,7 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
                 message,
                 sender=item.author,
                 retryable=attachment.origin != "link_externo",
+                item_id=item.id,
             )
         )
     # Arquivos do Drive presentes e não dispensados. Pastas só entram quando chegaram por
@@ -135,6 +138,8 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
                 code,
                 message,
                 sender=email.author if email else None,
+                # A versão lida, se houver; senão o e-mail que citou o arquivo.
+                item_id=item.bronze_item_id or (email.id if email else None),
             )
         )
     # Mais recentes primeiro (sem data vão para o fim) e corta no limite.
