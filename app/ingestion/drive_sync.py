@@ -69,10 +69,13 @@ from app.config import Settings
 from app.ingestion.drive import FOLDER_MIME, download, explain
 
 # Extração de texto (a mesma dos anexos de e-mail) e mensagens com código.
-from app.ingestion.extractors import coded, extract_text
+from app.ingestion.extractors import Extraction, coded, extract_text
 
 # Guardar os originais.
 from app.ingestion.storage import FileStore, safe_suffix
+
+# Leitura pelo Claude no "Tentar de novo" (imagens e PDFs digitalizados).
+from app.ingestion.vision import VisionReader, extract_or_read, is_pending
 
 # Tabelas usadas.
 from app.models import Attachment, BronzeItem, DriveFolder, DriveItem, SourceKind, audit
@@ -757,7 +760,12 @@ def item_failure(session: Session, item: DriveItem) -> str | None:
 
 # "Tentar de novo" do console para um arquivo do Drive.
 def retry_drive_item(
-    session: Session, drive, store: FileStore, settings: Settings, item_id: int
+    session: Session,
+    drive,
+    store: FileStore,
+    settings: Settings,
+    item_id: int,
+    vision: VisionReader | None = None,
 ) -> str | None:
     """Tenta ler o arquivo agora. Devolve None se deu certo; senão o erro (com código)."""
     # O item.
@@ -770,7 +778,7 @@ def retry_drive_item(
     bronze = session.get(BronzeItem, item.bronze_item_id) if item.bronze_item_id else None
     # Já baixado, só a extração falhou: extrai de novo do original guardado, sem o Drive.
     if item.error is None and bronze is not None and bronze.extra.get("arquivo"):
-        return _reextract_version(store, item, bronze)
+        return _reextract_version(store, item, bronze, vision)
     # Falhou no download e o Google não está conectado: não há como tentar.
     if drive is None:
         return coded("GOOGLE_DESCONECTADO", "Conecte a conta Google para baixar de novo.")
@@ -812,15 +820,33 @@ def retry_drive_item(
         force=True,
     )
     # Resultado: o erro de download ou de extração, ou None.
-    return item_failure(session, item)
+    error = item_failure(session, item)
+    # Baixou uma imagem ou PDF digitalizado: lê com o Claude agora, sem esperar a fila.
+    if is_pending(error):
+        # Versão recém-gravada.
+        bronze = session.get(BronzeItem, item.bronze_item_id)
+        # Lê e devolve o resultado.
+        return _reextract_version(store, item, bronze, vision)
+    # Devolve.
+    return error
 
 
 # Extrai de novo o texto de uma versão a partir do original guardado no disco.
-def _reextract_version(store: FileStore, item: DriveItem, bronze: BronzeItem) -> str | None:
+def _reextract_version(
+    store: FileStore, item: DriveItem, bronze: BronzeItem, vision: VisionReader | None
+) -> str | None:
     # Caminho do original (o nome tem a extensão, que diz o formato ao extrator).
     key = bronze.extra["arquivo"]
-    # Extrai.
-    result = extract_text(store.read(key), key, None)
+    # Extrai; imagem ou PDF digitalizado vai para o Claude.
+    result, notice = extract_or_read(store.read(key), key, item.mime_type, vision)
+    # Grava o resultado na versão.
+    apply_version_text(item, bronze, result)
+    # O aviso (sem chave, teto do mês) ou o erro, se ainda houver.
+    return notice or result.error
+
+
+# Grava o texto (ou o erro) de uma versão já baixada. Usado aqui e na fila do Claude.
+def apply_version_text(item: DriveItem, bronze: BronzeItem, result: Extraction) -> None:
     # Texto derivado do original (o original não muda): pode ser atualizado.
     bronze.body_text = (result.text or "").replace("\x00", "")
     # Novo dicionário: o SQLAlchemy só percebe a mudança do JSON se o objeto for outro.
@@ -831,8 +857,6 @@ def _reextract_version(store: FileStore, item: DriveItem, bronze: BronzeItem) ->
         bronze.content_sha256 = item.content_sha256 = hashlib.sha256(
             result.text.encode()
         ).hexdigest()
-    # Erro, se ainda houver.
-    return result.error
 
 
 # Conveniência para a linha de comando e o agendador: monta tudo a partir da configuração.

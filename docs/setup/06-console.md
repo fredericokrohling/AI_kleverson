@@ -132,8 +132,8 @@ Para anexos e arquivos já baixados, a tentativa relê o original guardado, sem 
 
 | Código | O que significa | O que fazer |
 | --- | --- | --- |
-| `PDF_SEM_TEXTO` | PDF escaneado ou só com imagens | Aguardar a leitura de imagens (backlog) |
-| `IMAGEM_SEM_OCR` | Imagem (PNG, JPG...) | Aguardar a leitura de imagens (backlog) |
+| `PDF_SEM_TEXTO` | PDF digitalizado aguardando a leitura pelo Claude | Esperar até 5 minutos ou Tentar de novo (guia 7) |
+| `IMAGEM_SEM_OCR` | Imagem (PNG, JPG...) aguardando a leitura pelo Claude | Esperar até 5 minutos ou Tentar de novo (guia 7) |
 | `OFFICE_ANTIGO` | `.doc`, `.xls` ou `.ppt` antigos | Salvar como `.docx`, `.xlsx` ou `.pptx` e reenviar |
 | `TIPO_NAO_SUPORTADO` | Formato que o sistema não lê | Nada; fica registrado |
 | `FALHA_LEITURA` | Arquivo corrompido ou protegido por senha | Pedir uma cópia sem senha |
@@ -148,6 +148,9 @@ Para anexos e arquivos já baixados, a tentativa relê o original guardado, sem 
 | `DRIVE_HTTP_<n>` | Outro erro do Google (ex.: `DRIVE_HTTP_500`) | Tentar de novo mais tarde |
 | `GOOGLE_DESCONECTADO` | A conta Google não está conectada | Conectar em Configurações → Contas conectadas |
 | `SEM_ORIGINAL` | Registro antigo sem arquivo guardado | Nada a reprocessar |
+
+Os códigos da leitura pelo Claude (`IMAGEM_PEQUENA`, `CLAUDE_FALHOU` e outros) estão no
+[guia 7](07-leitura-imagens.md#76-códigos-novos-na-lista).
 
 Mensagens sem código são de registros gravados antes dos códigos existirem.
 
@@ -232,6 +235,9 @@ Depois de mudar o `.env`, rode `docker compose up -d`.
 ```bash
 # Varrer as pastas do Drive agora, vendo o resultado no terminal
 docker compose run --rm coletor python -m app.cli coletar-drive
+
+# Ler agora, com o Claude, as imagens e PDFs digitalizados da fila
+docker compose run --rm coletor python -m app.cli ler-imagens
 
 # Rodar os testes de saúde agora, no terminal
 docker compose run --rm coletor python -m app.cli verificar-saude

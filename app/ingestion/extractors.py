@@ -12,7 +12,12 @@ Bibliotecas (todas Python puro, sem programas externos no servidor):
 - pypdf para PDF;
 - python-docx para Word (.docx);
 - openpyxl para Excel (.xlsx);
-- python-pptx para PowerPoint (.pptx).
+- python-pptx para PowerPoint (.pptx);
+- Pillow só para conferir imagens (tamanho e formato).
+
+Imagens e PDFs escaneados não têm texto para tirar com biblioteca: saem daqui com os
+códigos IMAGEM_SEM_OCR e PDF_SEM_TEXTO, que significam "aguardando leitura pelo Claude".
+Quem lê é o vision.py, numa etapa separada (ver o porquê lá).
 """
 
 # io.BytesIO faz bytes na memória se comportarem como um arquivo aberto.
@@ -84,6 +89,10 @@ _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.prese
 _LEGACY_OFFICE = {".doc", ".xls", ".ppt"}
 # Extensões tratadas como texto simples.
 _TEXT_SUFFIXES = {".txt", ".csv", ".tsv", ".md", ".ics", ".json", ".xml", ".log"}
+# Extensões de imagem (o Drive às vezes não informa o tipo MIME na releitura).
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+# Imagens com o lado maior abaixo disto são ícones e logos: não valem uma chamada ao Claude.
+_MIN_IMAGE_SIDE = 200
 
 
 # Descobre o formato pelo nome e pelo tipo MIME. Devolve um rótulo curto.
@@ -118,7 +127,7 @@ def detect_kind(filename: str | None, mime_type: str | None) -> str:
     if suffix in _TEXT_SUFFIXES or mime.startswith("text/"):
         return "texto"
     # Imagens.
-    if mime.startswith("image/"):
+    if mime.startswith("image/") or suffix in _IMAGE_SUFFIXES:
         return "imagem"
     # Qualquer outra coisa.
     return "desconhecido"
@@ -155,12 +164,9 @@ def extract_text(data: bytes, filename: str | None, mime_type: str | None) -> Ex
                 "o original está guardado.",
             ),
         )
-    # Imagem: sem leitura de texto em imagem (OCR) por enquanto.
+    # Imagem: confere se dá para abrir e se não é um ícone; quem lê é o Claude, depois.
     if kind == "imagem":
-        return Extraction(
-            None,
-            coded("IMAGEM_SEM_OCR", "Imagem: leitura de texto em imagem (OCR) não implementada."),
-        )
+        return _image_check(data)
     # Formato que não sabemos ler.
     if kind not in readers:
         # Informa o tipo para você saber o que apareceu.
@@ -186,13 +192,49 @@ def extract_text(data: bytes, filename: str | None, mime_type: str | None) -> Ex
                 None,
                 coded(
                     "PDF_SEM_TEXTO",
-                    "PDF sem texto: provavelmente digitalizado (imagem); OCR não implementado.",
+                    "PDF sem texto (digitalizado): aguardando leitura pelo Claude.",
                 ),
             )
         # Outros formatos vazios: grava texto vazio, não é erro.
         return Extraction("")
     # Sucesso.
     return Extraction(text)
+
+
+# Imagem: diz se ela vai para o Claude (código IMAGEM_SEM_OCR) ou por que não vai.
+def _image_check(data: bytes) -> Extraction:
+    # Import local: o Pillow só carrega se aparecer uma imagem.
+    from PIL import Image, UnidentifiedImageError
+
+    # Tenta abrir só o cabeçalho (rápido, não decodifica a imagem inteira).
+    try:
+        # Abre a partir dos bytes.
+        with Image.open(io.BytesIO(data)) as image:
+            # Largura e altura em pixels.
+            width, height = image.size
+    # Formato que o Pillow não conhece (ex.: HEIC do iPhone) ou arquivo corrompido.
+    except (UnidentifiedImageError, OSError) as exc:
+        # Explica o que fazer.
+        return Extraction(
+            None,
+            coded(
+                "IMAGEM_FORMATO",
+                f"Formato de imagem não reconhecido ({type(exc).__name__}); "
+                "salve como PNG ou JPG na pasta monitorada.",
+            ),
+        )
+    # Ícone ou logo: pequeno demais para ter conteúdo útil.
+    if max(width, height) < _MIN_IMAGE_SIDE:
+        # Não gasta uma chamada ao Claude.
+        return Extraction(
+            None,
+            coded(
+                "IMAGEM_PEQUENA",
+                f"Imagem de {width}x{height} pixels (ícone ou logo); não enviada ao Claude.",
+            ),
+        )
+    # Imagem de verdade: fica na fila do Claude.
+    return Extraction(None, coded("IMAGEM_SEM_OCR", "Imagem: aguardando leitura pelo Claude."))
 
 
 # Converte bytes em texto tentando as codificações mais comuns.

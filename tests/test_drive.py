@@ -633,11 +633,11 @@ def test_retry_reextracts_drive_version(sessions, drive, store, settings, monkey
     sync_drive(sessions, drive, store, settings, now=NOW)
     # Downloads até aqui.
     downloads = len(drive.downloads)
-    # Simula um extrator melhor (por exemplo, com leitura de imagem).
-    from app.ingestion import drive_sync
+    # Simula um extrator melhor (por exemplo, uma biblioteca nova).
+    from app.ingestion import vision
 
-    # Troca o extrator.
-    monkeypatch.setattr(drive_sync, "extract_text", lambda *a: Extraction("Diagrama: CRM -> ERP"))
+    # Troca o extrator usado pelo "Tentar de novo".
+    monkeypatch.setattr(vision, "extract_text", lambda *a: Extraction("Diagrama: CRM -> ERP"))
     # Tenta de novo.
     with sessions() as s:
         # Linha do escaneado.
@@ -688,8 +688,8 @@ def test_failures_on_home_page(sessions, store, settings, monkeypatch):
         headers=SAME,
         follow_redirects=False,
     )
-    # Aviso de erro.
-    assert "Ainda com erro: [PDF_SEM_TEXTO]" in client.get("/", headers=OWNER).text
+    # Aviso: sem chave da Anthropic, o PDF digitalizado fica na fila do Claude.
+    assert "Ainda com erro: [CLAUDE_SEM_CHAVE]" in client.get("/", headers=OWNER).text
     # Origem adulterada: aviso, sem quebrar.
     client.post(
         "/arquivos/tentar",
@@ -700,10 +700,10 @@ def test_failures_on_home_page(sessions, store, settings, monkeypatch):
     # Aviso.
     assert "Origem desconhecida" in client.get("/", headers=OWNER).text
     # Simula um extrator melhor.
-    from app.ingestion import failures
+    from app.ingestion import vision
 
-    # Troca o extrator.
-    monkeypatch.setattr(failures, "extract_text", lambda *a: Extraction("texto por OCR"))
+    # Troca o extrator usado pelo "Tentar de novo".
+    monkeypatch.setattr(vision, "extract_text", lambda *a: Extraction("texto por OCR"))
     # Tenta todos.
     client.post("/arquivos/tentar-todos", headers=SAME, follow_redirects=False)
     # Aviso com as contagens; a lista some.

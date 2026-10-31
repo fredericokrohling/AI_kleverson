@@ -4,8 +4,8 @@ Por que falsos: os testes rodam no CI, sem conta Google e sem internet. Estas cl
 imitam só o pedaço das APIs do Gmail e do Drive que o coletor usa, com o mesmo formato
 de chamada (gmail.users().messages().get(...).execute()).
 
-Também ficam aqui os geradores de arquivos de exemplo (PDF, DOCX, XLSX, PPTX) e de
-e-mails, montados na hora para cada teste.
+Também ficam aqui os geradores de arquivos de exemplo (PDF, DOCX, XLSX, PPTX, PNG) e de
+e-mails, montados na hora para cada teste, e um Claude falso para a leitura de imagens.
 """
 
 # base64 codifica o e-mail como o Gmail entrega.
@@ -19,6 +19,9 @@ import json
 
 # EmailMessage monta e-mails no formato padrão.
 from email.message import EmailMessage
+
+# SimpleNamespace cria objetos simples com os campos que a resposta do Claude tem.
+from types import SimpleNamespace
 
 # httplib2.Response imita a resposta HTTP que acompanha um erro da API do Google.
 import httplib2
@@ -380,3 +383,60 @@ def make_email(
         msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
     # Bytes do e-mail.
     return msg.as_bytes()
+
+
+# PNG de exemplo: fundo branco com um retângulo (imita um diagrama).
+def make_png(width: int = 800, height: int = 600, mode: str = "RGB") -> bytes:
+    # Biblioteca de imagens.
+    from PIL import Image, ImageDraw
+
+    # Imagem nova, branca.
+    image = Image.new(mode, (width, height), "white")
+    # Desenha uma caixa, como num fluxograma.
+    ImageDraw.Draw(image).rectangle((10, 10, width // 2, height // 2), outline="black")
+    # Grava em PNG na memória.
+    buffer = io.BytesIO()
+    # Formato PNG.
+    image.save(buffer, format="PNG")
+    # Bytes.
+    return buffer.getvalue()
+
+
+# Imita client.beta.messages do SDK da Anthropic: guarda os pedidos, devolve a resposta.
+class FakeClaude:
+    # Texto da resposta, motivo de parada e um erro opcional para levantar.
+    def __init__(self, text: str = "Fluxo: Cadastro → Aprovação", stop: str = "end_turn"):
+        # Resposta e motivo.
+        self.text, self.stop = text, stop
+        # Erro a levantar no lugar da resposta (None = responde normalmente).
+        self.error: Exception | None = None
+        # Pedidos recebidos.
+        self.calls: list[dict] = []
+        # Mesmo caminho do SDK: client.beta.messages.create(...).
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    # O "create" do SDK.
+    def _create(self, **params):
+        # Anota o pedido.
+        self.calls.append(params)
+        # Erro configurado.
+        if self.error:
+            raise self.error
+        # Resposta no formato da API.
+        return SimpleNamespace(
+            # Um bloco de texto.
+            content=[SimpleNamespace(type="text", text=self.text)],
+            # Modelo que respondeu.
+            model=params["model"],
+            # Uso de tokens.
+            usage=SimpleNamespace(
+                input_tokens=1500,
+                output_tokens=300,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            ),
+            # Motivo da parada.
+            stop_reason=self.stop,
+            # Id da requisição.
+            _request_id="req_visao",
+        )
