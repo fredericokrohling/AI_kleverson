@@ -3,8 +3,8 @@
 Resultado: a cada 5 minutos o servidor lê os e-mails novos do seu Gmail e grava cada um no
 banco (camada bronze), com os anexos (PDF, Word, Excel, PowerPoint) já convertidos em
 texto. A coleta **começa no momento da instalação**: o histórico anterior não é importado.
-Links do Google Drive citados nos e-mails ficam só registrados; o conteúdo do Drive entra
-pelas pastas que você cadastrar no console (guia [06-console.md](06-console.md)).
+Arquivos do Google Drive citados por link nos e-mails também são lidos, mesmo fora das
+suas pastas, desde que a sua conta tenha acesso a eles (guia [06-console.md](06-console.md)).
 
 Pré-requisitos: instalação 1 a 4 concluída e a conta Google conectada pelo console
 (guia 02). **Nada muda no Google:** a coleta usa as permissões que já foram concedidas
@@ -45,8 +45,8 @@ docker compose ps -a
 ## 5.2 Pastas do Drive
 
 O Drive não é configurado no `.env`: as pastas monitoradas são cadastradas pelo console, em
-**Configurações → Pastas do Drive** (guia [06-console.md](06-console.md)). Links do Drive
-que aparecem nos e-mails ficam registrados (qual e-mail cita qual arquivo), sem baixar nada.
+**Configurações → Pastas do Drive** (guia [06-console.md](06-console.md)). Os arquivos do
+Drive citados por link nos e-mails são lidos à parte, sem precisar estar numa pasta.
 
 ## 5.3 Acompanhar a coleta
 
@@ -157,7 +157,8 @@ docker compose start coletor   # retoma de onde parou
 - **Word, Excel e PowerPoint antigos** (`.doc`, `.xls`, `.ppt`, anteriores a 2007): o
   original fica guardado, mas o texto ainda não é extraído.
 - **PDF escaneado e imagens:** sem leitura de texto em imagem (OCR).
-- **Links do Drive nos e-mails:** só registrados. Para o conteúdo entrar no banco, o
-  arquivo precisa estar numa pasta monitorada (guia 06).
+- **Links do Lucid e do Canva:** o conteúdo fica fora do Google e não é lido. O link
+  aparece em **Arquivos sem texto**, com o remetente e a data do e-mail, para você
+  exportar o diagrama como PDF ou PNG para uma pasta monitorada.
 - **Horários no console estão em UTC** (3 horas à frente de Brasília), como no restante
   do console hoje.

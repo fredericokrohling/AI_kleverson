@@ -44,6 +44,16 @@ _DRIVE_PATTERNS = [
     re.compile(r"https://drive\.google\.com/open\?id=([A-Za-z0-9_-]{20,})"),
 ]
 
+# Links de diagramas guardados fora do Google (Lucid, Canva). O conteúdo fica nos
+# servidores desses serviços, e não temos acesso a eles: o link só é avisado no console,
+# para você exportar o diagrama como PDF ou PNG. O grupo 1 é o domínio, que diz o serviço.
+_EXTERNAL_LINK = re.compile(
+    r"https://(?:[\w-]+\.)?(lucid\.app|lucidchart\.com|canva\.com)/[^\s\"'<>)\]]+"
+)
+
+# Nome legível de cada domínio.
+_EXTERNAL_SERVICES = {"lucid.app": "Lucid", "lucidchart.com": "Lucid", "canva.com": "Canva"}
+
 
 # Um anexo encontrado dentro do e-mail.
 @dataclass(frozen=True)
@@ -81,6 +91,8 @@ class ParsedEmail:
     attachments: list[ParsedAttachment] = field(default_factory=list)
     # Ids de arquivos do Drive citados no e-mail, sem repetição, na ordem em que aparecem.
     drive_file_ids: list[str] = field(default_factory=list)
+    # Links de diagramas fora do Google: pares (serviço, endereço), sem repetição.
+    external_links: list[tuple[str, str]] = field(default_factory=list)
 
 
 # Lê um cabeçalho sem quebrar a coleta se ele vier malformado.
@@ -140,6 +152,25 @@ def find_drive_ids(text: str) -> list[str]:
                 # Guarda.
                 found.append(file_id)
     # Devolve os ids.
+    return found
+
+
+# Encontra links do Lucid e do Canva num texto.
+def find_external_links(text: str) -> list[tuple[str, str]]:
+    # Lista final de (serviço, endereço).
+    found: list[tuple[str, str]] = []
+    # Cada ocorrência.
+    for match in _EXTERNAL_LINK.finditer(text):
+        # Endereço sem pontuação final (o ponto final de uma frase não faz parte do link)
+        # e sem o "&amp;" do HTML.
+        url = match.group(0).rstrip(".,;:!?").replace("&amp;", "&")
+        # Serviço pelo domínio.
+        pair = (_EXTERNAL_SERVICES[match.group(1)], url)
+        # Sem repetição (o mesmo link costuma vir no texto e no HTML).
+        if pair not in found:
+            # Guarda.
+            found.append(pair)
+    # Devolve.
     return found
 
 
@@ -253,5 +284,7 @@ def parse_email(raw: bytes) -> ParsedEmail:
             searchable.append(_part_text(part))
     # Procura os links do Drive em todo o texto juntado.
     parsed.drive_file_ids = find_drive_ids("\n".join(searchable))
+    # E os links do Lucid e do Canva.
+    parsed.external_links = find_external_links("\n".join(searchable))
     # Devolve o e-mail desmontado.
     return parsed

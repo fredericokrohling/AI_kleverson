@@ -19,6 +19,14 @@ Por que uma versão por item no bronze: o bronze é imutável. Uma planilha de c
 que muda toda semana vira uma linha por mudança, e o bloco 3 pode comparar as datas
 entre versões (é assim que se descobre que um marco escorregou).
 
+Arquivos citados por link nos e-mails: o coletor do Gmail só registra o id (origem
+"link_drive"). Depois das pastas, a rodada lê cada arquivo citado a que a sua conta tem
+acesso, mesmo fora das pastas monitoradas (de outra pessoa, de um drive corporativo).
+Eles entram na mesma tabela drive_items, sem pasta (folder_id vazio), e viram versões no
+bronze do mesmo jeito. Um link novo é lido na volta seguinte do agendador; os já lidos
+são conferidos a cada DRIVE_POLL_MINUTES. Se o arquivo também estiver numa pasta
+monitorada, a pasta manda (é ela que dá as tags herdadas).
+
 Erros: uma pasta que falha (sem acesso, apagada) não impede as outras; o motivo fica em
 drive_folders.last_error. Um arquivo que não dá para baixar fica com o motivo em
 drive_items.error e é tentado de novo na rodada seguinte.
@@ -67,7 +75,7 @@ from app.ingestion.extractors import coded, extract_text
 from app.ingestion.storage import FileStore, safe_suffix
 
 # Tabelas usadas.
-from app.models import BronzeItem, DriveFolder, DriveItem, SourceKind, audit
+from app.models import Attachment, BronzeItem, DriveFolder, DriveItem, SourceKind, audit
 
 # Logger com o nome do módulo.
 log = logging.getLogger(__name__)
@@ -109,6 +117,8 @@ class SyncSummary:
     file_errors: int = 0
     # Pastas monitoradas que falharam.
     folder_errors: int = 0
+    # Arquivos citados por link conferidos nesta rodada.
+    links: int = 0
 
     # Uma linha legível.
     def describe(self) -> str:
@@ -119,7 +129,7 @@ class SyncSummary:
         return (
             f"Drive: {self.folders} pasta(s), {self.items_seen} item(ns) vistos, "
             f"{self.new_versions} versão(ões) nova(s), {self.file_errors} arquivo(s) com erro, "
-            f"{self.folder_errors} pasta(s) com erro."
+            f"{self.folder_errors} pasta(s) com erro, {self.links} link(s) de e-mail conferido(s)."
         )
 
 
@@ -236,7 +246,7 @@ def deactivate_folder(session: Session, folder_id: int) -> None:
 
 # A varredura está atrasada? (usado pelo agendador)
 def drive_scan_due(session: Session, settings: Settings, now: datetime) -> bool:
-    """True se alguma pasta ativa nunca foi varrida ou se passou o intervalo."""
+    """True se há pasta ou link novo, ou se passou o intervalo desde a última conferência."""
     # Pasta ativa ainda não varrida (recém-cadastrada): varre já.
     never = session.scalar(
         select(func.count())
@@ -246,15 +256,31 @@ def drive_scan_due(session: Session, settings: Settings, now: datetime) -> bool:
     # Tem pasta nova.
     if never:
         return True
+    # Link citado num e-mail e ainda não lido (não há item com esse id): lê já.
+    if session.scalar(
+        select(func.count())
+        .select_from(Attachment)
+        .where(
+            Attachment.origin == "link_drive",
+            ~select(DriveItem.id).where(DriveItem.drive_id == Attachment.external_ref).exists(),
+        )
+    ):
+        return True
     # Varredura mais antiga entre as pastas ativas.
-    oldest = session.scalar(
+    oldest_folder = session.scalar(
         select(func.min(DriveFolder.last_scan_at)).where(DriveFolder.active.is_(True))
     )
-    # Nenhuma pasta ativa: nada a fazer.
-    if oldest is None:
+    # Conferência mais antiga entre os arquivos que chegaram por link.
+    oldest_link = session.scalar(
+        select(func.min(DriveItem.last_seen_at)).where(DriveItem.folder_id.is_(None))
+    )
+    # As datas que existem (sem pasta e sem link, a lista fica vazia).
+    dates = [d for d in (oldest_folder, oldest_link) if d is not None]
+    # Nada a acompanhar.
+    if not dates:
         return False
-    # Atrasada se passou o intervalo.
-    return now - oldest >= timedelta(minutes=settings.drive_poll_minutes)
+    # Atrasada se a mais antiga passou do intervalo.
+    return now - min(dates) >= timedelta(minutes=settings.drive_poll_minutes)
 
 
 # Ponto de entrada: uma rodada completa em todas as pastas ativas.
@@ -321,6 +347,16 @@ def sync_drive(
                         log.exception("Falha ao varrer a pasta %s", folder.drive_id)
                     # Grava o estado da pasta.
                     session.commit()
+                # Depois das pastas, os arquivos citados por link nos e-mails.
+                try:
+                    # Lê os novos e confere os já lidos.
+                    _sync_links(session, drive, store, settings, now, summary)
+                # Falha inesperada (rede): as pastas já foram gravadas; a próxima rodada tenta.
+                except Exception:
+                    # Desfaz o que estava pela metade.
+                    session.rollback()
+                    # Rastro completo no log.
+                    log.exception("Falha ao ler os arquivos citados por link")
                 # Registra na auditoria só quando algo aconteceu.
                 if summary.new_versions or summary.folder_errors:
                     # Ação "drive.varredura" com as contagens.
@@ -469,16 +505,34 @@ def _sync_item(
     item = session.scalars(select(DriveItem).where(DriveItem.drive_id == meta["id"])).first()
     # Novo.
     if item is None:
-        # Pertence à pasta monitorada que o encontrou.
-        item = DriveItem(drive_id=meta["id"], folder_id=folder.id)
+        # Cria.
+        item = DriveItem(drive_id=meta["id"])
         # Prepara.
         session.add(item)
+    # Pertence à pasta monitorada que o encontrou (mesmo que antes tenha chegado por link:
+    # a pasta manda, porque é ela que dá as tags herdadas).
+    item.folder_id = folder.id
     # Pasta-mãe: a pasta que estamos listando.
     item.parent_drive_id = parent_id
-    # Nome atual.
-    item.name = meta.get("name") or meta["id"]
+    # Nome, tipo, data, tamanho e link.
+    _apply_meta(item, meta)
     # Caminho legível.
     item.path = f"{parent_path}/{item.name}"
+    # Visto agora; se tinha sumido e voltou, deixa de estar removido.
+    item.last_seen_at, item.removed = now, False
+    # Pastas não têm conteúdo para baixar.
+    if item.is_folder:
+        return item
+    # Lê a versão, se for nova.
+    _read_version(session, drive, store, item, meta, max_bytes, summary)
+    # Devolve.
+    return item
+
+
+# Copia para o item os dados que o Drive informou.
+def _apply_meta(item: DriveItem, meta: dict[str, Any]) -> None:
+    # Nome atual.
+    item.name = meta.get("name") or meta["id"]
     # Tipo.
     item.mime_type = meta.get("mimeType")
     # Pasta?
@@ -489,15 +543,104 @@ def _sync_item(
     item.size_bytes = int(meta["size"]) if meta.get("size") else None
     # Link.
     item.web_link = meta.get("webViewLink")
-    # Visto agora; se tinha sumido e voltou, deixa de estar removido.
-    item.last_seen_at, item.removed = now, False
-    # Pastas não têm conteúdo para baixar.
-    if item.is_folder:
-        return item
-    # Lê a versão, se for nova.
-    _read_version(session, drive, store, item, meta, max_bytes, summary)
-    # Devolve.
-    return item
+
+
+# Mensagem para link de pasta: o sistema não varre pastas que só foram citadas.
+_FOLDER_LINK = coded(
+    "DRIVE_LINK_PASTA",
+    "O link aponta para uma pasta. Para ler o conteúdo, cadastre-a em Configurações → "
+    "Pastas do Drive.",
+)
+
+
+# Lê os arquivos do Drive citados por link nos e-mails, fora das pastas monitoradas.
+def _sync_links(
+    session: Session,
+    drive,
+    store: FileStore,
+    settings: Settings,
+    now: datetime,
+    summary: SyncSummary,
+) -> None:
+    # Ids de arquivos citados em algum e-mail.
+    refs = session.scalars(
+        select(Attachment.external_ref)
+        .where(Attachment.origin == "link_drive", Attachment.external_ref.is_not(None))
+        .distinct()
+    ).all()
+    # Nenhum link: nada a fazer.
+    if not refs:
+        return
+    # Pastas monitoradas ligadas.
+    active = set(session.scalars(select(DriveFolder.id).where(DriveFolder.active.is_(True))))
+    # Itens que já existem, por id do Drive.
+    known = {
+        i.drive_id: i
+        for i in session.scalars(select(DriveItem).where(DriveItem.drive_id.in_(refs)))
+    }
+    # Limite em bytes para download (o mesmo das pastas).
+    max_bytes = settings.drive_max_file_mb * 1024 * 1024
+    # Intervalo entre conferências de um arquivo já lido.
+    interval = timedelta(minutes=settings.drive_poll_minutes)
+    # Cada arquivo citado.
+    for ref in refs:
+        # O item, se existir.
+        item = known.get(ref)
+        # Já está numa pasta monitorada ativa: a varredura da pasta cuida dele.
+        if item is not None and item.folder_id in active and not item.removed:
+            continue
+        # Chegou por link e foi conferido há pouco: espera o intervalo.
+        if (
+            item is not None
+            and item.folder_id is None
+            and item.last_seen_at is not None
+            and now - item.last_seen_at < interval
+        ):
+            continue
+        # Link novo: cria o item, por enquanto só com o id.
+        if item is None:
+            # Nome provisório; o Drive informa o real logo abaixo.
+            item = DriveItem(drive_id=ref, name=ref, path=ref)
+            # Prepara.
+            session.add(item)
+        # Daqui em diante é acompanhado pelo link: sem pasta, sem pasta-mãe, presente.
+        item.folder_id, item.parent_drive_id, item.removed = None, None, False
+        # Conferido agora.
+        item.last_seen_at = now
+        # Conta.
+        summary.links += 1
+        # Pergunta ao Drive os dados atuais.
+        try:
+            # Mesmos campos da listagem das pastas.
+            meta = (
+                drive.files()
+                .get(fileId=ref, fields=_ITEM_FIELDS, supportsAllDrives=True)
+                .execute(num_retries=3)
+            )
+        # Sem acesso, apagado, bloqueado: guarda o motivo (aparece na página inicial).
+        except HttpError as exc:
+            # Motivo com código.
+            item.error = explain(exc)
+            # Conta.
+            summary.file_errors += 1
+            # Grava.
+            session.commit()
+            # Segue para o próximo.
+            continue
+        # Nome, tipo, data, tamanho e link.
+        _apply_meta(item, meta)
+        # Sem pasta, o caminho é só o nome.
+        item.path = item.name
+        # Link de pasta: avisa como ler o conteúdo, sem varrer.
+        if item.is_folder:
+            # Aviso no lugar do erro.
+            item.error = _FOLDER_LINK
+        # Arquivo: lê a versão, se for nova.
+        else:
+            # Baixa, extrai e grava, como nas pastas.
+            _read_version(session, drive, store, item, meta, max_bytes, summary)
+        # Confirma item por item.
+        session.commit()
 
 
 # Baixa, extrai e grava a versão atual de um arquivo, se for nova (ou se force=True).
@@ -619,8 +762,9 @@ def retry_drive_item(
     """Tenta ler o arquivo agora. Devolve None se deu certo; senão o erro (com código)."""
     # O item.
     item = session.get(DriveItem, item_id)
-    # Não existe ou é pasta.
-    if item is None or item.is_folder:
+    # Não existe, ou é pasta de uma pasta monitorada (pasta citada por link pode ser
+    # tentada: talvez o link agora aponte para um arquivo acessível).
+    if item is None or (item.is_folder and item.folder_id is not None):
         raise ValueError("Arquivo do Drive não encontrado.")
     # Versão atual no bronze.
     bronze = session.get(BronzeItem, item.bronze_item_id) if item.bronze_item_id else None
@@ -643,6 +787,18 @@ def retry_drive_item(
         # Guarda e devolve o motivo.
         item.error = explain(exc)
         # Motivo.
+        return item.error
+    # Dados atuais no item.
+    _apply_meta(item, meta)
+    # Chegou por link (sem pasta): o caminho é só o nome, que agora o Drive informou.
+    if item.folder_id is None:
+        # Caminho atualizado.
+        item.path = item.name
+    # Pasta citada por link: continua sem varrer, com o mesmo aviso.
+    if item.is_folder:
+        # Aviso.
+        item.error = _FOLDER_LINK
+        # Devolve.
         return item.error
     # Lê de novo, mesmo que a versão seja a mesma.
     _read_version(

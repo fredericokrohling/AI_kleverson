@@ -117,11 +117,21 @@ def index(request: Request, owner: Owner, db: DB):
         "folders": db.scalar(
             select(func.count()).select_from(DriveFolder).where(DriveFolder.active.is_(True))
         ),
-        # Arquivos (não pastas) ainda presentes.
+        # Arquivos (não pastas) ainda presentes nas pastas monitoradas.
         "files": db.scalar(
             select(func.count())
             .select_from(DriveItem)
-            .where(DriveItem.is_folder.is_(False), DriveItem.removed.is_(False))
+            .where(
+                DriveItem.is_folder.is_(False),
+                DriveItem.removed.is_(False),
+                DriveItem.folder_id.is_not(None),
+            )
+        ),
+        # Arquivos que chegaram por link num e-mail (fora das pastas).
+        "linked": db.scalar(
+            select(func.count())
+            .select_from(DriveItem)
+            .where(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None))
         ),
         # Versões gravadas.
         "versions": db.scalar(

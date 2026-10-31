@@ -4,7 +4,7 @@ Resultado: o console ganha um menu lateral com três atalhos:
 
 | Ícone | Página | O que tem |
 | --- | --- | --- |
-| Casa | Início | Coleta de e-mail, pastas do Drive (totais), arquivos sem texto e últimas ações |
+| Casa | Início | Coleta de e-mail, Drive (totais), arquivos sem texto e últimas ações |
 | Engrenagem | Configurações | Contas conectadas, Claude (modelo, esforço, gasto, teste), idioma da transcrição, pastas do Drive monitoradas e tags |
 | Coração | Saúde | Situação de cada serviço, versão instalada x versão nova, botões de terminal |
 
@@ -26,9 +26,10 @@ docker compose up -d --build
 
 **O que acontece:**
 
-1. O serviço `migrate` aplica a migração `0004`: tabelas de configurações, tags, pastas e
-   itens do Drive, testes de saúde, e duas views que calculam a herança das tags. Nada
-   existente é apagado.
+1. O serviço `migrate` aplica as migrações `0004` e `0005`: tabelas de configurações,
+   tags, pastas e itens do Drive, testes de saúde, duas views que calculam a herança das
+   tags, e os campos para arquivos citados por link e avisos dispensados. Nada existente é
+   apagado.
 2. O serviço `coletor` passa a rodar o **agendador**: Gmail a cada 5 min, pastas do Drive a
    cada 30 min e testes de saúde a cada 10 min.
 3. O console passa a ler a pasta `.git` do projeto (só leitura) para mostrar qual versão
@@ -101,15 +102,25 @@ clique **+ tag**; se a tag não existir, ela é criada.
 
 **Onde:** no console, página inicial, seção **Arquivos sem texto**.
 
-A lista mostra cada anexo de e-mail ou arquivo do Drive que não virou texto. Em cada linha
-aparecem o nome, a origem (assunto do e-mail ou caminho no Drive), a data, o **código do
-erro** e a explicação. Enquanto um arquivo não vira texto, a IA não sabe o que há nele.
+A lista mostra tudo que chegou mas não virou texto: anexos de e-mail, arquivos do Drive
+(das pastas ou citados por link num e-mail), arquivos acima do limite de tamanho e links
+do Lucid e do Canva. Em cada linha aparecem o nome, a origem (assunto do e-mail ou caminho
+no Drive), o **remetente** e a **data e hora** do e-mail, o **código do erro** e a
+explicação. Enquanto um arquivo não vira texto, a IA não sabe o que há nele.
 
 - **Tentar de novo** (em cada linha): lê o arquivo outra vez. Se funcionar, aparece
-  "Funcionou" e a linha some. Se não, aparece "Ainda com erro", com o código.
+  "Funcionou" e a linha some. Se não, aparece "Ainda com erro", com o código. Não aparece
+  nos links do Lucid e do Canva, em que tentar de novo não adianta.
 - **Tentar todos de novo**: faz o mesmo para a lista inteira e mostra quantos foram
   resolvidos.
-- Cada tentativa fica registrada em **Últimas ações**.
+- **Dispensar**: tira a linha da lista sem apagar nada. Use depois de resolver à mão (por
+  exemplo, depois de exportar o diagrama do Lucid como PDF ou PNG para a pasta monitorada).
+  "Tentar de novo" num item dispensado o devolve à lista se ainda falhar.
+- Cada tentativa e cada aviso dispensado ficam registrados em **Últimas ações**.
+
+**Arquivos citados por link:** um link do Drive num e-mail é lido em até 1 minuto, mesmo
+que o arquivo não esteja numa pasta sua, desde que a sua conta tenha acesso. Depois, ele é
+conferido a cada 30 minutos, e cada mudança vira uma versão nova.
 
 Quando vale a pena tentar de novo: depois que o dono liberar o download ou compartilhar o
 arquivo com você, ou depois de uma atualização do sistema que passe a ler um formato novo.
@@ -128,6 +139,8 @@ Para anexos e arquivos já baixados, a tentativa relê o original guardado, sem 
 | `DRIVE_EXPORTACAO_GRANDE` | Docs, Sheets ou Slides acima de 10 MB (limite do Google) | Dividir o arquivo |
 | `DRIVE_ARQUIVO_GRANDE` | Arquivo acima de `DRIVE_MAX_FILE_MB` | Aumentar o limite no `.env` (6.8) e Tentar de novo |
 | `DRIVE_TIPO_NAO_EXPORTAVEL` | Formulário, Desenho e outros tipos do Google sem exportação útil | Nada; fica registrado |
+| `DRIVE_LINK_PASTA` | O link no e-mail aponta para uma pasta, que não é varrida | Cadastrar a pasta em Configurações (6.2), se quiser o conteúdo |
+| `LINK_EXTERNO_NAO_LIDO` | Diagrama do Lucid ou do Canva: o conteúdo fica fora do Google | Exportar como PDF ou PNG para uma pasta monitorada e Dispensar |
 | `DRIVE_HTTP_<n>` | Outro erro do Google (ex.: `DRIVE_HTTP_500`) | Tentar de novo mais tarde |
 | `GOOGLE_DESCONECTADO` | A conta Google não está conectada | Conectar em Configurações → Contas conectadas |
 | `SEM_ORIGINAL` | Registro antigo sem arquivo guardado | Nada a reprocessar |

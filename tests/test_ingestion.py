@@ -21,7 +21,7 @@ from sqlalchemy import select, text
 from app.config import Settings
 
 # O que estamos testando: leitura do e-mail...
-from app.ingestion.email_parser import find_drive_ids, parse_email
+from app.ingestion.email_parser import find_drive_ids, find_external_links, parse_email
 
 # ...extratores...
 from app.ingestion.extractors import detect_kind, extract_text, html_to_text
@@ -258,6 +258,21 @@ def test_find_drive_ids():
     )
     # Três ids distintos.
     assert found == [SHEET_ID, SHEET_ID + "x", SHEET_ID + "y"]
+
+
+# Links do Lucid e do Canva: sem pontuação final, sem "&amp;" e sem repetição.
+def test_find_external_links():
+    # Texto e HTML com os mesmos links.
+    text = (
+        "veja https://lucid.app/lucidchart/abc-123/edit?a=1&amp;b=2. e "
+        '<a href="https://www.canva.com/design/DAF/view">x</a> '
+        "https://lucid.app/lucidchart/abc-123/edit?a=1&b=2"
+    )
+    # Um de cada serviço.
+    assert find_external_links(text) == [
+        ("Lucid", "https://lucid.app/lucidchart/abc-123/edit?a=1&b=2"),
+        ("Canva", "https://www.canva.com/design/DAF/view"),
+    ]
 
 
 # --- Coletor ---------------------------------------------------------------------

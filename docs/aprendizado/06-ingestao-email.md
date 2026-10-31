@@ -141,18 +141,41 @@ contagem dos primeiros dias de coleta (guia 05, passo 5.5) diz se vale a pena.
 Em empresas que usam Google Workspace, o cronograma raramente vem anexado: vem um link.
 O coletor procura links do Drive no texto e no HTML do e-mail (o Gmail coloca o link no
 `href`, invisível no texto) e **registra** cada um: uma linha em `attachments` com origem
-`link_drive` e o id do arquivo. Nada é baixado.
+`link_drive` e o id do arquivo.
 
-### Por que só registrar
-A primeira versão deste bloco baixava o arquivo do link quando ele estava dentro de uma
-pasta autorizada (`DRIVE_FOLDER_ID`). Ela foi substituída pelas **pastas monitoradas**,
-cadastradas no console (guia [07](07-console-drive-saude.md)): o sistema lê a pasta
-inteira e grava uma versão nova a cada mudança, com tags. Um arquivo citado num e-mail e
-guardado numa pasta monitorada já está no bronze; o registro do link liga o e-mail a ele
-pelo id. Baixar de novo pelo link seria duplicar, e baixar links de fora das pastas encheria
-o disco com arquivos que você não escolheu.
+### Quem lê o conteúdo do link
+O coletor de e-mail não baixa o arquivo: quem lê é o monitor do Drive, na volta seguinte do
+agendador (em até 1 minuto). Ele lê cada arquivo citado a que a sua conta tem acesso, mesmo
+fora das pastas monitoradas: um cronograma de outra pessoa, um documento num drive
+corporativo, um arquivo compartilhado só para leitura. Cada mudança no arquivo vira uma
+versão nova no bronze, como nas pastas.
 
-**Importante:** o limite de pastas é do **código**, não da **permissão**. A
+Por que separar: a coleta de e-mail continua rápida. Um arquivo grande ou um Drive lento
+não atrasa a gravação dos e-mails, e um erro no Drive não marca a rodada do Gmail como
+"com erros".
+
+Se o arquivo também estiver numa pasta monitorada, a pasta manda: é ela que dá as tags
+herdadas. Arquivos acima de `DRIVE_MAX_FILE_MB`, sem acesso ou com download bloqueado pelo
+dono aparecem em **Arquivos sem texto**, com o remetente e a data do e-mail.
+
+> **Decisão: ler os arquivos citados por link (31/10/2026, revisa a decisão anterior)**
+> Avaliamos **A — só registrar o link; o conteúdo entra pelas pastas monitoradas** e
+> **B — ler todo arquivo citado por link a que a conta tem acesso, até 25 MB**, e
+> optamos por **B**:
+> - Arquivos de outras pessoas e de drives corporativos chegam por link; você não consegue
+>   colocá-los na sua pasta, e sem eles a IA perde contexto.
+> - O disco continua sob controle: o limite de tamanho vale também para os links, e o que
+>   passa dele aparece na lista de arquivos sem texto.
+
+### Links do Lucid e do Canva
+Um diagrama do Lucid ou do Canva fica nos servidores desses serviços, fora do Google (no
+Drive, um arquivo do Lucid é só um atalho). Ler direto exigiria conectar sua conta neles.
+Por isso o coletor só registra o link (origem `link_externo`) com o código
+`LINK_EXTERNO_NAO_LIDO`, e ele aparece na página inicial com o remetente e a data do
+e-mail. Você exporta o diagrama como PDF ou PNG para uma pasta monitorada e dispensa o
+aviso.
+
+**Importante:** qualquer limite de leitura do Drive é do **código**, não da **permissão**. A
 `drive.readonly` lê o Drive inteiro. O Google não tem uma permissão "ler só esta pasta" (a
 `drive.file`, a mais restrita, só enxerga arquivos criados pelo próprio app ou escolhidos
 num seletor na tela, o que não serve para um coletor automático). É diferente do envio de

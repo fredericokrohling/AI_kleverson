@@ -35,7 +35,7 @@ from app.ingestion.drive_sync import (
 from app.ingestion.extractors import Extraction, split_error
 
 # Arquivos sem texto: lista e "Tentar de novo".
-from app.ingestion.failures import list_failures, retry
+from app.ingestion.failures import list_failures, retry, retry_all
 
 # Coleta do Gmail, para gerar um anexo com erro.
 from app.ingestion.gmail import collect_gmail
@@ -716,3 +716,171 @@ def test_failures_on_home_page(sessions, store, settings, monkeypatch):
         assert s.get(Attachment, attachment_id).extracted_text == "texto por OCR"
     # Sem o cabeçalho de origem, o POST é recusado.
     assert client.post("/arquivos/tentar-todos", headers=OWNER).status_code == 403
+
+
+# --- Arquivos citados por link nos e-mails ------------------------------------------
+
+# Ids com o tamanho real (os padrões de link exigem 20 caracteres ou mais). Planilha de
+# outra pessoa, fora das pastas monitoradas.
+LINKED = "planilhaDeOutraPessoa000001"
+# Arquivo sem acesso (não existe no Drive falso: 404).
+NO_ACCESS = "arquivoSemAcesso00000000001"
+# Arquivo grande demais.
+BIG = "videoGrandeDemais0000000001"
+# Pasta citada por link.
+FOLDER_LINK = "pastaCitadaPorLink000000001"
+# Arquivo que também está numa pasta monitorada.
+IN_FOLDER = "documentoNaPastaCRM00000001"
+
+
+# Coleta um e-mail por link, cada um com assunto próprio.
+def _collect_links(sessions, store, settings, links: dict[str, str]) -> None:
+    # E-mails: id → assunto e link no HTML.
+    gmail = FakeGmail(
+        {
+            f"m{n}": {"raw": make_email(subject=subject, html_link=link), "thread": f"t{n}"}
+            for n, (subject, link) in enumerate(links.items())
+        }
+    )
+    # Coleta.
+    collect_gmail(sessions, gmail, store, settings, now=NOW)
+
+
+# Links do Drive nos e-mails são lidos, mesmo fora das pastas; erros aparecem com o e-mail.
+def test_linked_files_are_read(sessions, drive, store, settings):
+    # Arquivos no Drive falso.
+    drive.files_by_id.update(
+        {
+            # Planilha de outra pessoa, compartilhada só para leitura.
+            LINKED: {"name": "Cronograma do cliente", "mimeType": SHEET, "data": make_xlsx()},
+            # PDF de 999 MB.
+            BIG: {"name": "Gravação.pdf", "mimeType": "application/pdf", "size": 999_999_999},
+            # Uma pasta.
+            FOLDER_LINK: {"name": "Pasta do cliente"},
+            # Documento dentro da pasta monitorada.
+            IN_FOLDER: {
+                "name": "Escopo.pdf",
+                "mimeType": "application/pdf",
+                "data": make_pdf("Escopo do CRM"),
+                "parents": [ROOT],
+            },
+        }
+    )
+    # Cadastra a pasta monitorada.
+    _add(sessions, drive)
+    # Um e-mail para cada link.
+    _collect_links(
+        sessions,
+        store,
+        settings,
+        {
+            "Cronograma": f"https://docs.google.com/spreadsheets/d/{LINKED}/edit",
+            "Sem acesso": f"https://drive.google.com/file/d/{NO_ACCESS}/view",
+            "Gravação": f"https://drive.google.com/file/d/{BIG}/view",
+            "Pasta": f"https://drive.google.com/open?id={FOLDER_LINK}",
+            "Escopo": f"https://drive.google.com/file/d/{IN_FOLDER}/view",
+        },
+    )
+    # Links novos: o agendador roda o Drive já, mesmo com a pasta varrida há pouco.
+    with sessions() as s:
+        # Precisa.
+        assert drive_scan_due(s, settings, NOW)
+    # Rodada: pastas e links.
+    summary = sync_drive(sessions, drive, store, settings, now=NOW)
+    # Quatro links conferidos; o da pasta monitorada fica com a pasta.
+    assert summary.links == 4
+    # Confere.
+    with sessions() as s:
+        # A planilha de outra pessoa virou versão no bronze, sem pasta.
+        linked = _item(s, LINKED)
+        # Sem pasta, com versão.
+        assert linked.folder_id is None and linked.path == "Cronograma do cliente"
+        # Texto com as abas.
+        assert "### Planilha:" in s.get(BronzeItem, linked.bronze_item_id).body_text
+        # O documento da pasta continua da pasta.
+        assert _item(s, IN_FOLDER).folder_id is not None
+        # Lista de arquivos sem texto, por nome.
+        rows = {f.name: f for f in list_failures(s)}
+        # Sem acesso: o nome é o id (o Drive não informou), com o e-mail de origem.
+        no_access = rows[NO_ACCESS]
+        # Código, origem, remetente e data do e-mail.
+        assert no_access.code == "DRIVE_SEM_ACESSO"
+        # Origem.
+        assert no_access.origin == "Link no e-mail: Sem acesso"
+        # Remetente.
+        assert "ana@cliente.com" in no_access.sender and no_access.when is not None
+        # Acima de 25 MB: na mesma lista.
+        assert rows["Gravação.pdf"].code == "DRIVE_ARQUIVO_GRANDE"
+        # Pasta citada por link: aviso de como ler.
+        assert rows["Pasta do cliente"].code == "DRIVE_LINK_PASTA"
+    # Logo depois: nada para conferir.
+    with sessions() as s:
+        # Nem pasta nem link atrasados.
+        assert not drive_scan_due(s, settings, NOW + timedelta(minutes=1))
+    # O prazo da planilha escorrega.
+    drive.files_by_id[LINKED].update(version=2, data=make_xlsx(day=27))
+    # Passado o intervalo, os links são conferidos de novo.
+    later = NOW + timedelta(minutes=31)
+    # Precisa.
+    with sessions() as s:
+        # Atrasado.
+        assert drive_scan_due(s, settings, later)
+    # Rodada.
+    sync_drive(sessions, drive, store, settings, now=later)
+    # Confere.
+    with sessions() as s:
+        # Duas versões da planilha.
+        versions = s.scalars(
+            select(BronzeItem.external_id).where(BronzeItem.thread_id == LINKED)
+        ).all()
+        # A antiga e a nova.
+        assert sorted(versions) == [f"{LINKED}:1", f"{LINKED}:2"]
+
+
+# Lucid e Canva: aviso com remetente, sem "Tentar de novo"; "Dispensar" tira da lista.
+def test_external_links_and_dismiss(sessions, store, settings, monkeypatch):
+    # E-mail com um link do Lucid.
+    _collect_links(
+        sessions,
+        store,
+        settings,
+        {"Arquitetura": "https://lucid.app/lucidchart/abc-123/edit?invitationId=x"},
+    )
+    # As rotas usam a configuração do teste.
+    from app import routes_failures
+
+    # Troca a configuração.
+    monkeypatch.setattr(routes_failures, "get_settings", lambda: settings)
+    # Cliente.
+    client = TestClient(app)
+    # A página inicial mostra o aviso, o remetente e nenhum botão de tentar.
+    page = client.get("/", headers=OWNER).text
+    # Código e remetente.
+    assert "LINK_EXTERNO_NAO_LIDO" in page and "ana@cliente.com" in page
+    # Sem botão de tentar (é o único item da lista).
+    assert "Tentar de novo</button>" not in page and "Dispensar" in page
+    # "Tentar todos" não conta o link.
+    with sessions() as s:
+        # Nada tentado.
+        assert retry_all(s, store, settings) == (0, 0)
+        # Id do link.
+        link_id = s.scalar(select(Attachment.id).where(Attachment.origin == "link_externo"))
+    # Dispensa pelo formulário.
+    client.post(
+        "/arquivos/dispensar",
+        data={"origem": "anexo", "id": link_id},
+        headers=SAME,
+        follow_redirects=False,
+    )
+    # Saiu da lista, com aviso.
+    page = client.get("/", headers=OWNER).text
+    # Aviso e lista vazia.
+    assert "Aviso dispensado." in page and "Nenhum arquivo sem texto." in page
+    # O registro continua, com o motivo.
+    with sessions() as s:
+        # Linha.
+        row = s.get(Attachment, link_id)
+        # Dispensado, mas guardado.
+        assert row.dismissed_at is not None and row.extraction_error
+        # Na auditoria.
+        assert s.scalar(select(AuditLog).where(AuditLog.action == "arquivo.dispensar"))

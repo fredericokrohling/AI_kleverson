@@ -81,6 +81,12 @@ pede uma ação diferente.
 >
 > **Revisitar** se precisarmos filtrar ou contar erros por código em consultas pesadas.
 
+### Remetente, data e "Dispensar"
+Para o que veio de e-mail (anexos, links do Drive, links do Lucid e do Canva), a linha
+mostra o remetente e a data e hora do e-mail, para você achar a mensagem. "Dispensar"
+grava a data em `dismissed_at` e a linha sai da lista; o registro e o motivo continuam no
+banco. É o caminho para os avisos que você resolve à mão, como exportar um diagrama.
+
 ### O que "Tentar de novo" faz
 - **Já baixado, só a leitura falhou** (PDF escaneado, imagem): relê o original guardado
   no disco. Não chama o Google. Serve para quando o sistema ganhar um leitor novo.

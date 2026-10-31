@@ -30,22 +30,31 @@
 <section id="erros">
   <h2>Arquivos sem texto</h2>
   {% if failures %}
-    <p class="muted">Estes arquivos foram guardados, mas o texto não pôde ser lido, então a IA não os enxerga.
-      O código diz o motivo; "Tentar de novo" lê outra vez (útil depois que o dono liberar o download, por exemplo).</p>
+    <p class="muted">A IA não enxerga o conteúdo destes arquivos. O código diz o motivo. "Tentar de novo" lê outra vez
+      (útil depois que o dono liberar o download, por exemplo); "Dispensar" tira o aviso da lista, sem apagar nada
+      (por exemplo, depois de exportar à mão um diagrama do Lucid para a pasta monitorada).</p>
     <div class="tabela"><table>
-      <tr><th>Arquivo</th><th>Origem</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
+      <tr><th>Arquivo</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
       {% for f in failures %}
         <tr>
           <td>{{ f.name }}</td>
           <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
-          <td>{{ f.when.strftime("%d/%m %H:%M") if f.when else "" }}</td>
+          <td>{{ f.sender or "" }}</td>
+          <td>{{ f.when.strftime("%d/%m/%Y %H:%M") if f.when else "" }}</td>
           <td><code>{{ f.code or "—" }}</code></td>
           <td>{{ f.message }}</td>
           <td>
-            <form class="inline" method="post" action="/arquivos/tentar">
+            {% if f.retryable %}
+              <form class="inline" method="post" action="/arquivos/tentar">
+                <input type="hidden" name="origem" value="{{ f.kind }}">
+                <input type="hidden" name="id" value="{{ f.ref_id }}">
+                <button class="mini" type="submit">Tentar de novo</button>
+              </form>
+            {% endif %}
+            <form class="inline" method="post" action="/arquivos/dispensar">
               <input type="hidden" name="origem" value="{{ f.kind }}">
               <input type="hidden" name="id" value="{{ f.ref_id }}">
-              <button class="mini" type="submit">Tentar de novo</button>
+              <button class="mini secundario" type="submit">Dispensar</button>
             </form>
           </td>
         </tr>
@@ -59,7 +68,8 @@
 
 <section>
   <h2>Pastas do Drive</h2>
-  <p>{{ drive.folders }} pasta(s) monitorada(s), {{ drive.files }} arquivo(s) encontrados e
+  <p>{{ drive.folders }} pasta(s) monitorada(s) com {{ drive.files }} arquivo(s),
+    {{ drive.linked }} arquivo(s) citado(s) por link em e-mails e
     <strong>{{ drive.versions }}</strong> versão(ões) gravadas no bronze.
     <a href="/config#drive">Gerenciar pastas e tags</a></p>
 </section>

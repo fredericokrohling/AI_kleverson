@@ -264,7 +264,8 @@ class Attachment(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text)
     # Se a extração falhou, o motivo fica aqui (para você saber o que não foi lido).
     extraction_error: Mapped[str | None] = mapped_column(Text)
-    # Como o arquivo chegou: "anexo" (dentro do e-mail) ou "link_drive" (link no corpo).
+    # Como o arquivo chegou: "anexo" (dentro do e-mail), "link_drive" (link do Drive no
+    # corpo; o conteúdo vai para drive_items) ou "link_externo" (Lucid, Canva: não lido).
     origin: Mapped[str] = mapped_column(String(20), server_default="anexo")
     # Identificador na origem, quando houver (ex.: id do arquivo no Drive).
     external_ref: Mapped[str | None] = mapped_column(String(500))
@@ -272,6 +273,8 @@ class Attachment(Base):
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     # Impressão digital do arquivo; o mesmo PDF em dez e-mails tem o mesmo valor.
     content_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    # Quando você dispensou o aviso de "sem texto" no console; vazio = aparece na lista.
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # Trechos da transcrição ao vivo. Ficam aqui enquanto a reunião acontece; ao finalizar,
@@ -557,8 +560,8 @@ class DriveItem(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # Id no Google Drive; sem repetição.
     drive_id: Mapped[str] = mapped_column(String(200), unique=True)
-    # A pasta monitorada que o encontrou.
-    folder_id: Mapped[int] = mapped_column(ForeignKey("drive_folders.id"), index=True)
+    # A pasta monitorada que o encontrou; vazio quando o arquivo chegou por link num e-mail.
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("drive_folders.id"), index=True)
     # Id do Drive da pasta-mãe; vazio na própria pasta monitorada. index: listar o
     # conteúdo de uma pasta fica rápido.
     parent_drive_id: Mapped[str | None] = mapped_column(String(200), index=True)
@@ -588,6 +591,8 @@ class DriveItem(Base):
     content_sha256: Mapped[str | None] = mapped_column(String(64))
     # Motivo de o arquivo não ter sido lido (grande demais, tipo não suportado...).
     error: Mapped[str | None] = mapped_column(Text)
+    # Quando você dispensou o aviso de "sem texto" no console; vazio = aparece na lista.
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # Tag colocada diretamente num arquivo ou numa pasta. A herança (pasta → conteúdo) não é

@@ -5,10 +5,17 @@ A coleta não para por causa dele (o e-mail entra do mesmo jeito), então é pre
 onde você veja o que ficou de fora, o motivo (com código) e possa pedir outra tentativa,
 por exemplo depois de pedir ao dono do arquivo que libere o download.
 
-Duas origens:
+Origens:
 - anexos de e-mail (tabela attachments, coluna extraction_error);
-- arquivos das pastas monitoradas do Drive: erro de download (drive_items.error) ou de
-  extração da versão atual (bronze_items.extra["erro_extracao"]).
+- links do Lucid e do Canva citados em e-mails (attachments, origem "link_externo"):
+  não são lidos, então ficam sempre na lista até você dispensar o aviso;
+- arquivos do Drive, das pastas monitoradas ou citados por link num e-mail: erro de
+  download (drive_items.error) ou de extração da versão atual
+  (bronze_items.extra["erro_extracao"]). Arquivos acima do limite de tamanho entram aqui.
+
+Para o que veio de e-mail, a linha mostra o remetente e a data do e-mail, para você
+achar a mensagem. "Dispensar" tira a linha da lista sem apagar nada (por exemplo, depois
+de exportar o diagrama à mão para a pasta monitorada).
 
 Tentar de novo:
 - anexo: extrai de novo a partir do original guardado no disco;
@@ -19,11 +26,11 @@ Tentar de novo:
 # dataclass cria classes simples de dados.
 from dataclasses import dataclass
 
-# Data e hora.
-from datetime import datetime
+# Data e hora com fuso.
+from datetime import UTC, datetime
 
-# Consultas.
-from sqlalchemy import select
+# Consultas; or_ junta condições com "ou".
+from sqlalchemy import or_, select
 
 # Session é a conversa com o banco.
 from sqlalchemy.orm import Session
@@ -61,6 +68,10 @@ class Failure:
     code: str | None
     # Explicação.
     message: str
+    # Remetente do e-mail, quando veio de e-mail.
+    sender: str | None = None
+    # False quando "Tentar de novo" não adianta (link do Lucid ou do Canva).
+    retryable: bool = True
 
 
 # Lista os arquivos que estão sem texto agora.
@@ -68,11 +79,11 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
     """Anexos e arquivos do Drive com erro, mais recentes primeiro."""
     # Resultado.
     result: list[Failure] = []
-    # Anexos com erro, com o e-mail de origem.
+    # Anexos e links externos com erro, não dispensados, com o e-mail de origem.
     rows = session.execute(
         select(Attachment, BronzeItem)
         .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
-        .where(Attachment.extraction_error.is_not(None))
+        .where(Attachment.extraction_error.is_not(None), Attachment.dismissed_at.is_(None))
         .order_by(BronzeItem.occurred_at.desc().nulls_last())
         .limit(limit)
     ).all()
@@ -90,29 +101,68 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
                 item.occurred_at,
                 code,
                 message,
+                sender=item.author,
+                retryable=attachment.origin != "link_externo",
             )
         )
-    # Arquivos do Drive presentes (não removidos), que não são pastas.
+    # Arquivos do Drive presentes e não dispensados. Pastas só entram quando chegaram por
+    # link (aviso de que o link aponta para uma pasta).
     items = session.scalars(
-        select(DriveItem).where(DriveItem.is_folder.is_(False), DriveItem.removed.is_(False))
+        select(DriveItem).where(
+            or_(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None)),
+            DriveItem.removed.is_(False),
+            DriveItem.dismissed_at.is_(None),
+        )
     ).all()
-    # Cada arquivo.
-    for item in items:
-        # Motivo atual (download ou extração), se houver.
-        error = item_failure(session, item)
-        # Sem erro: não entra na lista.
-        if not error:
-            continue
+    # Os que têm erro agora, com o motivo.
+    failing = [(item, error) for item in items if (error := item_failure(session, item))]
+    # E-mail mais recente que cita cada arquivo que chegou por link.
+    emails = _citing_emails(session, [i.drive_id for i, _ in failing if i.folder_id is None])
+    # Cada arquivo com erro.
+    for item, error in failing:
         # Separa código e explicação.
         code, message = split_error(error)
-        # Linha da lista.
+        # E-mail que citou o arquivo, se chegou por link.
+        email = emails.get(item.drive_id)
+        # Linha da lista: por link, a origem é o e-mail (assunto, remetente e data).
         result.append(
-            Failure("drive", item.id, item.name, item.path, item.modified_time, code, message)
+            Failure(
+                "drive",
+                item.id,
+                item.name,
+                f"Link no e-mail: {email.subject or '(sem assunto)'}" if email else item.path,
+                email.occurred_at if email else item.modified_time,
+                code,
+                message,
+                sender=email.author if email else None,
+            )
         )
     # Mais recentes primeiro (sem data vão para o fim) e corta no limite.
     result.sort(key=lambda f: f.when.timestamp() if f.when else 0, reverse=True)
     # Devolve.
     return result[:limit]
+
+
+# E-mail mais recente que cita cada arquivo do Drive (por id).
+def _citing_emails(session: Session, drive_ids: list[str]) -> dict[str, BronzeItem]:
+    # Nenhum id: nada a buscar.
+    if not drive_ids:
+        return {}
+    # Links registrados para esses ids, com o e-mail, mais recentes primeiro.
+    rows = session.execute(
+        select(Attachment.external_ref, BronzeItem)
+        .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
+        .where(Attachment.origin == "link_drive", Attachment.external_ref.in_(drive_ids))
+        .order_by(BronzeItem.occurred_at.desc().nulls_last())
+    ).all()
+    # Resultado: o primeiro (mais recente) de cada id.
+    found: dict[str, BronzeItem] = {}
+    # Cada par.
+    for ref, email in rows:
+        # setdefault só grava se o id ainda não tiver e-mail.
+        found.setdefault(ref, email)
+    # Devolve.
+    return found
 
 
 # "Tentar de novo" para um anexo de e-mail.
@@ -123,6 +173,9 @@ def retry_attachment(session: Session, store: FileStore, attachment_id: int) -> 
     # Não existe.
     if row is None:
         raise ValueError("Anexo não encontrado.")
+    # Link do Lucid ou do Canva: não há o que ler; o aviso continua o mesmo.
+    if row.origin == "link_externo":
+        return row.extraction_error
     # Sem original guardado (registros antigos de link do Drive): não há o que reler.
     if row.object_key is None:
         # Erro explicando.
@@ -162,6 +215,8 @@ def retry(
     # Origem desconhecida (formulário adulterado).
     else:
         raise ValueError(f"Origem desconhecida: {kind}")
+    # Tentar de novo devolve à lista um aviso que tinha sido dispensado (se ainda falhar).
+    _row(session, kind, ref_id).dismissed_at = None
     # Auditoria: o que foi tentado e o resultado.
     audit(
         session,
@@ -174,6 +229,31 @@ def retry(
     return error
 
 
+# A linha do banco de um item da lista.
+def _row(session: Session, kind: str, ref_id: int) -> Attachment | DriveItem:
+    # Tabela conforme a origem.
+    row = session.get(Attachment if kind == "anexo" else DriveItem, ref_id)
+    # Não existe.
+    if row is None:
+        raise ValueError("Arquivo não encontrado.")
+    # Devolve.
+    return row
+
+
+# "Dispensar": tira o aviso da lista, sem apagar nada.
+def dismiss(session: Session, kind: str, ref_id: int) -> None:
+    """Marca o aviso como dispensado (some da lista; o registro e o motivo ficam)."""
+    # Origem desconhecida (formulário adulterado).
+    if kind not in ("anexo", "drive"):
+        raise ValueError(f"Origem desconhecida: {kind}")
+    # A linha.
+    row = _row(session, kind, ref_id)
+    # Marca.
+    row.dismissed_at = datetime.now(UTC)
+    # Auditoria.
+    audit(session, "dona", "arquivo.dispensar", target=f"{kind}:{ref_id}")
+
+
 # "Tentar todos de novo".
 def retry_all(
     session: Session, store: FileStore, settings: Settings, drive=None
@@ -183,6 +263,9 @@ def retry_all(
     tried = fixed = 0
     # Cada linha da lista atual (sem limite).
     for failure in list_failures(session, limit=10_000):
+        # Links do Lucid e do Canva: tentar de novo não adianta.
+        if not failure.retryable:
+            continue
         # Conta a tentativa.
         tried += 1
         # Tenta; um erro inesperado num arquivo não impede os outros.

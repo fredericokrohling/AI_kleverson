@@ -298,8 +298,9 @@ def make_docx() -> bytes:
     return buffer.getvalue()
 
 
-# Excel com duas abas, uma delas um mini plano de projeto com data.
-def make_xlsx() -> bytes:
+# Excel com duas abas, uma delas um mini plano de projeto com data. day muda o prazo
+# (para simular um marco que escorregou entre duas versões).
+def make_xlsx(day: int = 20) -> bytes:
     # Data para a célula.
     from datetime import date
 
@@ -315,7 +316,7 @@ def make_xlsx() -> bytes:
     # Cabeçalho.
     sheet.append(["Entrega", "Prazo"])
     # Linha com data.
-    sheet.append(["Homologação", date(2026, 11, 20)])
+    sheet.append(["Homologação", date(2026, 11, day)])
     # Segunda aba.
     workbook.create_sheet("Riscos").append(["Atraso do fornecedor"])
     # Salva na memória.

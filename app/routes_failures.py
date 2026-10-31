@@ -1,4 +1,4 @@
-"""Botões "Tentar de novo" da lista de arquivos sem texto (página inicial).
+"""Botões "Tentar de novo" e "Dispensar" da lista de arquivos sem texto (página inicial).
 
 O resultado aparece como aviso no topo da página: "funcionou" ou o erro com o código.
 """
@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.ingestion.drive_sync import drive_client
 
 # Tentativas.
-from app.ingestion.failures import retry, retry_all
+from app.ingestion.failures import dismiss, retry, retry_all
 
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
@@ -93,5 +93,34 @@ def retry_everything(request: Request, owner: Owner, db: DB):
         "texto": f"{tried} arquivo(s) tentado(s), {fixed} agora com texto.",
         "erro": fixed < tried,
     }
+    # Volta para a lista.
+    return RedirectResponse("/#erros", status_code=303)
+
+
+# Dispensa o aviso de um arquivo (some da lista; nada é apagado).
+@router.post("/arquivos/dispensar", dependencies=[SameOrigin])
+def dismiss_one(
+    request: Request,
+    owner: Owner,
+    db: DB,
+    # "anexo" ou "drive".
+    origem: Annotated[str, Form()],
+    # Id interno do arquivo.
+    id: Annotated[int, Form()],
+):
+    # Tenta.
+    try:
+        # Marca como dispensado.
+        dismiss(db, origem, id)
+        # Grava.
+        db.commit()
+        # Aviso de sucesso.
+        request.session["flash"] = {"texto": "Aviso dispensado.", "erro": False}
+    # Arquivo inexistente ou origem inválida.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Aviso de erro.
+        request.session["flash"] = {"texto": str(exc), "erro": True}
     # Volta para a lista.
     return RedirectResponse("/#erros", status_code=303)

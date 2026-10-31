@@ -20,11 +20,15 @@ termina "com_erros" e a próxima rodada recomeça da última janela sem erro, te
 novo só o que falta. Falha ao ler um anexo não é erro de mensagem: o e-mail é gravado e
 o motivo fica em attachments.extraction_error.
 
-Links do Drive: só são registrados (origem "link_drive", com o id do arquivo), não
-baixados. O conteúdo do Drive entra pelas pastas monitoradas (app/ingestion/drive_sync.py),
-que você escolhe no console; um arquivo citado por link e guardado numa dessas pastas já
-está no bronze, com as tags dele. Baixar tudo que aparece em link encheria o disco com
-arquivos que você não escolheu.
+Links do Drive: aqui só são registrados (origem "link_drive", com o id do arquivo). Quem
+lê o conteúdo é o monitor do Drive (app/ingestion/drive_sync.py), na volta seguinte do
+agendador: ele procura os links novos e lê cada arquivo a que a sua conta tem acesso,
+mesmo fora das pastas monitoradas. Separar as duas coisas mantém a coleta de e-mail
+rápida: um arquivo grande ou um Drive lento não atrasa a gravação dos e-mails.
+
+Links do Lucid e do Canva: o diagrama fica nos servidores desses serviços, fora do
+Google. O link é registrado com o erro LINK_EXTERNO_NAO_LIDO, para aparecer na lista de
+arquivos sem texto da página inicial, com o remetente e a data do e-mail.
 """
 
 # base64 decodifica o e-mail bruto, que o Gmail entrega em base64 "para URL".
@@ -55,7 +59,7 @@ from app.config import Settings
 from app.ingestion.email_parser import parse_email
 
 # Extração de texto.
-from app.ingestion.extractors import Extraction, extract_text
+from app.ingestion.extractors import Extraction, coded, extract_text
 
 # Guardar os originais.
 from app.ingestion.storage import FileStore, safe_suffix, sha256_hex
@@ -198,7 +202,7 @@ def _attachment_row(
     data: bytes,
     # Texto já pronto, quando houver (e-mail encaminhado).
     ready_text: str | None = None,
-    # "anexo" ou "link_drive".
+    # "anexo", "link_drive" ou "link_externo".
     origin: str = "anexo",
     # Id na origem (id do Drive).
     external_ref: str | None = None,
@@ -340,11 +344,26 @@ def _ingest_message(
                 ready_text=att.text,
             )
         )
-    # Links do Drive: registra cada arquivo citado, sem baixar (ver o topo do módulo).
+    # Links do Drive: registra cada arquivo citado; o monitor do Drive lê depois.
     for file_id in parsed.drive_file_ids:
         # Linha sem arquivo e sem erro: só diz "este e-mail cita este arquivo do Drive".
         rows.append(
             Attachment(filename=f"drive:{file_id}", origin="link_drive", external_ref=file_id)
+        )
+    # Links do Lucid e do Canva: registrados como "não lido", para aparecerem no console.
+    for service, url in parsed.external_links:
+        # Linha sem arquivo, com o motivo; o nome mostra o serviço e o começo do link.
+        rows.append(
+            Attachment(
+                filename=f"{service}: {url}"[:500],
+                origin="link_externo",
+                external_ref=url[:500],
+                extraction_error=coded(
+                    "LINK_EXTERNO_NAO_LIDO",
+                    f"Diagrama do {service}: o conteúdo fica fora do Google e não é lido. "
+                    "Exporte como PDF ou PNG para uma pasta monitorada.",
+                ),
+            )
         )
     # Liga cada arquivo ao item e prepara a gravação.
     for row in rows:
@@ -353,7 +372,7 @@ def _ingest_message(
         # Prepara.
         session.add(row)
     # Quantos arquivos e quantos ficaram sem texto (links não contam como arquivo).
-    files = [r for r in rows if r.origin != "link_drive"]
+    files = [r for r in rows if r.origin == "anexo"]
     # Devolve as duas contagens.
     return len(files), sum(1 for r in files if r.extraction_error)
 
@@ -607,13 +626,15 @@ def collection_overview(session: Session, limit: int = 5) -> dict[str, Any]:
     emails = session.scalar(
         select(func.count()).select_from(BronzeItem).where(BronzeItem.source == SourceKind.GMAIL)
     )
-    # Total de arquivos (links do Drive só registrados não contam).
+    # Total de arquivos anexados (links não contam: não são arquivos do e-mail).
     files = session.scalar(
-        select(func.count()).select_from(Attachment).where(Attachment.origin != "link_drive")
+        select(func.count()).select_from(Attachment).where(Attachment.origin == "anexo")
     )
-    # Arquivos sem texto.
+    # Anexos sem texto.
     files_without_text = session.scalar(
-        select(func.count()).select_from(Attachment).where(Attachment.extraction_error.is_not(None))
+        select(func.count())
+        .select_from(Attachment)
+        .where(Attachment.origin == "anexo", Attachment.extraction_error.is_not(None))
     )
     # Junta tudo.
     return {
