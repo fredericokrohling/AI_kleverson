@@ -1,0 +1,30 @@
+{% if stale %}
+  <div class="aviso-caixa erro">
+    {% if last %}Os testes automáticos não rodam há {{ minutes_ago }} min.{% else %}Nenhum teste automático registrado ainda.{% endif %}
+    Eles rodam no serviço <code>coletor</code>; se continuar assim, ele pode estar parado (veja "Ver serviços" abaixo).
+  </div>
+{% elif problems %}
+  <div class="aviso-caixa erro">{{ problems }} serviço(s) com problema no último teste.</div>
+{% else %}
+  <div class="aviso-caixa"><span class="ok">●</span> Tudo funcionando no último teste ({{ minutes_ago }} min atrás).</div>
+{% endif %}
+<div class="tabela"><table>
+  <tr><th>Serviço</th><th>Situação</th><th>Detalhe</th><th>Tempo</th><th title="Últimos testes, do mais antigo ao mais recente">Histórico</th></tr>
+  {% for s in services %}
+    {% set r = s.last %}
+    <tr>
+      <td>{{ s.label }}</td>
+      <td>
+        {% if r is none %}<span class="muted">sem teste</span>
+        {% elif r.ok %}<span class="ok">● OK</span>
+        {% elif r.ok is none %}<span class="aviso">● ?</span>
+        {% else %}<span class="erro">● problema</span>{% endif %}
+      </td>
+      <td>{{ r.detail if r else "" }}</td>
+      <td class="muted">{{ "%d ms"|format(r.latency_ms) if r and r.latency_ms is not none else "" }}</td>
+      <td style="white-space:nowrap; letter-spacing:-2px">
+        {% for ok in s.history %}<span class="{{ 'ok' if ok else ('aviso' if ok is none else 'erro') }}">●</span>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+</table></div>

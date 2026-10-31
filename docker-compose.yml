@@ -2,10 +2,12 @@
 # Nenhuma porta fica aberta para a internet: o console escuta só em 127.0.0.1
 # e o acesso de fora é pelo `tailscale serve` (ver docs/setup/01-servidor.md).
 #
-# São três "serviços" (contêineres), que sobem nesta ordem:
+# São quatro "serviços" (contêineres), que sobem nesta ordem:
 #   db       → o Postgres;
 #   migrate  → aplica as migrações do banco e termina;
-#   app      → o console, que só sobe se a migração deu certo.
+#   app      → o console, que só sobe se a migração deu certo;
+#   coletor  → agendador: Gmail a cada 5 min, pastas do Drive a cada 30 min e testes
+#              de saúde a cada 10 min.
 
 services:
   # Banco de dados.
@@ -58,7 +60,31 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/saude')"]
       interval: 30s
       retries: 3
+    volumes:
+      # Arquivos originais, só leitura (a página Saúde mede o espaço em disco por aqui).
+      - arquivos:/dados:ro
+      # Pasta .git do repositório, só leitura: a página Saúde lê qual versão está instalada.
+      - ./.git:/repo-git:ro
 
-# Declara o volume persistente do banco.
+  # Coletor: um processo separado do console que roda as tarefas periódicas (Gmail,
+  # pastas do Drive, testes de saúde). Separado para que uma coleta longa ou um erro nela
+  # não afete o console, e vice-versa.
+  coletor:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # Agendador: cada tarefa no seu intervalo (GMAIL_POLL_MINUTES, DRIVE_POLL_MINUTES,
+    # HEALTH_POLL_MINUTES).
+    command: ["python", "-m", "app.cli", "agendador"]
+    # Os originais (e-mails .eml, anexos, arquivos do Drive) ficam neste volume.
+    volumes:
+      - arquivos:/dados
+    # Mesma regra do console: só sobe com o banco migrado.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+# Declara os volumes persistentes: o do banco e o dos arquivos originais.
 volumes:
   pgdata:
+  arquivos:

@@ -31,7 +31,10 @@ ADD https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js app/static/htmx.min.js
 
 # Cria um usuário comum: o app não roda como administrador (root), o que limita o
 # estrago se um dia houver uma falha. chmod deixa o htmx legível por esse usuário.
-RUN useradd --create-home assistente && chmod a+r app/static/htmx.min.js
+# /dados é a pasta dos arquivos originais (e-mails e anexos); ela pertence a esse usuário
+# e, ao montar o volume pela primeira vez, o Docker copia essa permissão para ele.
+RUN useradd --create-home assistente && chmod a+r app/static/htmx.min.js \
+    && mkdir -p /dados && chown assistente:assistente /dados
 # Daqui em diante tudo roda como esse usuário.
 USER assistente
 # Coloca as ferramentas instaladas pelo uv (uvicorn, alembic) no caminho de comandos.

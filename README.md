@@ -1,4 +1,4 @@
-# Assistente PM
+# Kleverson A.I. (Assistente PM)
 
 Assistente de IA para o dia a dia de program e project management: lê e-mails, agenda,
 reuniões e chats, organiza tudo por projeto e gera os artefatos de gestão.
@@ -20,6 +20,7 @@ Regras que o código garante:
   (`gmail.send`, `gmail.compose` e `gmail.modify` ficam de fora, porque todas permitem enviar).
 - **Nada público na internet.** O console escuta só em `127.0.0.1`; o acesso é pela rede
   privada do Tailscale, e só o login configurado em `ALLOWED_TAILSCALE_LOGIN` entra.
+- **Só leitura no Gmail e no Drive.** A coleta de e-mail usa `gmail.readonly` e `drive.readonly`.
 - **Todo uso do Claude passa por `app/llm.py`**, que registra tokens e custo e respeita o teto mensal.
 
 ## Aprender com o projeto
@@ -37,6 +38,8 @@ Siga na ordem:
 2. [Google: projeto, APIs e login](docs/setup/02-google-oauth.md)
 3. [Claude: chave da API](docs/setup/03-anthropic.md)
 4. [Transcrição em tempo real](docs/setup/04-transcricao.md)
+5. [Coleta de e-mail](docs/setup/05-email.md)
+6. [Console: pastas do Drive, tags, configurações e saúde](docs/setup/06-console.md)
 
 ## Desenvolvimento local
 
@@ -63,8 +66,9 @@ app/
   google_auth.py   login Google e tokens criptografados
   security.py      criptografia e controle de acesso pelo Tailscale
   main.py          console web (FastAPI + HTMX)
-  cli.py           comandos: gerar-chave, testar-llm, testar-google
+  cli.py           comandos: gerar-chave, testar-llm, testar-google, coletar-gmail, reextrair-anexos
   transcription/   transcrição ao vivo: serviço de streaming, trechos, finalização
+  ingestion/       coleta do Gmail: e-mail bruto, anexos, links do Drive, extração de texto
 extensao/          extensão do Chrome que captura o áudio do Meet
 migrations/        migrações do banco (Alembic)
 docs/setup/        guias de instalação (como)
@@ -75,9 +79,9 @@ docs/aprendizado/  por que cada escolha foi feita
 
 | Bloco | Estado |
 | --- | --- |
-| 0. Fundação | Código pronto; falta instalar no servidor |
-| 1. Teste de transcrição em tempo real | Código pronto; falta o teste em reunião real |
-| 2. E-mail para bronze | A fazer |
+| 0. Fundação | Em operação |
+| 1. Teste de transcrição em tempo real | Em operação; avaliação de qualidade pendente |
+| 2. E-mail para bronze | Código pronto; falta instalar e importar um mês |
 | 3. Silver: classificação e extração | A fazer |
 | 4. Console: cadastro, fila, fatos, busca | A fazer |
 | 5. Ações: rascunhos, agenda, briefing | A fazer |

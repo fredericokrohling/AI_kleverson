@@ -47,6 +47,9 @@ from app.config import get_settings
 # Sessão por requisição e fábrica de sessões.
 from app.db import get_session, get_sessionmaker
 
+# Idioma da transcrição escolhido no console.
+from app.runtime_settings import get_value
+
 # Verificação de acesso (versão para cabeçalhos e versão para rotas HTTP).
 from app.security import owner_login, require_owner
 
@@ -101,8 +104,14 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
     sessions = get_sessionmaker()
     # Tenta abrir a conexão com o serviço de transcrição.
     try:
-        # Cria o cliente configurado (Deepgram).
-        provider = create_provider(get_settings())
+        # Configuração do .env.
+        settings = get_settings()
+        # Idioma escolhido no console (se nunca mudou, o do .env).
+        with sessions() as session:
+            # Lê o valor em vigor.
+            language = get_value(session, settings, "transcription_language")
+        # Cria o cliente configurado (Deepgram), com o idioma do console.
+        provider = create_provider(settings.model_copy(update={"transcription_language": language}))
         # Abre a conexão com o serviço.
         stream = await provider.__aenter__()
     # Qualquer falha aqui é avisada à extensão.

@@ -70,8 +70,10 @@ class Settings(BaseSettings):
 
     # Chave da API da Anthropic (cobrança separada da assinatura Claude Pro).
     anthropic_api_key: str = ""
-    # Qual modelo do Claude usar.
+    # Qual modelo do Claude usar (padrão; pode ser trocado pelo console).
     llm_model: str = "claude-opus-5-5"
+    # Esforço padrão do Claude: low, medium, high, xhigh ou max (também trocável no console).
+    llm_effort: str = "medium"
     # Teto de gasto mensal com o Claude, em dólares.
     llm_monthly_budget_usd: Decimal = Decimal("10")
     # Fração do teto que dispara o alerta no log de auditoria (0.8 = 80%).
@@ -87,6 +89,37 @@ class Settings(BaseSettings):
     deepgram_model: str = "nova-3"
     # Idioma falado nas reuniões.
     transcription_language: str = "pt-BR"
+
+    # Coleta de e-mail (bloco 2).
+    # Pasta onde ficam os arquivos originais (e-mails .eml e anexos). No Docker é um
+    # volume, para sobreviver a atualizações do contêiner.
+    data_dir: str = "/dados"
+    # Filtro de busca do Gmail, na mesma sintaxe da caixa de pesquisa. Por padrão tira
+    # promoções, redes sociais e rascunhos, que só gastariam IA no bloco 3.
+    gmail_query: str = "-category:promotions -category:social -in:drafts"
+    # Na primeira coleta (banco vazio), quantos dias para trás importar. 0 = começa a
+    # partir do momento da instalação, sem trazer o histórico.
+    gmail_initial_days: int = 0
+    # Intervalo entre coletas no modo contínuo, em minutos.
+    gmail_poll_minutes: int = 5
+    # Folga, em minutos, que cada coleta volta antes do fim da anterior. Cobre e-mails
+    # que o Gmail indexa com atraso; os repetidos são ignorados pelo id.
+    gmail_overlap_minutes: int = 60
+    # Tamanho máximo, em MB, de um arquivo baixado do Drive (anexos do Gmail já vêm
+    # limitados a 25 MB pelo próprio Gmail).
+    drive_max_file_mb: int = 25
+    # Intervalo entre varreduras das pastas monitoradas do Drive, em minutos. Uma pasta
+    # recém-cadastrada é varrida na rodada seguinte, sem esperar este intervalo.
+    drive_poll_minutes: int = 30
+
+    # Saúde (página do coração).
+    # Intervalo entre testes de saúde automáticos, em minutos.
+    health_poll_minutes: int = 10
+    # Onde o .git do repositório aparece dentro do contêiner (montado só para leitura),
+    # para mostrar qual versão está instalada.
+    git_dir: str = "/repo-git"
+    # Repositório no GitHub, para conferir se há versão nova.
+    github_repo: str = "fredericokrohling/AI_kleverson"
 
     # Identificação do app no Google Cloud (criada no guia 02-google-oauth.md).
     google_client_id: str = ""

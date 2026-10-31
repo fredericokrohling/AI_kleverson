@@ -1,0 +1,23 @@
+{% set v = version %}
+{% if not v.installed %}
+  <p class="muted">Não consegui ler a versão instalada: a pasta <code>.git</code> não está montada no contêiner
+    (veja <code>docker-compose.yml</code>, volume <code>/repo-git</code>).</p>
+{% else %}
+  <p>Instalado: <code>{{ v.installed[:7] }}</code>
+    {% if v.installed_pr %}· <a href="{{ v.installed_pr.url }}" target="_blank" rel="noopener">PR #{{ v.installed_pr.number }}: {{ v.installed_pr.title }}</a>{% endif %}</p>
+{% endif %}
+{% if v.error %}
+  <p class="erro">{{ v.error }}</p>
+{% elif v.latest %}
+  {% if v.installed and v.behind == 0 %}
+    <p class="ok">Atualizado: é a versão mais recente da main.</p>
+  {% elif v.behind %}
+    <p class="aviso">Há atualização: {{ v.behind }} commit(s) novos na main.
+      {% if v.latest_pr %}Último: <a href="{{ v.latest_pr.url }}" target="_blank" rel="noopener">PR #{{ v.latest_pr.number }}: {{ v.latest_pr.title }}</a>.{% endif %}
+      Use "Aplicar atualização" abaixo.</p>
+  {% else %}
+    <p>Última na main: <code>{{ v.latest[:7] }}</code>
+      {% if v.latest_pr %}· <a href="{{ v.latest_pr.url }}" target="_blank" rel="noopener">PR #{{ v.latest_pr.number }}</a>{% endif %}</p>
+  {% endif %}
+{% endif %}
+<p class="muted">Consultado às {{ v.checked_at.strftime("%H:%M") }} (UTC).</p>

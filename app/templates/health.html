@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Saúde · Kleverson A.I.{% endblock %}
+{% block content %}
+<h1>Saúde do sistema</h1>
+
+<section>
+  <h2>Serviços</h2>
+  <div id="tabela-saude">{% include "_health_table.html" %}</div>
+  <form method="post" action="/monitoramento/testar" hx-post="/monitoramento/testar" hx-target="#tabela-saude"
+        hx-indicator="#testando">
+    <button type="submit">Testar agora</button>
+    <span id="testando" class="htmx-indicator muted">testando, alguns segundos...</span>
+  </form>
+</section>
+
+<section>
+  <h2>Versão instalada</h2>
+  <div id="versao">{% include "_version.html" %}</div>
+  <form method="post" action="/monitoramento/versao" hx-post="/monitoramento/versao" hx-target="#versao"
+        hx-indicator="#verificando">
+    <button type="submit">Verificar atualização</button>
+    <span id="verificando" class="htmx-indicator muted">consultando o GitHub...</span>
+  </form>
+</section>
+
+<section>
+  <h2>Servidor</h2>
+  <p class="muted">Estes botões abrem um terminal no seu computador, que conecta ao servidor por SSH e roda o
+    comando. Reiniciar e atualizar pedem confirmação no terminal antes de rodar. Precisam do atalho
+    <code>kleverson://</code> instalado uma vez no seu computador (guia <code>docs/setup/06-console.md</code>).</p>
+  <p>
+    {% for action, label, command in actions %}
+      <a class="botao" href="kleverson://{{ action }}" title="{{ command }}">{{ label }}</a>
+    {% endfor %}
+  </p>
+  <details>
+    <summary>Sem o atalho instalado: comandos para copiar</summary>
+    <p>Conecte com <code>ssh ubuntu@assistente</code> e rode:</p>
+    <div class="tabela"><table>
+      <tr><td>Ver serviços</td><td><code>cd ~/AI_kleverson && docker compose ps</code></td></tr>
+      <tr><td>Ver logs</td><td><code>cd ~/AI_kleverson && docker compose logs --tail 100 app coletor</code></td></tr>
+      <tr><td>Reiniciar serviços</td><td><code>cd ~/AI_kleverson && docker compose restart</code></td></tr>
+      <tr><td>Aplicar atualização</td><td><code>cd ~/AI_kleverson && git pull && docker compose up -d --build</code></td></tr>
+    </table></div>
+  </details>
+  <p class="muted">Conectividade da rede privada: se esta página abriu, o Tailscale está funcionando entre o seu
+    computador e o servidor. Detalhes dos aparelhos no <a href="https://login.tailscale.com/admin/machines"
+    target="_blank" rel="noopener">painel do Tailscale</a>.</p>
+</section>
+{% endblock %}
