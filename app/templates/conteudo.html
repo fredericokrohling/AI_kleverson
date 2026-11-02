@@ -11,17 +11,24 @@
         <option value="{{ kind.value }}" {{ "selected" if fonte == kind.value }}>{{ label }}</option>
       {% endfor %}
     </select>
+    <select name="tag" aria-label="Tag">
+      <option value="">Todas as tags</option>
+      {% for t in tags %}
+        <option value="{{ t.id }}" {{ "selected" if tag == t.id | string }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
     <button type="submit">Procurar</button>
   </form>
   {% if items %}
     <div class="tabela"><table>
-      <tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th></tr>
+      <tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr>
       {% for i in items %}
         <tr>
           <td>{{ i.occurred_at | local("%d/%m/%Y %H:%M") }}</td>
           <td>{{ labels.get(i.source, i.source) }}</td>
           <td><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
           <td>{{ i.author or "" }}</td>
+          <td>{% for name in item_tags.get(i.id, []) %}<span class="tag">{{ name }}</span>{% endfor %}</td>
         </tr>
       {% endfor %}
     </table></div>

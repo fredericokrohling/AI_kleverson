@@ -169,6 +169,10 @@ class Project(Timestamped, Base):
     active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     # Observações livres.
     notes: Mapped[str | None] = mapped_column(Text)
+    # Tag criada junto com o projeto (mesmo nome); apagar a tag deixa o projeto sem tag.
+    tag_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tags.id", ondelete="SET NULL"), unique=True
+    )
 
 
 # Uma pessoa com quem você trabalha (cliente, fornecedor, equipe).
@@ -186,6 +190,10 @@ class Stakeholder(Timestamped, Base):
     organization: Mapped[str | None] = mapped_column(String(200))
     # Cargo.
     role: Mapped[str | None] = mapped_column(String(200))
+    # Outros nomes da pessoa ("Ana", "Ana S."): é como ela pode aparecer numa transcrição.
+    aliases: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
+    # Liderança na empresa (diretoria, gerência): base das regras de alerta.
+    is_leader: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
 
 # Liga pessoas a projetos (uma pessoa pode estar em vários projetos, e vice-versa).
@@ -204,6 +212,8 @@ class ProjectStakeholder(Base):
     )
     # Papel da pessoa neste projeto (ex.: patrocinador, aprovador). Base para a RACI.
     role_in_project: Mapped[str | None] = mapped_column(String(200))
+    # Liderança neste projeto (patrocinador, gerente, líder técnico).
+    is_leader: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
 
 # --- Bronze -------------------------------------------------------------------
@@ -309,6 +319,39 @@ class TranscriptSegment(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+# Uma fala de uma transcrição de reunião: quem falou, quando e o quê.
+class Utterance(Base):
+    """Fala de uma transcrição, ligada à pessoa cadastrada quando o sistema reconhece.
+
+    O texto completo continua no bronze; esta tabela é o mesmo conteúdo, uma linha por
+    fala, para responder "o que a diretora pediu nas últimas reuniões?" com SQL.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "utterances"
+    # Uma posição por transcrição: refazer as falas não duplica.
+    __table_args__ = (UniqueConstraint("bronze_item_id", "position"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # A transcrição (item do bronze); apagou o item, apagam as falas.
+    bronze_item_id: Mapped[int] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="CASCADE"), index=True
+    )
+    # Ordem da fala na reunião (0, 1, 2...).
+    position: Mapped[int] = mapped_column(Integer)
+    # Momento da fala, em ms desde o começo da gravação.
+    start_ms: Mapped[int | None] = mapped_column(Integer)
+    # Nome como apareceu na transcrição ("Ana Souza", "Falante 2").
+    speaker: Mapped[str | None] = mapped_column(String(200))
+    # Pessoa cadastrada; vazio quando o nome não foi reconhecido.
+    stakeholder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stakeholders.id", ondelete="SET NULL"), index=True
+    )
+    # O que foi dito.
+    text: Mapped[str] = mapped_column(Text)
 
 
 # Liga cada item bruto a um projeto.
@@ -527,6 +570,46 @@ class Tag(Timestamped, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     # Nome da tag; não pode repetir.
     name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
+# Tag de um e-mail ou de uma transcrição, com a regra que a colocou.
+class TaggedItem(Base):
+    """Tag de um item do bronze que não é do Drive (o Drive tem a herança das pastas).
+
+    Uma tag tirada à mão não é apagada: ganha removed_at, e as regras automáticas não a
+    colocam de novo.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "item_tags"
+
+    # O item; apagou o item, some a tag dele.
+    bronze_item_id: Mapped[int] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    # A tag; apagou a tag, some daqui também.
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    # Quem colocou: "assunto_corpo", "marcador_gmail", "equipe" ou "manual".
+    rule: Mapped[str] = mapped_column(String(30))
+    # Quando foi colocada.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Quando você tirou; vazio = a tag vale.
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# Uma pasta (marcador) do Gmail ligada a uma tag: e-mail na pasta recebe a tag.
+class GmailLabelTag(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "gmail_label_tags"
+
+    # Id do marcador no Gmail (ex.: "Label_123").
+    label_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    # A tag; apagou a tag, some a ligação.
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    # Nome do marcador quando foi ligado (para mostrar sem perguntar ao Gmail).
+    label_name: Mapped[str] = mapped_column(String(500))
 
 
 # Uma pasta do Drive que você mandou monitorar (a "raiz" do monitoramento).

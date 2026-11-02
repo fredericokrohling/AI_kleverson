@@ -42,6 +42,7 @@ Siga na ordem:
 6. [Console: pastas do Drive, tags, configurações e saúde](docs/setup/06-console.md)
 7. [Leitura de imagens e PDFs digitalizados pelo Claude](docs/setup/07-leitura-imagens.md)
 8. [Importar transcrições do Teams e do Meet](docs/setup/08-importar-transcricoes.md)
+9. [Projetos, equipe, quem falou nas reuniões e tags nos e-mails](docs/setup/09-projetos-equipe-tags.md)
 
 ## Desenvolvimento local
 

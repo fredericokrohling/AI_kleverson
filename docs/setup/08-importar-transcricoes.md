@@ -56,7 +56,7 @@ nas reuniões do Meet que você quer transcrever.
    - Reunião que não está na sua agenda: escolha **Não está na agenda** e digite o título.
 4. **Arquivo:** `.vtt`, `.srt`, `.docx`, `.txt` ou `.pdf`, até 10 MB.
 5. **Importar transcrição.** O resultado aparece no topo da página:
-   - **Transcrição carregada com sucesso**, com o número de falas e de pessoas (no `.vtt`)
+   - **Transcrição carregada com sucesso**, com o número de falas e de pessoas (no `.vtt`, e no `.docx` no padrão do Teams ou do Meet)
      ou o tamanho do texto (nos outros formatos), e o link **Ver**;
    - **já tinha sido importada:** o mesmo texto já estava no banco; nada foi duplicado;
    - ou o motivo da falha (formato, arquivo vazio, reunião não escolhida, Drive sem acesso).
@@ -80,9 +80,10 @@ A transcrição aparece em **Últimas transcrições** (na mesma página), na p�
   transcrição fica ligada a ela. Como o item do bronze não é editado, a correção hoje é
   pelo banco; um botão de "trocar a reunião" fica para o bloco 3, quando as reuniões
   ganharem página própria.
-- **No `.docx` e no `.txt`, o sistema não separa quem falou.** O texto entra como está (com
-  os nomes que o próprio documento traz), e a contagem de pessoas não aparece. Por isso o
-  `.vtt` é o preferido.
+- **No `.docx` e no `.txt`, quem falou só é separado quando o arquivo segue o padrão do
+  Teams ou do Meet** (desde o [guia 9](09-projetos-equipe-tags.md)). Fora do padrão, e
+  sempre no `.pdf`, o texto entra como está e a contagem de pessoas não aparece. Por isso
+  o `.vtt` continua o preferido.
 - **Só a agenda principal** da conta conectada é lida. Reuniões que estão só no Outlook
   (e não foram aceitas no Google Agenda) não aparecem: use "Não está na agenda".
 - **A transcrição do Meet não é importada sozinha.** O sistema só baixa quando você

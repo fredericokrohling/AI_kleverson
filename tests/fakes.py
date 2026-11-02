@@ -60,6 +60,8 @@ class FakeGmail:
         self.fetched: list[str] = []
         # Ids que devem falhar ao baixar (simula erro de rede).
         self.failing: set[str] = set()
+        # Pastas criadas pelo usuário: [(id, nome)].
+        self.user_labels: list[tuple[str, str]] = []
 
     # gmail.users() devolve o próprio objeto (a cadeia de chamadas é só formato).
     def users(self):
@@ -69,17 +71,36 @@ class FakeGmail:
     def messages(self):
         return self
 
+    # Pastas criadas pelo usuário: gmail.users().labels().list(userId="me").
+    def labels(self):
+        # Objeto com o método list das pastas.
+        return SimpleNamespace(
+            list=lambda userId: _Call(
+                lambda: {
+                    "labels": [
+                        {"id": "INBOX", "name": "INBOX", "type": "system"},
+                        *({"id": i, "name": n, "type": "user"} for i, n in self.user_labels),
+                    ]
+                }
+            )
+        )
+
     # Perfil da conta.
     def getProfile(self, userId):  # noqa: N802 (nome igual ao da API do Google)
         # Só o campo usado pelo coletor.
         return _Call(lambda: {"emailAddress": self.account})
 
-    # Lista os ids, duas por página, para exercitar a paginação.
-    def list(self, userId, q, maxResults, pageToken=None):
+    # Lista os ids, duas por página, para exercitar a paginação. labelIds filtra pelas
+    # pastas atuais de cada mensagem (o teste pode mudar "labels" para simular mover).
+    def list(self, userId, q=None, maxResults=500, pageToken=None, labelIds=None):  # noqa: N803
         # Registra a busca.
         self.queries.append(q)
-        # Todos os ids.
-        ids = list(self.emails)
+        # Todos os ids (ou só os das pastas pedidas).
+        ids = [
+            i
+            for i, e in self.emails.items()
+            if not labelIds or set(labelIds) & set(e.get("labels", ["INBOX"]))
+        ]
         # Página atual: o marcador é a posição inicial em texto.
         start = int(pageToken or 0)
         # Ids desta página.

@@ -23,7 +23,7 @@ from sqlalchemy import bindparam, delete, func, select, text
 from sqlalchemy.orm import Session
 
 # Tabelas usadas.
-from app.models import DriveItem, DriveItemTag, Tag, audit
+from app.models import DriveItem, DriveItemTag, GmailLabelTag, Project, Tag, TaggedItem, audit
 
 # Tamanho máximo do nome (igual à coluna tags.name).
 _MAX_NAME = 100
@@ -58,6 +58,19 @@ def _clean_name(name: str) -> str:
 def _find_by_name(session: Session, name: str) -> Tag | None:
     # lower() dos dois lados.
     return session.scalars(select(Tag).where(func.lower(Tag.name) == name.lower())).first()
+
+
+# Acha a tag pelo nome ou cria (sem diferenciar maiúsculas).
+def find_or_create_tag(session: Session, name: str) -> Tag:
+    # Valida.
+    name = _clean_name(name)
+    # Já existe: devolve a existente.
+    found = _find_by_name(session, name)
+    # Achou.
+    if found is not None:
+        return found
+    # Cria.
+    return create_tag(session, name)
 
 
 # Lista todas as tags com quantos itens têm cada uma diretamente.
@@ -95,13 +108,20 @@ def create_tag(session: Session, name: str) -> Tag:
 
 
 # Renomeia uma tag; vale na hora para todos os itens (pastas e arquivos) que a usam.
-def rename_tag(session: Session, tag_id: int, name: str) -> Tag:
+def rename_tag(session: Session, tag_id: int, name: str, allow_project: bool = False) -> Tag:
     """Troca o nome. Erros (tag inexistente, nome repetido) viram ValueError."""
     # Busca.
     tag = session.get(Tag, tag_id)
     # Não existe.
     if tag is None:
         raise ValueError("Tag não encontrada.")
+    # Tag de projeto: o nome acompanha o projeto (renomear pelo cadastro do projeto).
+    project = session.scalar(select(Project).where(Project.tag_id == tag.id))
+    # É de projeto.
+    if project is not None and not allow_project:
+        raise ValueError(
+            f"A tag “{tag.name}” é do projeto de mesmo nome: renomeie o projeto em Cadastros."
+        )
     # Valida o novo nome.
     name = _clean_name(name)
     # Outra tag já tem esse nome.
@@ -127,10 +147,19 @@ def delete_tag(session: Session, tag_id: int) -> None:
     # Já não existe: nada a fazer.
     if tag is None:
         return
+    # Tag de projeto: apagar deixaria o projeto sem as regras automáticas.
+    if session.scalar(select(Project.id).where(Project.tag_id == tag.id)) is not None:
+        raise ValueError(
+            f"A tag “{tag.name}” é de um projeto. Desative o projeto em vez de apagar a tag."
+        )
     # Auditoria antes de apagar (depois o nome não existe mais).
     audit(session, "dona", "tag.apagar", target=tag.name)
     # Apaga os vínculos explicitamente (a sessão não conhece o CASCADE do banco).
     session.execute(delete(DriveItemTag).where(DriveItemTag.tag_id == tag_id))
+    # Tags de e-mails e transcrições.
+    session.execute(delete(TaggedItem).where(TaggedItem.tag_id == tag_id))
+    # Pastas do Gmail ligadas a ela.
+    session.execute(delete(GmailLabelTag).where(GmailLabelTag.tag_id == tag_id))
     # Apaga a tag.
     session.delete(tag)
 

@@ -46,11 +46,8 @@ from app.runtime_settings import (
 # Tags.
 from app.tags import (
     assign_tag,
-    create_tag,
-    delete_tag,
     effective_tags,
     list_tags,
-    rename_tag,
     unassign_tag,
 )
 
@@ -122,8 +119,6 @@ def config_page(request: Request, owner: Owner, db: DB):
             "folders": folders,
             "roots": roots,
             "root_tags": root_tags,
-            # Tags com contagem de uso.
-            "tags": list_tags(db),
         },
     )
 
@@ -233,61 +228,6 @@ def scan_now(request: Request, owner: Owner, db: DB):
     _flash(request, "Varredura pedida. O monitor começa em até 1 minuto.")
     # Volta.
     return _back("/config#drive")
-
-
-# Cria uma tag.
-@router.post("/config/tags", dependencies=[SameOrigin])
-def new_tag(request: Request, owner: Owner, db: DB, nome: Annotated[str, Form()]):
-    # Tenta criar.
-    try:
-        # Cria.
-        tag = create_tag(db, nome)
-        # Confirma.
-        db.commit()
-        # Aviso.
-        _flash(request, f"Tag “{tag.name}” criada.")
-    # Nome vazio ou repetido.
-    except ValueError as exc:
-        # Desfaz.
-        db.rollback()
-        # Aviso de erro.
-        _flash(request, str(exc), error=True)
-    # Volta.
-    return _back("/config#tags")
-
-
-# Renomeia uma tag.
-@router.post("/config/tags/{tag_id}/renomear", dependencies=[SameOrigin])
-def rename(request: Request, owner: Owner, db: DB, tag_id: int, nome: Annotated[str, Form()]):
-    # Tenta renomear.
-    try:
-        # Renomeia.
-        tag = rename_tag(db, tag_id, nome)
-        # Confirma.
-        db.commit()
-        # Aviso.
-        _flash(request, f"Tag renomeada para “{tag.name}”.")
-    # Tag inexistente ou nome repetido.
-    except ValueError as exc:
-        # Desfaz.
-        db.rollback()
-        # Aviso de erro.
-        _flash(request, str(exc), error=True)
-    # Volta.
-    return _back("/config#tags")
-
-
-# Apaga uma tag (some de todas as pastas e arquivos).
-@router.post("/config/tags/{tag_id}/apagar", dependencies=[SameOrigin])
-def remove_tag(request: Request, owner: Owner, db: DB, tag_id: int):
-    # Apaga.
-    delete_tag(db, tag_id)
-    # Confirma.
-    db.commit()
-    # Aviso.
-    _flash(request, "Tag apagada de todas as pastas e arquivos.")
-    # Volta.
-    return _back("/config#tags")
 
 
 # Só aceita voltar para páginas do próprio console (evita redirecionar para outro site).

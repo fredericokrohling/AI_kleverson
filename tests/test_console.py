@@ -99,10 +99,10 @@ def test_config_forms(sessions):
     )
     # Aviso.
     assert "não permitido" in client.get("/config", headers=OWNER).text
-    # Tags pelo formulário: cria e apaga.
-    client.post("/config/tags", data={"nome": "Arquitetura"}, headers=SAME)
-    # Aparece.
-    assert "Arquitetura" in client.get("/config", headers=OWNER).text
+    # Tags pelo formulário (agora em Cadastros): cria.
+    client.post("/cadastros/tags", data={"nome": "Arquitetura"}, headers=SAME)
+    # Aparece em Cadastros.
+    assert "Arquitetura" in client.get("/cadastros", headers=OWNER).text
 
 
 # POST vindo de outro site é recusado, mesmo com o cabeçalho do Tailscale.
@@ -124,7 +124,7 @@ def test_config_forms(sessions):
 def test_post_requires_same_origin(headers, status):
     # Tenta criar uma tag.
     response = client.post(
-        "/config/tags", data={"nome": "Teste"}, headers=headers, follow_redirects=False
+        "/cadastros/tags", data={"nome": "Teste"}, headers=headers, follow_redirects=False
     )
     # Confere.
     assert response.status_code == status

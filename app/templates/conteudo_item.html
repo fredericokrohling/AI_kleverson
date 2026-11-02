@@ -16,6 +16,48 @@
   {% endif %}
   {% if item.extra.get("caminho") %}<p class="muted">Caminho: {{ item.extra.caminho }}</p>{% endif %}
   {% if item.extra.get("erro_extracao") %}<p class="erro">Sem texto: {{ item.extra.erro_extracao }}</p>{% endif %}
+  {% if item.source.value != "drive" %}
+    <div>
+      <strong>Tags:</strong>
+      {% for tag, rule in tags %}
+        <span class="tag" title="Colocada por: {{ rule_labels.get(rule, rule) }}">{{ tag.name }}
+          <form class="inline" method="post" action="/conteudo/{{ item.id }}/tags/{{ tag.id }}/remover">
+            <button class="mini" type="submit" title="Tirar a tag (as regras não colocam de novo)" aria-label="Tirar {{ tag.name }}">×</button>
+          </form>
+        </span>
+      {% else %}
+        <span class="muted">nenhuma</span>
+      {% endfor %}
+      <form class="linha" method="post" action="/conteudo/{{ item.id }}/tags">
+        <input name="nome" required maxlength="100" placeholder="Tag" aria-label="Nova tag">
+        <button class="mini" type="submit">+ tag</button>
+      </form>
+    </div>
+  {% elif drive_tags %}
+    <p><strong>Tags (das pastas):</strong> {% for name in drive_tags %}<span class="tag herdada">{{ name }}</span>{% endfor %}</p>
+  {% endif %}
+  {% if speakers %}
+    <h2>Quem falou</h2>
+    <div class="tabela"><table>
+      <tr><th>Nome na transcrição</th><th>Pessoa cadastrada</th><th>Falas</th></tr>
+      {% for name, person, count in speakers %}
+        <tr>
+          <td>{{ name or "(sem nome)" }}</td>
+          <td>
+            {% if person %}
+              <a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a>{% if person.role %} · {{ person.role }}{% endif %}
+              {% if person.is_leader %}<span class="tag">liderança na empresa</span>{% endif %}
+              {% for project_name in project_leaders.get(person.id, []) %}<span class="tag">liderança no {{ project_name }}</span>{% endfor %}
+            {% else %}
+              <span class="muted">não reconhecida</span>
+            {% endif %}
+          </td>
+          <td>{{ count }}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+    <p class="muted">Nome não reconhecido? Cadastre a pessoa (ou o nome como "outro nome") em <a href="/cadastros">Cadastros</a>: as falas são ligadas na hora.</p>
+  {% endif %}
   <h2>Texto</h2>
   {% if item.body_text %}
     <pre class="texto">{{ item.body_text }}</pre>

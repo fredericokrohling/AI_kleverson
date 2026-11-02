@@ -54,6 +54,8 @@ class CalendarEvent:
     organizer: str | None = None
     # Participantes (nome ou e-mail).
     attendees: list[str] = field(default_factory=list)
+    # Participante → e-mail (serve para reconhecer quem falou na transcrição).
+    attendee_emails: dict[str, str] = field(default_factory=dict)
     # "meet", "teams" ou None quando não dá para saber.
     platform: str | None = None
     # Endereço da reunião on-line, quando houver.
@@ -77,6 +79,8 @@ class CalendarEvent:
             "organizador": self.organizer,
             # Participantes.
             "participantes": self.attendees,
+            # Participante → e-mail.
+            "participantes_emails": self.attendee_emails,
             # Endereço da reunião.
             "url_reuniao": self.meeting_url,
         }
@@ -158,14 +162,14 @@ def parse_event(raw: dict) -> CalendarEvent | None:
         return None
     # Plataforma e endereço.
     platform, url = _platform(raw)
+    # Convidados que são pessoas (salas e equipamentos, "resource", ficam de fora).
+    people = [a for a in raw.get("attendees", []) if not a.get("resource")]
     # Participantes: o nome, se a agenda souber; senão o e-mail. Salas de reunião saem.
     attendees = [
         # Nome mostrado pela agenda, ou o e-mail.
         a.get("displayName") or a.get("email", "")
         # Cada convidado.
-        for a in raw.get("attendees", [])
-        # Salas e equipamentos ("resource") não são pessoas.
-        if not a.get("resource")
+        for a in people
     ]
     # Monta.
     return CalendarEvent(
@@ -181,6 +185,14 @@ def parse_event(raw: dict) -> CalendarEvent | None:
         organizer=(raw.get("organizer") or {}).get("email"),
         # Participantes sem nomes vazios.
         attendees=[a for a in attendees if a],
+        # Nome (ou e-mail) → e-mail, só de quem tem e-mail.
+        attendee_emails={
+            # Mesma chave da lista de participantes.
+            (a.get("displayName") or a["email"]): a["email"]
+            # Cada convidado com e-mail.
+            for a in people
+            if a.get("email")
+        },
         # Plataforma.
         platform=platform,
         # Endereço.

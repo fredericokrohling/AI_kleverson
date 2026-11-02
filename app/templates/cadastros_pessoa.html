@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ person.name }} · Cadastros{% endblock %}
+{% block content %}
+<p><a href="/cadastros#pessoas">&larr; Cadastros</a></p>
+<h1>{{ person.name }}</h1>
+<section>
+  <h2>Dados</h2>
+  <form method="post" action="/cadastros/pessoas/{{ person.id }}">
+    <p class="linha">
+      <label>Nome <input name="nome" required maxlength="200" value="{{ person.name }}"></label>
+      <label>E-mail <input name="email" type="email" maxlength="320" value="{{ person.email or '' }}"></label>
+    </p>
+    <p class="linha">
+      <label>Cargo <input name="cargo" maxlength="200" value="{{ person.role or '' }}"></label>
+      <label>Empresa <input name="empresa" maxlength="200" value="{{ person.organization or '' }}"></label>
+    </p>
+    <p class="linha">
+      <label>Outros nomes (como aparece nas reuniões) <input name="outros_nomes" size="40" value="{{ person.aliases | join(', ') }}"></label>
+    </p>
+    <p class="linha">
+      <label><input type="checkbox" name="lider_empresa" value="1" {{ "checked" if person.is_leader }}> Liderança na empresa</label>
+      <button type="submit">Salvar pessoa</button>
+    </p>
+  </form>
+</section>
+
+<section>
+  <h2>Projetos</h2>
+  {% if memberships %}
+    <ul>
+      {% for project, link in memberships %}
+        <li><a href="/cadastros/projetos/{{ project.id }}">{{ project.name }}</a>{% if link.role_in_project %} · {{ link.role_in_project }}{% endif %}
+          {% if link.is_leader %}<span class="tag">liderança no projeto</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Em nenhum projeto. Inclua pela página do projeto.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Falas reconhecidas ({{ spoken }})</h2>
+  {% if recent %}
+    <div class="tabela"><table>
+      <tr><th>Reunião</th><th>Como apareceu</th><th>Fala</th></tr>
+      {% for u in recent %}
+        <tr>
+          <td><a href="/conteudo/{{ u.bronze_item_id }}">abrir</a></td>
+          <td>{{ u.speaker }}</td>
+          <td>{{ u.text }}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhuma fala ligada a esta pessoa ainda.</p>
+  {% endif %}
+</section>
+{% endblock %}
