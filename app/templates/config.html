@@ -116,36 +116,7 @@
 
 <section id="tags">
   <h2>Tags</h2>
-  <p class="muted">Uma tag diz a que o conteúdo se refere (ex.: "Projeto CRM"). Coloque tags numa pasta clicando no
-    nome dela acima: tudo dentro da pasta herda as tags, inclusive arquivos que chegarem depois.</p>
-  <form class="linha" method="post" action="/config/tags">
-    <input name="nome" required maxlength="100" placeholder="Nome da nova tag" aria-label="Nome da nova tag">
-    <button type="submit">Criar tag</button>
-  </form>
-  {% if tags %}
-    <div class="tabela"><table>
-      <tr><th>Tag</th><th>Colocada em</th><th>Renomear</th><th></th></tr>
-      {% for tag, count in tags %}
-        <tr>
-          <td><span class="tag">{{ tag.name }}</span></td>
-          <td>{{ count }} item(ns)</td>
-          <td>
-            <form class="linha" style="margin:0" method="post" action="/config/tags/{{ tag.id }}/renomear">
-              <input name="nome" required maxlength="100" value="{{ tag.name }}" aria-label="Novo nome de {{ tag.name }}">
-              <button class="mini" type="submit">Salvar</button>
-            </form>
-          </td>
-          <td>
-            <form class="inline" method="post" action="/config/tags/{{ tag.id }}/apagar"
-                  onsubmit='return confirm({{ ("Apagar a tag " ~ tag.name ~ " de todas as pastas e arquivos?")|tojson }})'>
-              <button class="perigo mini" type="submit">Apagar</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </table></div>
-  {% else %}
-    <p class="muted">Nenhuma tag ainda.</p>
-  {% endif %}
+  <p class="muted">O cadastro de tags (criar, renomear, apagar) fica em <a href="/cadastros#tags">Cadastros</a>, junto com
+    projetos e pessoas. Para colocar uma tag numa pasta do Drive, clique no nome da pasta acima.</p>
 </section>
 {% endblock %}

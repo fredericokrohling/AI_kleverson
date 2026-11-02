@@ -73,6 +73,9 @@ from app.ingestion.vision import is_pending
 # Tabelas usadas.
 from app.models import Attachment, BronzeItem, IngestionRun, SourceKind, audit
 
+# Tags de projeto: regras no e-mail novo e conferência das pastas do Gmail.
+from app.project_tags import apply_rules, sync_label_tags
+
 # Logger com o nome deste módulo.
 log = logging.getLogger(__name__)
 
@@ -384,6 +387,9 @@ def _ingest_message(
         row.bronze_item_id = item.id
         # Prepara.
         session.add(row)
+    # Tags de projeto pelas regras (nome no texto, remetente da equipe). A regra das
+    # pastas do Gmail roda no fim da coleta, com as pastas atuais (sync_labels).
+    apply_rules(session, item)
     # Quantos arquivos e quantos ficaram sem texto (links não contam como arquivo).
     files = [r for r in rows if r.origin == "anexo"]
     # Devolve as duas contagens.
@@ -425,6 +431,8 @@ def collect_gmail(
         try:
             # Faz o trabalho.
             _run(sessions, gmail, store, settings, since, now, summary)
+            # Pastas do Gmail ligadas a tags: acerta as tags dos e-mails.
+            sync_labels(sessions, gmail)
         # Sempre executa.
         finally:
             # Solta a trava.
@@ -433,6 +441,28 @@ def collect_gmail(
             lock_session.commit()
     # Devolve o resumo.
     return summary
+
+
+# Confere as pastas do Gmail ligadas a tags (regra "pasta do Gmail" dos projetos).
+def sync_labels(sessions: sessionmaker[Session], gmail) -> None:
+    # Uma sessão só para isso.
+    with sessions() as session:
+        # Tenta: uma falha aqui não pode estragar a coleta, que já foi gravada.
+        try:
+            # Coloca e tira tags conforme as pastas atuais.
+            added, removed = sync_label_tags(session, gmail)
+            # Registra no diário só se algo mudou.
+            if added or removed:
+                # Ação com as contagens.
+                audit(session, "sistema", "tags.pastas_gmail", colocadas=added, tiradas=removed)
+            # Grava.
+            session.commit()
+        # Qualquer erro (rede, pasta apagada no Gmail).
+        except Exception:
+            # Desfaz.
+            session.rollback()
+            # Rastro no log; a próxima coleta tenta de novo.
+            log.exception("Falha ao conferir as pastas do Gmail ligadas a tags")
 
 
 # O trabalho da rodada, já com a trava pega.

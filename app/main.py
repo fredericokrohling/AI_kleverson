@@ -64,6 +64,9 @@ from app.routes_failures import router as failures_router
 # Rotas da página Saúde.
 from app.routes_health import router as health_router
 
+# Rotas da página Cadastros (projetos, pessoas e tags).
+from app.routes_registry import router as registry_router
+
 # Rota da atualização automática (pergunta "há novidades?").
 from app.routes_updates import router as updates_router
 
@@ -101,6 +104,8 @@ app.add_middleware(
 app.include_router(import_router)
 # Acrescenta ao app as rotas de transcrição definidas em app/transcription/routes.py.
 app.include_router(transcription_router)
+# Rotas da página Cadastros.
+app.include_router(registry_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas da página Saúde.

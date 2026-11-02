@@ -188,10 +188,17 @@ def test_parse_srt_and_txt_with_vtt_inside():
     ]
     # Um .txt que na verdade é .vtt é lido como legenda.
     assert read_transcript(TEAMS_VTT.encode(), "transcricao.txt").kind == "legenda"
-    # Um .txt comum é lido como documento.
-    plain = read_transcript("Ana: bom dia\nJoão: oi".encode(), "notas.txt")
+    # Um .txt no formato "Nome: texto" (o do Meet) vira uma fala por linha.
+    named = read_transcript("Ana: bom dia\nJoão: oi".encode(), "notas.txt")
+    # Mesmo formato das legendas, com quem falou.
+    assert (named.text, named.speakers) == (
+        "[00:00] Ana: bom dia\n[00:00] João: oi",
+        ["Ana", "João"],
+    )
+    # Um .txt comum é lido como documento, sem falas.
+    plain = read_transcript("Pauta da reunião\nRevisar o escopo".encode(), "notas.txt")
     # Texto como veio.
-    assert (plain.kind, plain.text, plain.turns) == ("documento", "Ana: bom dia\nJoão: oi", None)
+    assert (plain.kind, plain.turns, plain.items) == ("documento", None, [])
     # Word.
     assert "Projeto Atlas" in read_transcript(make_docx(), "Transcrição.docx").text
 

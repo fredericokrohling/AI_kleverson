@@ -241,6 +241,40 @@ def cmd_extrair_imagens_embutidas(_: argparse.Namespace) -> None:
     print(f"{total} imagem(ns) embutida(s) na fila do Claude.")
 
 
+# Cria as falas das transcrições gravadas antes desta versão e reconhece quem falou.
+def cmd_extrair_falas(_: argparse.Namespace) -> None:
+    """Uma linha por fala nas transcrições antigas, ligada às pessoas cadastradas."""
+    # Gravação das falas e reconhecimento.
+    from app.people import backfill_utterances, relink_utterances
+
+    # Uma sessão.
+    with get_sessionmaker()() as session:
+        # Transcrições que ganharam falas.
+        done = backfill_utterances(session)
+        # Falas ligadas a pessoas.
+        linked = relink_utterances(session)
+        # Grava.
+        session.commit()
+    # Mostra.
+    print(f"{done} transcrição(ões) com falas novas; {linked} fala(s) ligada(s) a pessoas.")
+
+
+# Aplica as regras de tag dos projetos a todos os e-mails e reuniões já coletados.
+def cmd_reaplicar_tags(_: argparse.Namespace) -> None:
+    """Regras de tag (nome no texto, equipe) em tudo; só acrescenta, nunca tira."""
+    # Regras.
+    from app.project_tags import apply_rules_to_all
+
+    # Uma sessão.
+    with get_sessionmaker()() as session:
+        # Aplica.
+        added = apply_rules_to_all(session)
+        # Grava.
+        session.commit()
+    # Mostra.
+    print(f"{added} tag(s) nova(s).")
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
     """Roda sem parar: Gmail, Drive, leitura pelo Claude e saúde, cada um no seu intervalo."""
@@ -363,6 +397,10 @@ COMMANDS = {
     "recuperar-imagens-emails": cmd_recuperar_imagens_emails,
     # python -m app.cli extrair-imagens-embutidas
     "extrair-imagens-embutidas": cmd_extrair_imagens_embutidas,
+    # python -m app.cli extrair-falas
+    "extrair-falas": cmd_extrair_falas,
+    # python -m app.cli reaplicar-tags
+    "reaplicar-tags": cmd_reaplicar_tags,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)

@@ -64,7 +64,11 @@ Avaliamos guardar o arquivo como veio e converter para o formato da extensão
 - o original continua guardado (`extra.arquivo`), então nada se perde.
 
 O `.docx` e o `.txt` não têm marcação confiável de quem fala (cada programa escreve de um
-jeito), então entram como texto, pelo mesmo extrator dos anexos de e-mail.
+jeito). Desde a versão seguinte ([guia 10](10-projetos-equipe-falas-tags.md)), o sistema
+reconhece os dois padrões conhecidos: o do Teams (nome e horário numa linha, a fala na
+seguinte) e o do Meet ("Nome: texto"). Só aceita quando as falas encontradas são a maior
+parte do documento; senão o texto entra como veio, pelo mesmo extrator dos anexos de
+e-mail, porque separar errado é pior que não separar.
 
 ## Importar duas vezes não duplica
 

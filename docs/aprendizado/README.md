@@ -15,6 +15,7 @@ consideradas e onde ela aparece no código.
 7. [Console: pastas do Drive, tags herdadas, configurações e saúde](07-console-drive-saude.md)
 8. [Leitura de imagens e PDFs digitalizados pelo Claude](08-leitura-pelo-claude.md)
 9. [Importar transcrições do Teams e do Meet: ligação com a agenda](09-importar-transcricoes.md)
+10. [Projetos, equipe, quem falou e tags nos e-mails](10-projetos-equipe-falas-tags.md)
 
 ## Como ler o código
 
@@ -39,6 +40,7 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 7. `app/main.py`: as páginas do console.
 8. `app/transcription/`: a transcrição ao vivo (comece pelo `__init__.py`).
 9. `app/ingestion/`: a coleta de e-mail (comece pelo `__init__.py`).
+10. `app/people.py`, `app/project_tags.py` e `app/projects.py`: quem falou, tags e cadastros.
 10. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código

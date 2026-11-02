@@ -23,6 +23,12 @@ from sqlalchemy.orm import Session
 # Tabelas e a função de auditoria.
 from app.models import BronzeItem, SourceKind, TranscriptSegment, audit
 
+# Gravação das falas, uma linha por fala, com o reconhecimento de quem falou.
+from app.people import Spoken, save_utterances
+
+# Tags automáticas pelas regras dos projetos.
+from app.project_tags import apply_rules
+
 # Canais que vêm do serviço de transcrição; as legendas do Meet ficam à parte para comparação.
 AUDIO_CHANNELS = ("voce", "outros")
 # Nome do canal das legendas do Meet.
@@ -211,6 +217,10 @@ def finalize(
     }
     # flush envia ao banco sem confirmar ainda; serve para obter o item.id.
     session.flush()
+    # Uma linha por fala ("Você" e "Falante N"; os nomes vêm no bloco 6).
+    save_utterances(session, item, [Spoken(s.start_ms, s.speaker, s.text) for s in audio])
+    # Tags pelas regras (nome do projeto no título).
+    apply_rules(session, item)
     # Registra a finalização no log de auditoria.
     audit(session, actor, "transcricao_finalizada", target=session_id, bronze_id=item.id)
     # Confirma tudo.

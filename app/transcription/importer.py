@@ -50,6 +50,12 @@ from app.ingestion.storage import FileStore, safe_suffix, sha256_hex
 # Tabelas e o registro de auditoria.
 from app.models import BronzeItem, SourceKind, audit
 
+# Gravação das falas, com o reconhecimento de quem falou.
+from app.people import Spoken, save_utterances
+
+# Tags automáticas pelas regras dos projetos.
+from app.project_tags import apply_rules
+
 # Evento da agenda e transcrição do Meet anexada.
 from app.transcription.calendar import GOOGLE_DOC_MIME, CalendarEvent, MeetTranscript
 
@@ -71,6 +77,12 @@ _VOICE = re.compile(r"<v(?:\.[^\s>]*)?\s+([^>]+)>")
 _TAG = re.compile(r"<[^>]+>")
 # Espaços repetidos.
 _SPACES = re.compile(r"\s+")
+# Cabeçalho de fala do .docx do Teams: "Ana Souza   0:03" (nome, espaços, tempo).
+_TEAMS_HEADER = re.compile(r"^(\D[^\n]{0,80}?)\s+((?:\d{1,2}:)?\d{1,2}:\d{2})$")
+# Linha de tempo sozinha do documento do Meet: "00:05:00".
+_MEET_TIME = re.compile(r"^((?:\d{1,2}:)?\d{1,2}:\d{2})$")
+# Fala do documento do Meet (e de muitos .txt): "Ana Souza: texto".
+_NAME_COLON = re.compile(r"^([^:\d\n][^:\n]{0,59}):\s+(\S.*)$")
 
 
 # Erro de importação, com a mensagem que aparece para você.
@@ -99,8 +111,10 @@ class Transcript:
     kind: str
     # Quem falou, na ordem em que apareceu (vazio quando o arquivo não diz).
     speakers: list[str] = field(default_factory=list)
-    # Número de falas (só nas legendas; num documento não dá para contar com segurança).
+    # Número de falas (None quando o arquivo não separa quem falou).
     turns: int | None = None
+    # As falas, quando o arquivo separa quem falou (vão para a tabela utterances).
+    items: list[Turn] = field(default_factory=list)
 
 
 # O resultado da importação, para a mensagem da página.
@@ -114,6 +128,67 @@ class ImportResult:
     title: str
     # Transcrição lida.
     transcript: Transcript
+
+
+# Lê falas de um documento do Teams (.docx): cabeçalho "Nome  0:03" e o texto abaixo.
+def _teams_document(lines: list[str]) -> list[Turn]:
+    # Resultado.
+    turns: list[Turn] = []
+    # Cada linha.
+    for line in lines:
+        # Cabeçalho de fala?
+        header = _TEAMS_HEADER.match(line)
+        # Sim: começa uma fala nova, ainda sem texto.
+        if header:
+            turns.append(Turn(_to_ms(header.group(2) + ".0"), header.group(1).strip(), ""))
+        # Texto de uma fala já começada.
+        elif turns:
+            # Junta (uma fala pode ter vários parágrafos).
+            turns[-1].text = f"{turns[-1].text} {line}".strip()
+    # Só falas com texto.
+    return [t for t in turns if t.text]
+
+
+# Lê falas no formato "Nome: texto" (documento do Meet, .txt), com linhas de tempo soltas.
+def _name_colon_document(lines: list[str]) -> list[Turn]:
+    # Resultado.
+    turns: list[Turn] = []
+    # Último tempo visto (o Meet escreve "00:05:00" a cada poucos minutos).
+    current_ms = 0
+    # Linhas que não são tempo nem fala (título, lista de participantes...).
+    other = 0
+    # Cada linha.
+    for line in lines:
+        # Linha de tempo.
+        time_line = _MEET_TIME.match(line)
+        # Atualiza o tempo e segue.
+        if time_line:
+            current_ms = _to_ms(time_line.group(1) + ".0")
+            continue
+        # Fala "Nome: texto"; nomes com mais de 6 palavras são frase, não nome.
+        said = _NAME_COLON.match(line)
+        # É fala.
+        if said and len(said.group(1).split()) <= 6:
+            turns.append(Turn(current_ms, said.group(1).strip(), said.group(2).strip()))
+        # Outra linha.
+        else:
+            other += 1
+    # Aceita só se as falas forem a maioria das linhas (senão é um documento comum com
+    # algumas linhas "Observação: ...").
+    return turns if len(turns) >= 2 and len(turns) >= other else []
+
+
+# Tenta separar as falas de um documento; lista vazia quando o formato não é reconhecido.
+def parse_document_turns(text: str) -> list[Turn]:
+    # Linhas com texto, sem espaços nas pontas.
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # Formato do Teams: pelo menos dois cabeçalhos "Nome  tempo".
+    teams = _teams_document(lines)
+    # Reconheceu.
+    if len(teams) >= 2:
+        return teams
+    # Formato "Nome: texto".
+    return _name_colon_document(lines)
 
 
 # Converte "01:02:03.450", "02:03.450" ou "00:02:03,450" em milissegundos.
@@ -232,7 +307,7 @@ def read_transcript(data: bytes, filename: str) -> Transcript:
         # Nomes sem repetição, na ordem em que aparecem (dict mantém a ordem).
         speakers = list(dict.fromkeys(t.speaker for t in turns if t.speaker))
         # Pronto.
-        return Transcript(render_turns(turns), "legenda", speakers, len(turns))
+        return Transcript(render_turns(turns), "legenda", speakers, len(turns), turns)
     # Documento: o mesmo extrator dos anexos de e-mail.
     extraction = extract_text(data, filename, None)
     # Falhou (ex.: PDF digitalizado, Word corrompido).
@@ -244,8 +319,15 @@ def read_transcript(data: bytes, filename: str) -> Transcript:
     # Documento sem texto.
     if not text:
         raise ImportFailure("O arquivo não tem texto.")
-    # Pronto.
-    return Transcript(text, "documento")
+    # Tenta separar quem falou (formatos do Teams e do Meet).
+    turns = parse_document_turns(text)
+    # Não reconheceu o formato: guarda o texto como veio.
+    if not turns:
+        return Transcript(text, "documento")
+    # Nomes sem repetição, na ordem em que aparecem.
+    speakers = list(dict.fromkeys(t.speaker for t in turns if t.speaker))
+    # Mesmo formato das legendas e da extensão.
+    return Transcript(render_turns(turns), "documento", speakers, len(turns), turns)
 
 
 # Baixa a transcrição do Meet anexada ao evento (um Google Docs, exportado como Word).
@@ -361,6 +443,17 @@ def import_transcript(
     session.add(item)
     # Envia ao banco para obter o id.
     session.flush()
+    # Uma linha por fala, ligada à pessoa cadastrada quando o nome é reconhecido.
+    save_utterances(
+        # Sessão.
+        session,
+        # A transcrição.
+        item,
+        # Falas no formato da tabela.
+        [Spoken(t.start_ms, t.speaker, t.text) for t in transcript.items],
+    )
+    # Tags pelas regras (nome do projeto no título, pessoas da equipe na reunião).
+    apply_rules(session, item)
     # Registra no diário (aparece em Processamento).
     audit(
         # Sessão.
