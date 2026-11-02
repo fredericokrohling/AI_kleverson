@@ -64,6 +64,9 @@ from app.routes_failures import router as failures_router
 # Rotas da página Saúde.
 from app.routes_health import router as health_router
 
+# Rota da atualização automática (pergunta "há novidades?").
+from app.routes_updates import router as updates_router
+
 # Criptografia.
 from app.security import get_cipher
 
@@ -99,6 +102,8 @@ app.include_router(health_router)
 app.include_router(failures_router)
 # Conteúdo coletado.
 app.include_router(content_router)
+# Acrescenta a rota da atualização automática.
+app.include_router(updates_router)
 # htmx é baixado na construção da imagem Docker (ver Dockerfile).
 # mount publica a pasta static no endereço /static.
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")

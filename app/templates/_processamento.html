@@ -1,5 +1,6 @@
 {# Seção Processamento: incluída na página inicial e devolvida sozinha pelo /processamento (HTMX). #}
-<section id="processamento">
+{# Na última página de hoje, a seção se atualiza sozinha com novidades; em outro dia, não. #}
+<section id="processamento"{% if p.scroll_to_end %} hx-get="/processamento" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
   <h2>Processamento</h2>
   <form class="linha" action="/" method="get"
         hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML" hx-trigger="change">

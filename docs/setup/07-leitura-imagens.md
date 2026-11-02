@@ -112,11 +112,36 @@ Depois de mudar o `.env`, rode `docker compose up -d`.
 Os dois últimos só aparecem no aviso do topo da página: o arquivo continua na fila com o
 código de espera.
 
+## 7.7 Imagens dentro de PowerPoint e Word
+
+Diagramas e prints colados num `.pptx` ou `.docx` também vão para o Claude. Vale para
+anexos de e-mail e para arquivos do Drive, inclusive Google Slides e Docs, que o sistema
+exporta como PowerPoint e Word.
+
+- Cada imagem vira uma linha própria, com o nome do arquivo e a posição:
+  `Status.pptx › slide 3 › image2.png`, ou `Arquitetura.docx › imagem 1 › image1.png`.
+  Ela aparece junto dos anexos em **Ver o conteúdo coletado**.
+- A mesma imagem repetida no arquivo (o logo em todos os slides) é lida uma vez.
+- Ícones (lado maior abaixo de 200 pixels) são ignorados sem aviso.
+- No Word, só as imagens do corpo: cabeçalho e rodapé ficam de fora, porque é onde costuma
+  estar o logo da empresa.
+- No máximo 20 imagens por arquivo. Num deck com 60 prints, só os 20 primeiros.
+
+**Arquivos que chegaram antes desta versão:** rode uma vez, no servidor:
+
+```bash
+docker compose run --rm coletor python -m app.cli extrair-imagens-embutidas
+```
+
+O comando procura imagens nos PowerPoint e Word já guardados e as põe na fila; o Claude lê
+nas rodadas seguintes, dentro do teto. Rodar de novo não duplica nada.
+
 ## Limitações conhecidas
 
 - **PDF com parte das páginas digitalizada:** se o PDF tem texto em algumas páginas, só o
   texto é lido; as páginas que são só imagem ficam de fora, sem aviso.
-- **Imagens dentro de Word, PowerPoint e Excel** não são lidas; só o texto desses arquivos.
+- **Imagens dentro do Excel** não são lidas (as do PowerPoint e do Word, sim; ver 7.7).
+- **Imagens vetoriais** (EMF e WMF, comuns em diagramas colados do Visio) não são lidas.
 - **GIF animado e TIFF de várias páginas:** só o primeiro quadro.
 - **Imagem muito comprida** (print de uma página inteira): é reduzida para 2576 pixels no
   lado maior, e letras pequenas podem ficar ilegíveis. Corte em partes antes de salvar.

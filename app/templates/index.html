@@ -4,6 +4,8 @@
 {% if not accounts %}
   <div class="aviso-caixa">Nenhuma conta Google conectada. Conecte em <a href="/config#contas">Configurações → Contas conectadas</a>.</div>
 {% endif %}
+{# Com novidades (ver app/updates.py), este bloco se busca de novo na página inicial. #}
+<div id="inicio-dados" hx-get="/" hx-select="#inicio-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
 <section>
   <h2>Coleta de e-mail</h2>
   <p>No bronze: <strong>{{ coleta.emails }}</strong> e-mails e <strong>{{ coleta.files }}</strong> arquivos
@@ -73,6 +75,7 @@
     <strong>{{ drive.versions }}</strong> versão(ões) gravadas no bronze.
     <a href="/config#drive">Gerenciar pastas e tags</a></p>
 </section>
+</div>
 
 {% include "_processamento.html" %}
 {% endblock %}

@@ -503,3 +503,48 @@ def test_content_pages(sessions):
     assert "Segue o cronograma." in page and "Homologação | 2026-11-20" in page
     # Inexistente: 404.
     assert client.get("/conteudo/999999", headers=OWNER).status_code == 404
+
+
+# Atualização automática: a marca muda com novidades, e a rota avisa o navegador.
+def test_auto_refresh(sessions):
+    # Gravação no Processamento (import local, só deste teste).
+    from app.models import audit
+
+    # Marca do estado do sistema.
+    from app.updates import stamp
+
+    # Marca inicial.
+    with sessions() as s:
+        # Marca.
+        before = stamp(s, get_settings())
+    # Cliente.
+    client = TestClient(app)
+    # A página inicial tem o vigia, o bloco que se atualiza e o Processamento de hoje ligado.
+    page = client.get("/", headers=OWNER).text
+    # Vigia com a marca atual.
+    assert f'hx-get="/novidades?marca={before}"' in page
+    # Bloco de dados e Processamento escutando o evento.
+    assert 'id="inicio-dados"' in page and page.count('hx-trigger="novidades from:body"') == 3
+    # Sem novidade: sem aviso.
+    assert "HX-Trigger" not in client.get(f"/novidades?marca={before}", headers=OWNER).headers
+    # Algo novo no Processamento.
+    with sessions() as s:
+        # Linha nova.
+        audit(s, "sistema", "teste.novidade")
+        # Grava.
+        s.commit()
+        # Marca nova.
+        after = stamp(s, get_settings())
+    # A marca mudou.
+    assert after != before
+    # A rota avisa e devolve o vigia com a marca nova.
+    response = client.get(f"/novidades?marca={before}", headers=OWNER)
+    # Evento do HTMX.
+    assert response.headers["HX-Trigger"] == "novidades"
+    # Próxima pergunta já com a marca nova.
+    assert f"marca={after}" in response.text
+    # Em outro dia no calendário, o Processamento não se atualiza sozinho.
+    assert (
+        'hx-trigger="novidades from:body"'
+        not in client.get("/processamento?data=2020-01-01", headers=OWNER).text
+    )

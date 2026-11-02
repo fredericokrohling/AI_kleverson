@@ -58,6 +58,9 @@ from app.config import Settings
 # Desmontar o e-mail.
 from app.ingestion.email_parser import parse_email
 
+# Imagens de dentro dos PowerPoint e Word anexados.
+from app.ingestion.embedded import embedded_rows
+
 # Extração de texto.
 from app.ingestion.extractors import Extraction, coded, extract_text
 
@@ -344,6 +347,10 @@ def _ingest_message(
                 ready_text=att.text,
             )
         )
+    # Imagens de dentro dos PowerPoint e Word anexados: vão para a fila do Claude.
+    for att in parsed.attachments:
+        # Linhas de imagem embutida (lista vazia para outros formatos).
+        rows.extend(embedded_rows(session, store, att.filename, att.data, att.mime_type))
     # Links do Drive: registra cada arquivo citado; o monitor do Drive lê depois.
     for file_id in parsed.drive_file_ids:
         # Linha sem arquivo e sem erro: só diz "este e-mail cita este arquivo do Drive".

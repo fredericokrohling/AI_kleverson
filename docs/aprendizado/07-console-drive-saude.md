@@ -206,6 +206,26 @@ do bloco 4: procura com `ILIKE` (contém, sem diferenciar maiúsculas) no assunt
 texto. Serve bem para o volume de uma pessoa; a busca por significado (pgvector) vem
 depois.
 
+## Atualização automática da página inicial
+
+Avaliamos três jeitos de a página mostrar o que é novo:
+
+- **Recarregar a página inteira a cada N segundos:** o mais simples, mas perde a rolagem,
+  interrompe um clique em "Tentar de novo" e consulta tudo de novo mesmo sem mudança.
+- **Conexão aberta com o servidor (WebSocket ou SSE),** que empurra cada novidade: é
+  instantâneo, mas o coletor é outro processo e precisaria avisar o console, uma peça a
+  mais para algo que pode chegar com 30 segundos de atraso.
+- **Marca + evento (escolhido):** a página guarda uma "marca" do estado do sistema (o
+  último id do Processamento, do bronze e dos anexos, quantos arquivos estão sem texto, a
+  última rodada de coleta e a cor do coração). A cada 30 segundos, um elemento invisível
+  pergunta `/novidades?marca=...`. Se a marca mudou, o servidor responde com o cabeçalho
+  `HX-Trigger: novidades`, e o HTMX dispara esse evento na página. Cada seção que o escuta
+  (`hx-trigger="novidades from:body"`) se busca de novo e troca só a si mesma.
+
+A pergunta custa umas poucas consultas de máximo e contagem, sem montar a página. O
+Processamento só escuta o evento quando você está na última página de hoje: se escolheu
+outro dia, a seção não muda debaixo dos seus olhos.
+
 ## Um agendador só
 
 O serviço `coletor` rodava só o Gmail. Agora roda o `agendador` (`python -m app.cli
@@ -217,6 +237,7 @@ esperar os 30 minutos.
 
 - `app/ingestion/drive_sync.py`: cadastro de pastas, varredura e nova tentativa no Drive.
 - `app/activity.py`: seção Processamento.
+- `app/updates.py` e `app/routes_updates.py`: a marca e a pergunta da atualização automática.
 - `app/routes_content.py`: conteúdo coletado.
 - `app/ingestion/failures.py` e `app/routes_failures.py`: lista de arquivos sem texto e
   botões "Tentar de novo".

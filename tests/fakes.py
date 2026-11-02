@@ -440,3 +440,50 @@ class FakeClaude:
             # Id da requisição.
             _request_id="req_visao",
         )
+
+
+# PowerPoint com imagens: o mesmo diagrama em dois slides (deve virar um só) e um ícone.
+def make_pptx_with_images() -> bytes:
+    # Biblioteca do PowerPoint.
+    from pptx import Presentation
+
+    # Medida em polegadas.
+    from pptx.util import Inches
+
+    # Apresentação nova.
+    presentation = Presentation()
+    # Diagrama grande.
+    diagram = make_png(900, 600)
+    # Dois slides com o mesmo diagrama.
+    for _ in range(2):
+        # Slide em branco (layout 6).
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        # Cola o diagrama.
+        slide.shapes.add_picture(io.BytesIO(diagram), Inches(1), Inches(1))
+    # Ícone pequeno no último slide (não deve ir ao Claude).
+    slide.shapes.add_picture(io.BytesIO(make_png(40, 40)), Inches(8), Inches(6))
+    # Salva na memória.
+    buffer = io.BytesIO()
+    # Grava.
+    presentation.save(buffer)
+    # Bytes.
+    return buffer.getvalue()
+
+
+# Word com um parágrafo e um diagrama colado.
+def make_docx_with_image() -> bytes:
+    # Biblioteca do Word.
+    import docx
+
+    # Documento novo.
+    document = docx.Document()
+    # Texto.
+    document.add_paragraph("Arquitetura proposta")
+    # Diagrama.
+    document.add_picture(io.BytesIO(make_png(1000, 700)))
+    # Salva na memória.
+    buffer = io.BytesIO()
+    # Grava.
+    document.save(buffer)
+    # Bytes.
+    return buffer.getvalue()
