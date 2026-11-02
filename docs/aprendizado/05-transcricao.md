@@ -107,3 +107,7 @@ finalização pode ser chamada de novo sem duplicar (a regra única do bronze ga
 | `app/transcription/routes.py` | WebSocket e rotas de legendas e finalização |
 | `app/transcription/providers.py` | Conversa com o Deepgram |
 | `app/transcription/store.py` | Grava trechos e monta a transcrição no bronze |
+
+Quando o Teams ou o Meet já transcreveram a reunião, não é preciso usar a extensão: a
+transcrição deles pode ser importada pelo console, ligada à reunião da agenda. Ver
+[09-importar-transcricoes.md](09-importar-transcricoes.md).

@@ -17,6 +17,9 @@ import io
 # json monta o corpo do erro no formato do Google.
 import json
 
+# Data e hora (início dos eventos da agenda falsa).
+from datetime import datetime
+
 # EmailMessage monta e-mails no formato padrão.
 from email.message import EmailMessage
 
@@ -233,6 +236,63 @@ class FakeDrive:
     def get_media(self, fileId, supportsAllDrives):  # noqa: N803 (nome da API)
         # Mesmo comportamento da exportação.
         return self.export(fileId, None)
+
+
+# Agenda falsa: eventos no formato da API do Google Calendar.
+class FakeCalendar:
+    # events: lista de eventos, cada um com "id", "summary", "start", "end" e o que mais
+    # o teste quiser (attendees, hangoutLink, attachments...).
+    def __init__(self, events: list[dict]):
+        # Os eventos.
+        self.items = events
+        # Intervalos pedidos na listagem (para conferir o fuso).
+        self.list_calls: list[tuple[str, str]] = []
+
+    # calendar.events() devolve o próprio objeto.
+    def events(self):
+        return self
+
+    # Início de um evento como data e hora (dia inteiro: meia-noite de Brasília).
+    @staticmethod
+    def _start(event: dict) -> datetime:
+        # Dados do início.
+        start = event["start"]
+        # Evento com hora.
+        if "dateTime" in start:
+            return datetime.fromisoformat(start["dateTime"])
+        # Dia inteiro.
+        return datetime.fromisoformat(f"{start['date']}T00:00:00-03:00")
+
+    # Listagem por intervalo de tempo.
+    def list(self, calendarId, timeMin, timeMax, **_):  # noqa: N803 (nome da API)
+        # Função que produz a resposta.
+        def respond():
+            # Registra o intervalo pedido.
+            self.list_calls.append((timeMin, timeMax))
+            # Limites como data e hora.
+            low, high = datetime.fromisoformat(timeMin), datetime.fromisoformat(timeMax)
+            # Eventos que começam dentro do intervalo, em ordem de início.
+            found = sorted((e for e in self.items if low <= self._start(e) < high), key=self._start)
+            # Resposta no formato da API.
+            return {"items": found}
+
+        # Devolve a chamada preparada.
+        return _Call(respond)
+
+    # Um evento pelo id.
+    def get(self, calendarId, eventId):  # noqa: N803 (nome da API)
+        # Função que produz a resposta.
+        def respond():
+            # Procura o evento.
+            for event in self.items:
+                # Achou.
+                if event["id"] == eventId:
+                    return event
+            # Não existe: 404, como na API.
+            raise http_error(404)
+
+        # Devolve a chamada preparada.
+        return _Call(respond)
 
 
 # --- Geradores de arquivos de exemplo -------------------------------------------

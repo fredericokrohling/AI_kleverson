@@ -1,10 +1,11 @@
 # 6. Console: pastas do Drive, tags, configurações e saúde
 
-Resultado: o console ganha um menu lateral com três atalhos:
+Resultado: o console ganha um menu lateral com quatro atalhos:
 
 | Ícone | Página | O que tem |
 | --- | --- | --- |
-| Casa | Início | Coleta de e-mail, Drive (totais), arquivos sem texto e Processamento |
+| Casa | Início | Coleta de e-mail, Drive (totais), arquivos sem texto, transcrições de reunião e Processamento |
+| Microfone | Reuniões | Importar a transcrição do Teams ou do Meet, ligada à reunião da agenda ([guia 8](08-importar-transcricoes.md)) |
 | Engrenagem | Configurações | Contas conectadas, Claude (modelo, esforço, gasto, teste), idioma da transcrição, pastas do Drive monitoradas e tags |
 | Coração | Saúde | Situação de cada serviço, versão instalada x versão nova, botões de terminal. Fica **vermelho** quando algum serviço falha |
 

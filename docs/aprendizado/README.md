@@ -14,6 +14,7 @@ consideradas e onde ela aparece no código.
 6. [Ingestão de e-mail: janela de coleta, e-mail bruto, anexos e links do Drive](06-ingestao-email.md)
 7. [Console: pastas do Drive, tags herdadas, configurações e saúde](07-console-drive-saude.md)
 8. [Leitura de imagens e PDFs digitalizados pelo Claude](08-leitura-pelo-claude.md)
+9. [Importar transcrições do Teams e do Meet: ligação com a agenda](09-importar-transcricoes.md)
 
 ## Como ler o código
 

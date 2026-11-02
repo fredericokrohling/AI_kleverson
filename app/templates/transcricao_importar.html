@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Importar transcrição · Kleverson A.I.{% endblock %}
+{% block content %}
+<h1>Importar transcrição</h1>
+<section>
+  <p class="muted">Traga a transcrição que o Teams ou o Meet já fizeram, sem gastar com a extensão. Formatos: {{ aceitos }}
+    (no Teams, prefira o <strong>.vtt</strong>: ele traz o nome de quem falou em cada trecho).</p>
+  <form method="post" action="/transcricoes/importar" enctype="multipart/form-data">
+    <p>
+      <label for="data">Dia da reunião</label><br>
+      <input type="date" id="data" name="data" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}"
+             hx-get="/transcricoes/importar/reunioes" hx-target="#reunioes" hx-swap="outerHTML" hx-trigger="change">
+      <span class="htmx-indicator muted">lendo a agenda…</span>
+    </p>
+    <p>
+      <label for="evento">Reunião</label><br>
+      {% include "_reunioes.html" %}
+    </p>
+    <p>
+      <label for="titulo">Título (só se a reunião não está na agenda)</label><br>
+      <input type="text" id="titulo" name="titulo" maxlength="500" size="50">
+    </p>
+    <p>
+      <label for="arquivo">Arquivo da transcrição</label><br>
+      <input type="file" id="arquivo" name="arquivo" accept="{{ aceitos }}">
+    </p>
+    <p><button type="submit">Importar transcrição</button></p>
+  </form>
+</section>
+
+<section>
+  <h2>Últimas transcrições</h2>
+  {% if recentes %}
+    <div class="tabela"><table>
+      <tr><th>Quando</th><th>Reunião</th><th>Origem</th></tr>
+      {% for r in recentes %}
+        <tr>
+          <td>{{ r.occurred_at | local("%d/%m/%Y %H:%M") }}</td>
+          <td><a href="/conteudo/{{ r.id }}">{{ r.subject or "(sem título)" }}</a></td>
+          <td>{% if r.extra.get("origem") == "importada" %}Importada{% if r.extra.get("plataforma") %} ({{ r.extra.plataforma | capitalize }}){% endif %}{% else %}Extensão{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhuma transcrição ainda.</p>
+  {% endif %}
+</section>
+{% endblock %}

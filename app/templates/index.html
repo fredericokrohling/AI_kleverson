@@ -75,6 +75,21 @@
     <strong>{{ drive.versions }}</strong> versão(ões) gravadas no bronze.
     <a href="/config#drive">Gerenciar pastas e tags</a></p>
 </section>
+
+<section id="reunioes">
+  <h2>Transcrições de reunião</h2>
+  <p><a class="botao" href="/transcricoes/importar">Importar transcrição</a></p>
+  {% if reunioes %}
+    <ul>
+      {% for r in reunioes %}
+        <li>{{ r.occurred_at | local("%d/%m %H:%M") }} · <a href="/conteudo/{{ r.id }}">{{ r.subject or "(sem título)" }}</a>
+          <span class="muted">· {{ "importada" if r.extra.get("origem") == "importada" else "extensão" }}</span></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Nenhuma transcrição ainda.</p>
+  {% endif %}
+</section>
 </div>
 
 {% include "_processamento.html" %}
