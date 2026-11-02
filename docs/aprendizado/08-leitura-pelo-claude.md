@@ -55,9 +55,9 @@ Cada leitura custa dinheiro, então a fila tem regras que um OCR gratuito não p
 - **O mesmo arquivo é lido uma vez.** Um diagrama encaminhado em cinco e-mails tem a mesma
   impressão digital (SHA-256). A fila lê o primeiro e copia o texto para os outros.
 - **Só a versão atual de um arquivo do Drive.** Versões antigas não são lidas.
-- **Ícone não é conteúdo.** Imagem com o lado maior abaixo de 200 pixels vira
-  `IMAGEM_PEQUENA` e não é enviada. O logo da assinatura, embutido no corpo do e-mail, já
-  era ignorado desde o bloco 2.
+- **Ícone não é conteúdo.** Imagem anexada com o lado maior abaixo de 200 pixels vira
+  `IMAGEM_PEQUENA` e não é enviada. Imagem pequena **colada no corpo** do e-mail (logo e
+  ícones da assinatura) nem vira linha: continua só no `.eml` guardado.
 - **Aviso dispensado não é lido.** Se você dispensou, é porque não interessa.
 - **Falha da API não é repetida sozinha.** O arquivo sai da fila com `CLAUDE_FALHOU` e só
   volta pelo "Tentar de novo". Sem isso, um arquivo que sempre falha seria cobrado (ou
@@ -124,6 +124,26 @@ pixels e formatos que não abrem são ignorados sem aviso (num deck corporativo 
 dezenas de linhas inúteis na lista); no Word, só o corpo do documento (cabeçalho e rodapé
 guardam o logo); e no máximo 20 imagens por arquivo, para um deck de prints não consumir o
 teto do mês de uma vez.
+
+## O erro do filtro de assinatura (corrigido em 02/11/2026)
+
+No bloco 2, o leitor de e-mail descartava toda imagem que tivesse o cabeçalho
+`Content-ID`, achando que era o logo da assinatura. A premissa estava errada: o Gmail põe
+`Content-ID` também nas imagens anexadas pelo clipe. Resultado: nenhuma imagem anexada a
+e-mail entrava no sistema, e o teste real da dona (uma certidão em PNG) mostrou isso.
+
+A correção troca o critério. Toda imagem é lida do e-mail. A que foi anexada vira linha
+sempre. A colada no corpo só vira linha se for grande o bastante para ter conteúdo (200
+pixels no lado maior); o logo e os ícones da assinatura ficam de fora pelo tamanho, não
+pelo cabeçalho. O logo maior que isso entra, mas a regra "o mesmo arquivo é lido uma vez"
+faz ele custar uma leitura só, não uma por e-mail.
+
+Os e-mails coletados antes da correção não precisam ser baixados de novo: o `.eml`
+original está guardado, e o comando `recuperar-imagens-emails` relê cada um e cria as
+linhas que faltam.
+
+A lição: um teste com dado real pegou o que os testes automáticos não pegaram, porque o
+e-mail de teste foi montado com a mesma premissa errada do código.
 
 ## Onde o texto vai parar
 

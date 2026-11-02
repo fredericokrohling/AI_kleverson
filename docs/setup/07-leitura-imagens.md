@@ -43,8 +43,9 @@ Se você já usa o botão **Atualizar** do console (6.1), ele faz o mesmo.
 
 Não vão para o Claude, para não gastar à toa:
 
-- imagens embutidas no corpo do e-mail (logo da assinatura); isso já era assim;
-- imagens com o lado maior abaixo de 200 pixels (ícones): ficam como `IMAGEM_PEQUENA`;
+- imagens pequenas coladas no corpo do e-mail (logo e ícones da assinatura): nem aparecem;
+  imagens grandes coladas no corpo (um print, por exemplo) são lidas;
+- imagens anexadas com o lado maior abaixo de 200 pixels (ícones): ficam como `IMAGEM_PEQUENA`;
 - avisos que você **dispensou**;
 - o mesmo arquivo anexado em vários e-mails: é lido uma vez e o texto vale para todos.
 
@@ -111,6 +112,19 @@ Depois de mudar o `.env`, rode `docker compose up -d`.
 
 Os dois últimos só aparecem no aviso do topo da página: o arquivo continua na fila com o
 código de espera.
+
+## 7.6.1 E-mails coletados antes de 02/11/2026
+
+Até essa data, um erro no leitor de e-mail descartava as imagens anexadas no Gmail (ele
+as confundia com o logo da assinatura). O original de cada e-mail está guardado, então
+rode uma vez, no servidor, depois de atualizar:
+
+```bash
+docker compose run --rm coletor python -m app.cli recuperar-imagens-emails
+```
+
+As imagens recuperadas entram na fila e são lidas nas rodadas seguintes (ou na hora, com
+**Tentar de novo**). Rodar de novo não duplica nada.
 
 ## 7.7 Imagens dentro de PowerPoint e Word
 

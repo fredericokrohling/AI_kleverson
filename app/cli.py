@@ -213,6 +213,20 @@ def cmd_ler_imagens(_: argparse.Namespace) -> None:
     print(summary.describe() if summary else "Nada a ler (fila vazia, sem chave ou teto do mês).")
 
 
+# Recupera as imagens dos e-mails já coletados que o filtro antigo descartou.
+def cmd_recuperar_imagens_emails(_: argparse.Namespace) -> None:
+    # Import local, como nos outros comandos.
+    from app.ingestion.gmail import recover_email_images
+
+    # Guarda dos originais.
+    from app.ingestion.storage import FileStore
+
+    # Recupera a partir dos .eml guardados; a fila do Claude lê nas próximas rodadas.
+    total = recover_email_images(get_sessionmaker(), FileStore(get_settings().data_dir))
+    # Mostra quantas entraram na fila.
+    print(f"{total} imagem(ns) de e-mail recuperada(s) e posta(s) na fila do Claude.")
+
+
 # Procura imagens dentro dos PowerPoint e Word que chegaram antes desta versão.
 def cmd_extrair_imagens_embutidas(_: argparse.Namespace) -> None:
     # Import local, como nos outros comandos.
@@ -345,6 +359,8 @@ COMMANDS = {
     "coletar-drive": cmd_coletar_drive,
     # python -m app.cli ler-imagens
     "ler-imagens": cmd_ler_imagens,
+    # python -m app.cli recuperar-imagens-emails
+    "recuperar-imagens-emails": cmd_recuperar_imagens_emails,
     # python -m app.cli extrair-imagens-embutidas
     "extrair-imagens-embutidas": cmd_extrair_imagens_embutidas,
     # python -m app.cli verificar-saude

@@ -53,8 +53,8 @@ from app.ingestion.extractors import detect_kind, extract_text, split_error
 # Lista e "Tentar de novo".
 from app.ingestion.failures import dismiss, list_failures, retry
 
-# Coleta do Gmail.
-from app.ingestion.gmail import collect_gmail
+# Coleta do Gmail e recuperação das imagens descartadas pelo filtro antigo.
+from app.ingestion.gmail import collect_gmail, recover_email_images
 
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
@@ -520,3 +520,95 @@ def test_embedded_images_from_drive_and_backfill(sessions, store, settings):
         s.commit()
     # Recuperação acha de novo.
     assert backfill(sessions, store) == 1
+
+
+# Nome e disposição de uma imagem colada no corpo do e-mail.
+def _inline(filename: str) -> dict:
+    # Argumentos do add_related.
+    return {"filename": filename, "disposition": "inline"}
+
+
+# E-mail no formato do Gmail: a imagem anexada pelo clipe leva Content-ID e não pode ser
+# confundida com logo; colada no corpo, a grande entra e o ícone pequeno não.
+def _gmail_style_email() -> bytes:
+    # Biblioteca de e-mail.
+    from email.message import EmailMessage
+
+    # E-mail novo.
+    msg = EmailMessage()
+    # Remetente.
+    msg["From"] = "Natalia <dona@exemplo.com>"
+    # Assunto do teste dela.
+    msg["Subject"] = "teste certidao"
+    # Corpo em texto.
+    msg.set_content("Esse e uma validacao da KAI utilizando uma imagem png.")
+    # Corpo em HTML com duas imagens coladas.
+    msg.add_alternative("<p>Veja <img src='cid:ii_1'> <img src='cid:ii_2'></p>", subtype="html")
+    # A parte HTML.
+    html = msg.get_payload()[1]
+    # Print grande colado no corpo.
+    html.add_related(
+        make_png(1200, 800),
+        "image",
+        "png",
+        cid="<ii_1>",
+        filename="print.png",
+        disposition="inline",
+    )
+    # Ícone da assinatura colado no corpo.
+    html.add_related(
+        make_png(32, 32),
+        "image",
+        "png",
+        cid="<ii_2>",
+        filename="linkedin.png",
+        disposition="inline",
+    )
+    # Anexo pelo clipe, com Content-ID, como o Gmail faz.
+    msg.add_attachment(
+        make_png(900, 1300), maintype="image", subtype="png", filename="certidao.png"
+    )
+    # A parte do anexo.
+    attached = list(msg.iter_attachments())[-1]
+    # Content-ID do Gmail.
+    attached["Content-ID"] = "<f_abc123>"
+    # Bytes.
+    return msg.as_bytes()
+
+
+# Coleta de um e-mail do Gmail com imagens: anexada e colada grande entram, ícone não.
+def test_gmail_images_are_kept(sessions, store, settings):
+    # Coleta.
+    collect_gmail(
+        sessions, FakeGmail({"m1": {"raw": _gmail_style_email()}}), store, settings, now=NOW
+    )
+    # Confere.
+    with sessions() as s:
+        # Nomes dos arquivos gravados.
+        names = set(s.scalars(select(Attachment.filename)).all())
+    # A certidão anexada e o print colado; o ícone ficou de fora.
+    assert names == {"certidao.png", "print.png"}
+
+
+# Recuperação: e-mails coletados com o filtro antigo ganham as imagens que faltavam.
+def test_recover_email_images(sessions, store, settings):
+    # Coleta.
+    collect_gmail(
+        sessions, FakeGmail({"m1": {"raw": _gmail_style_email()}}), store, settings, now=NOW
+    )
+    # Simula o filtro antigo: apaga as linhas das imagens.
+    with sessions() as s:
+        # Apaga.
+        s.query(Attachment).delete()
+        # Grava.
+        s.commit()
+    # Recupera do .eml guardado: as duas voltam, na fila do Claude.
+    assert recover_email_images(sessions, store) == 2
+    # Rodar de novo não duplica.
+    assert recover_email_images(sessions, store) == 0
+    # Confere a fila.
+    with sessions() as s:
+        # Códigos.
+        codes = {split_error(e)[0] for e in s.scalars(select(Attachment.extraction_error))}
+    # As duas aguardando o Claude.
+    assert codes == {"IMAGEM_SEM_OCR"}
