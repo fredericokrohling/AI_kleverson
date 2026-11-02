@@ -73,6 +73,9 @@ from app.security import get_cipher
 # Rotas da transcrição ao vivo (WebSocket, legendas, finalização), num módulo separado.
 from app.transcription.routes import router as transcription_router
 
+# Rotas da importação de transcrições.
+from app.transcription.routes_import import router as import_router
+
 # Peças comuns: modelos HTML, dono, banco e proteção de POST.
 from app.web import DB, Owner, SameOrigin, templates
 
@@ -92,6 +95,10 @@ app.add_middleware(
     # "lax": o cookie vai junto ao voltar do Google, mas não em ataques de outros sites.
     same_site="lax",
 )
+# Página "Importar transcrição" (Teams e Meet). Vem antes das rotas da transcrição ao
+# vivo: "/transcricoes/importar" também combinaria com "/transcricoes/{sessão}", e o
+# FastAPI usa a primeira rota que combina.
+app.include_router(import_router)
 # Acrescenta ao app as rotas de transcrição definidas em app/transcription/routes.py.
 app.include_router(transcription_router)
 # Rotas da página Configurações.
@@ -167,6 +174,17 @@ def index(
             .where(BronzeItem.source == SourceKind.DRIVE)
         ),
     }
+    # Últimas 5 transcrições de reunião (importadas ou da extensão).
+    meetings = db.scalars(
+        # Itens do bronze...
+        select(BronzeItem)
+        # ... de transcrição de reunião...
+        .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT)
+        # ... mais recentes primeiro (sem data vão para o fim)...
+        .order_by(BronzeItem.occurred_at.desc().nulls_last(), BronzeItem.id.desc())
+        # ... só 5.
+        .limit(5)
+    ).all()
     # Preenche o modelo index.html com os dados abaixo.
     return templates.TemplateResponse(
         # A requisição (o Jinja2 precisa dela para montar links).
@@ -191,6 +209,8 @@ def index(
             "drive": drive,
             # Arquivos sem texto (anexos e Drive), com código e motivo.
             "failures": list_failures(db),
+            # Últimas transcrições de reunião.
+            "reunioes": meetings,
         },
     )
 

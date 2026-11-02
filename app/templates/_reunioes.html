@@ -1,0 +1,22 @@
+{# Lista de reuniões do dia escolhido. Trocada pelo HTMX quando a data muda. #}
+<div id="reunioes">
+  {% if erro_agenda %}
+    <p class="erro">Não consegui ler a agenda: {{ erro_agenda }} Você ainda pode importar escolhendo "Não está na agenda".</p>
+  {% elif not reunioes %}
+    <p class="muted">Nenhuma reunião com horário na agenda neste dia.</p>
+  {% endif %}
+  <select name="evento" id="evento" required>
+    <option value="">Escolha a reunião</option>
+    {% for r in reunioes %}
+      <option value="{{ r.id }}">
+        {{ r.start | local("%H:%M") }}–{{ r.end | local("%H:%M") }} · {{ r.title }}
+        {%- if r.platform == "meet" %} · Meet{% elif r.platform == "teams" %} · Teams{% endif %}
+        {%- if r.transcripts %} · transcrição do Meet anexada{% endif %}
+      </option>
+    {% endfor %}
+    <option value="{{ fora }}">Não está na agenda (digite o título abaixo)</option>
+  </select>
+  {% if reunioes | selectattr("transcripts") | list %}
+    <p class="muted">Nas reuniões com "transcrição do Meet anexada", o arquivo é opcional: sem arquivo, a transcrição é baixada do seu Drive.</p>
+  {% endif %}
+</div>

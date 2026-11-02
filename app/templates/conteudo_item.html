@@ -8,6 +8,12 @@
     {% if item.author %} · {{ item.author }}{% endif %}
     {% if item.extra.get("link") %} · <a href="{{ item.extra.link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}
   </p>
+  {% set ev = item.extra.get("evento_agenda") %}
+  {% if ev %}<p class="muted">Reunião da agenda: {{ ev.titulo }} · participantes: {{ ev.participantes | join(", ") or "não informados" }}</p>{% endif %}
+  {% if item.extra.get("origem") == "importada" %}
+    <p class="muted">Transcrição importada{% if item.extra.get("plataforma") %} do {{ item.extra.plataforma | capitalize }}{% endif %}
+      · arquivo {{ item.extra.nome_arquivo }}{% if item.extra.get("falantes") %} · falaram: {{ item.extra.falantes | join(", ") }}{% endif %}</p>
+  {% endif %}
   {% if item.extra.get("caminho") %}<p class="muted">Caminho: {{ item.extra.caminho }}</p>{% endif %}
   {% if item.extra.get("erro_extracao") %}<p class="erro">Sem texto: {{ item.extra.erro_extracao }}</p>{% endif %}
   <h2>Texto</h2>

@@ -87,7 +87,7 @@ class SourceKind(StrEnum):
     GMAIL = "gmail"
     # Evento da agenda.
     CALENDAR = "calendar"
-    # Transcrição de reunião (feita pela extensão do Chrome).
+    # Transcrição de reunião (feita pela extensão do Chrome ou importada do Teams/Meet).
     MEET_TRANSCRIPT = "transcricao_reuniao"
     # Mensagem do Google Chat.
     GOOGLE_CHAT = "google_chat"
