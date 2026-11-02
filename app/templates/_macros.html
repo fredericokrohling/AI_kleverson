@@ -1,0 +1,16 @@
+{# Peças reaproveitadas pelas páginas. Use com {% import "_macros.html" as m %}. #}
+
+{# Ícone "i" que mostra a explicação ao passar o mouse (ou ao focar com o teclado).
+   Texto simples: {{ m.dica("Explicação") }}.
+   Texto com links: {% call m.dica() %}Explicação com <a href="...">link</a>{% endcall %}. #}
+{% macro dica(texto=None, lado="") %}
+<span class="dica {{ lado }}" tabindex="0" aria-label="Ajuda">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.01"/></svg>
+  <span class="dica-texto" role="tooltip"><span class="dica-caixa">{% if caller is defined %}{{ caller() }}{% else %}{{ texto }}{% endif %}</span></span>
+</span>
+{%- endmacro %}
+
+{# Título de seção com a dica ao lado. #}
+{% macro titulo(texto, ajuda=None) %}
+<h2>{{ texto }}{% if ajuda %} {{ dica(ajuda) }}{% endif %}</h2>
+{%- endmacro %}

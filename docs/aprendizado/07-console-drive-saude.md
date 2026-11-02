@@ -226,6 +226,101 @@ A pergunta custa umas poucas consultas de máximo e contagem, sem montar a pági
 Processamento só escuta o evento quando você está na última página de hoje: se escolheu
 outro dia, a seção não muda debaixo dos seus olhos.
 
+## O visual do console
+
+Pedido da dona em 02/11/2026: manter o fundo escuro com branco e azul, melhorar as fontes,
+trocar as explicações escritas por dicas, ícones menores e um jeito bonito de ver as
+reuniões do dia.
+
+### Cores em variáveis, num lugar só
+
+Todas as cores ficam no começo do `<style>` de `app/templates/base.html`, como variáveis CSS
+(`--menu`, `--fundo`, `--cartao`, `--accent`...). O resto do CSS só usa os nomes. Por quê:
+trocar um tom muda o console inteiro, e fica fácil ver a paleta de uma vez.
+
+Três tons de preto separam as camadas: o **menu** é o mais escuro (`#07080b`), o **fundo**
+vem depois (`#0c0e13`) e os **cartões** são um pouco mais claros (`#12151b`). A diferença é
+pequena de propósito: o olho percebe as camadas sem que a tela fique "listrada". O azul só
+aparece no que é clicável ou no item ativo do menu.
+
+O console agora é **só escuro**. Antes ele seguia o sistema operacional (claro ou escuro).
+Um tema só é metade do CSS para manter, e foi o que a dona pediu.
+
+### A fonte vem do próprio console
+
+A fonte é a **Inter**, desenhada para telas (números com a mesma largura, que alinham nas
+tabelas). O arquivo fica em `app/static/fonts/inter.woff2` e é servido pelo app, como o
+htmx. Por que não o Google Fonts: cada página aberta avisaria o Google, e o console é
+privado. O arquivo tem 48 KB porque traz só os caracteres latinos (com todos os acentos do
+português). É um arquivo "variável": um só desenha todos os pesos, do fino ao negrito. A
+licença (SIL Open Font License) está ao lado, em `OFL-Inter.txt`.
+
+### Dicas no lugar do texto fixo
+
+O ícone ⓘ ao lado do título mostra a explicação ao passar o mouse. É uma macro do Jinja2
+(`app/templates/_macros.html`): `{{ m.dica("texto") }}`, ou `{% call m.dica() %}...{% endcall %}`
+quando a explicação tem link. É só CSS: o balão fica escondido (`display: none`) e aparece
+com `:hover` (mouse) ou `:focus-within` (teclado, com Tab). Por que `display: none` e não só
+invisível: um balão invisível ainda ocupa largura e fazia a página rolar para o lado no
+celular.
+
+Avisos, erros e listas vazias continuam escritos, porque pedem ação.
+
+### Menu em grupos
+
+O menu tem nomes ao lado dos ícones e três grupos (Trabalho, Organização, Sistema). Uma
+fileira de ícones sem nome funciona com cinco páginas; com dez, ninguém lembra qual é qual.
+O botão no topo recolhe o menu só nos ícones, para sobrar espaço; a escolha fica guardada no
+navegador (`localStorage`). Em tela estreita (celular), o menu já abre recolhido.
+
+### A página inicial em duas colunas
+
+Dados à esquerda, agenda à direita. O bloco que se atualiza sozinho (`#inicio-dados`) usa
+`display: contents`: para o desenho ele "some" e os cartões dele viram itens da grade da
+página, mas para o HTMX ele continua sendo um bloco só, trocado de uma vez. Assim a agenda
+fica fora da atualização automática sem quebrar a grade.
+
+## Agenda em formato de dia do calendário
+
+As reuniões do dia aparecem numa coluna de calendário, como no Google Agenda: cada uma no
+seu horário, com altura proporcional à duração. A cor diz a plataforma (Meet, Teams ou
+outra); a bolinha diz se a transcrição já está no sistema.
+
+### As contas ficam em Python
+
+`app/transcription/agenda.py` calcula, para cada reunião, a distância do topo e a altura (em
+minutos) e a coluna. O HTML (`_agenda_dia.html`) só converte minutos em pixels com uma
+variável CSS (`--px`). Separar assim deixa as contas testáveis sem navegador.
+
+Reuniões no mesmo horário ficam lado a lado. O algoritmo é o clássico dos calendários:
+
+1. Ordena pelo início.
+2. Junta em **grupos** as reuniões que se encostam (cada uma começa antes de a anterior do
+   grupo terminar).
+3. Dentro do grupo, cada reunião vai para a primeira **coluna** que já está livre naquele
+   horário; se nenhuma está, abre uma coluna nova.
+4. Todas do grupo dividem a largura pelo número de colunas do grupo.
+
+Reunião muito curta (5 minutos) ganha uma altura mínima de 25 minutos, senão o título não
+cabe. A grade vai das 8h às 19h e cresce se houver reunião fora disso.
+
+### Como saber se a reunião já tem transcrição
+
+A importação já grava `thread_id = "agenda:<id do evento>"` em cada transcrição (guia 9).
+O calendário procura esses `thread_id` para as reuniões do dia, numa consulta só, sem
+coluna nova nem migração.
+
+### Quando a agenda é lida
+
+A agenda vem da API do Google, que leva até um segundo para responder. Na página inicial, o
+cartão chega logo depois do resto (`hx-trigger="load"`), e fica fora da atualização
+automática de 30 segundos: a agenda não muda com a coleta, e perguntar ao Google duas vezes
+por minuto gastaria cota à toa. As setas trocam o dia pedindo só o cartão de novo.
+
+Na página Reuniões, trocar a data devolve a lista de reuniões do formulário **e** o
+calendário do novo dia numa resposta só. O calendário vem marcado com `hx-swap-oob="true"`
+("fora da faixa"): o HTMX o põe no lugar dele, mesmo não sendo o alvo do pedido.
+
 ## Um agendador só
 
 O serviço `coletor` rodava só o Gmail. Agora roda o `agendador` (`python -m app.cli
@@ -246,5 +341,9 @@ esperar os 30 minutos.
 - `app/health.py`: testes de saúde e versão instalada.
 - `app/web.py`: peças comuns das páginas e a proteção de POST.
 - `app/routes_config.py` e `app/routes_health.py`: as páginas.
+- `app/templates/base.html`: as cores, a fonte, o menu e o CSS de todas as páginas.
+- `app/templates/_macros.html`: a dica que aparece ao passar o mouse.
+- `app/transcription/agenda.py`, `_agenda_dia.html` e `_agenda_cartao.html`: o dia de calendário.
+- `app/static/`: logo claro (`logo-claro.png`), o olho do menu recolhido (`marca.png`) e a fonte.
 - `migrations/versions/0004_console_configuracoes_drive_saude.py`: tabelas e as duas views.
 - `scripts/terminal-local/`: o atendente dos links `kleverson://`.

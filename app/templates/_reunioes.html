@@ -1,14 +1,15 @@
-{# Lista de reuniões do dia escolhido. Trocada pelo HTMX quando a data muda. #}
+{# Lista de reuniões do dia escolhido. Trocada pelo HTMX quando a data muda; nessa troca,
+   o calendário do dia vem junto e vai para o lugar dele (hx-swap-oob, "fora da faixa"). #}
 <div id="reunioes">
   {% if erro_agenda %}
-    <p class="erro">Não consegui ler a agenda: {{ erro_agenda }} Você ainda pode importar escolhendo "Não está na agenda".</p>
+    <p class="erro pequeno">Não consegui ler a agenda: {{ erro_agenda }} Você ainda pode importar escolhendo "Não está na agenda".</p>
   {% elif not reunioes %}
-    <p class="muted">Nenhuma reunião com horário na agenda neste dia.</p>
+    <p class="muted pequeno">Nenhuma reunião com horário na agenda neste dia.</p>
   {% endif %}
   <select name="evento" id="evento" required>
     <option value="">Escolha a reunião</option>
     {% for r in reunioes %}
-      <option value="{{ r.id }}">
+      <option value="{{ r.id }}"{% if r.id == escolhido %} selected{% endif %}>
         {{ r.start | local("%H:%M") }}–{{ r.end | local("%H:%M") }} · {{ r.title }}
         {%- if r.platform == "meet" %} · Meet{% elif r.platform == "teams" %} · Teams{% endif %}
         {%- if r.transcripts %} · transcrição do Meet anexada{% endif %}
@@ -17,6 +18,10 @@
     <option value="{{ fora }}">Não está na agenda (digite o título abaixo)</option>
   </select>
   {% if reunioes | selectattr("transcripts") | list %}
-    <p class="muted">Nas reuniões com "transcrição do Meet anexada", o arquivo é opcional: sem arquivo, a transcrição é baixada do seu Drive.</p>
+    <p class="muted pequeno" style="margin-top: 6px">Nas reuniões com "transcrição do Meet anexada", o arquivo é opcional: sem arquivo, a transcrição é baixada do seu Drive.</p>
   {% endif %}
 </div>
+{% if agenda_oob %}
+{% set titulo_dia = true %}
+<div id="agenda-dia" hx-swap-oob="true">{% include "_agenda_dia.html" %}</div>
+{% endif %}

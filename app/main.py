@@ -190,6 +190,15 @@ def index(
         # ... só 5.
         .limit(5)
     ).all()
+    # Quantas transcrições de reunião há no total (número de resumo no topo da página).
+    meetings_total = db.scalar(
+        # Conta linhas...
+        select(func.count())
+        # ... da tabela do bronze...
+        .select_from(BronzeItem)
+        # ... só as de transcrição de reunião.
+        .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT)
+    )
     # Preenche o modelo index.html com os dados abaixo.
     return templates.TemplateResponse(
         # A requisição (o Jinja2 precisa dela para montar links).
@@ -216,6 +225,8 @@ def index(
             "failures": list_failures(db),
             # Últimas transcrições de reunião.
             "reunioes": meetings,
+            # Total de transcrições de reunião.
+            "transcricoes_total": meetings_total,
         },
     )
 

@@ -45,8 +45,17 @@ def test_console_renders_for_owner():
         "Nenhuma conta Google conectada" in response.text
         and 'href="/config#contas"' in response.text
     )
-    # Menu lateral com os três atalhos e o logo no lugar do título antigo.
-    for link in ('href="/"', 'href="/config"', 'href="/monitoramento"', "/static/logo.png"):
+    # Menu lateral com os atalhos de cada página, o logo claro (fundo transparente) e a fonte.
+    for link in (
+        'href="/"',
+        'href="/transcricoes/importar"',
+        'href="/conteudo"',
+        'href="/cadastros"',
+        'href="/config"',
+        'href="/monitoramento"',
+        "/static/logo-claro.png",
+        "/static/fonts/inter.woff2",
+    ):
         # Cada um.
         assert link in response.text
     # Mostra a seção da coleta de e-mail, ainda sem nenhuma rodada.

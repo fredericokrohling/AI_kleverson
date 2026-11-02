@@ -46,6 +46,9 @@ from app.ingestion.storage import FileStore
 # Tabelas.
 from app.models import BronzeItem, SourceKind
 
+# Dia da agenda desenhado como calendário.
+from app.transcription.agenda import build_day, linked_transcripts
+
 # Leitura da agenda.
 from app.transcription.calendar import calendar_client, events_on, get_event
 
@@ -110,9 +113,20 @@ def _meetings(db, day: date) -> tuple[list, str | None]:
         return [], f"A agenda recusou o pedido ({_google_error(exc)})."
 
 
-# A página.
+# O dia de calendário: reuniões posicionadas e quais já têm transcrição.
+def _agenda(db, day: date, meetings: list):
+    # Transcrições já ligadas às reuniões do dia.
+    linked = linked_transcripts(db, [m.id for m in meetings])
+    # Monta a grade no fuso do console.
+    return build_day(meetings, linked, day, get_settings().console_timezone)
+
+
+# A página. evento (opcional) já deixa a reunião escolhida: é o que acontece quando você
+# clica numa reunião sem transcrição no calendário da página inicial.
 @router.get("/transcricoes/importar", response_class=HTMLResponse)
-def import_page(request: Request, owner: Owner, db: DB, data: str | None = None):
+def import_page(
+    request: Request, owner: Owner, db: DB, data: str | None = None, evento: str | None = None
+):
     # Dia mostrado.
     day = _day(data)
     # Reuniões desse dia.
@@ -147,6 +161,10 @@ def import_page(request: Request, owner: Owner, db: DB, data: str | None = None)
             "hoje": _today(),
             # Reuniões do dia.
             "reunioes": meetings,
+            # O mesmo dia desenhado como calendário.
+            "agenda": _agenda(db, day, meetings),
+            # Reunião já escolhida na lista (vinda de um clique no calendário).
+            "escolhido": evento,
             # Motivo, se a agenda não pôde ser lida.
             "erro_agenda": calendar_error,
             # Valor da opção "fora da agenda".
@@ -162,16 +180,52 @@ def import_page(request: Request, owner: Owner, db: DB, data: str | None = None)
 # Só a lista de reuniões, para o HTMX trocar quando a data muda.
 @router.get("/transcricoes/importar/reunioes", response_class=HTMLResponse)
 def meetings_list(request: Request, owner: Owner, db: DB, data: str | None = None):
+    # Dia pedido.
+    day = _day(data)
     # Reuniões do dia.
-    meetings, calendar_error = _meetings(db, _day(data))
+    meetings, calendar_error = _meetings(db, day)
     # Devolve o pedaço da página.
     return templates.TemplateResponse(
         # A requisição.
         request,
         # Modelo da lista.
         "_reunioes.html",
-        # Reuniões, erro da agenda e o valor da opção "fora da agenda".
-        {"reunioes": meetings, "erro_agenda": calendar_error, "fora": OUTSIDE_CALENDAR},
+        {
+            # Reuniões do dia.
+            "reunioes": meetings,
+            # Motivo, se a agenda não pôde ser lida.
+            "erro_agenda": calendar_error,
+            # Valor da opção "fora da agenda".
+            "fora": OUTSIDE_CALENDAR,
+            # O calendário do novo dia vai junto e o HTMX troca o da página também
+            # ("out of band": um pedaço da resposta que vai para outro lugar da página).
+            "agenda": _agenda(db, day, meetings),
+            # Liga a troca "out of band" no modelo.
+            "agenda_oob": True,
+        },
+    )
+
+
+# Só o cartão "Agenda do dia", carregado depois da página inicial abrir (a agenda do
+# Google leva até um segundo para responder; assim o resto da página não espera).
+@router.get("/transcricoes/agenda", response_class=HTMLResponse)
+def agenda_card(request: Request, owner: Owner, db: DB, data: str | None = None):
+    # Dia pedido (hoje, por padrão).
+    day = _day(data)
+    # Reuniões do dia.
+    meetings, calendar_error = _meetings(db, day)
+    # Devolve o cartão.
+    return templates.TemplateResponse(
+        # A requisição.
+        request,
+        # Modelo do cartão.
+        "_agenda_cartao.html",
+        {
+            # O dia desenhado.
+            "agenda": _agenda(db, day, meetings),
+            # Motivo, se a agenda não pôde ser lida.
+            "erro_agenda": calendar_error,
+        },
     )
 
 

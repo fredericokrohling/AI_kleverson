@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<p><a href="/">Voltar</a> · sessão <code>{{ session_id }}</code></p>
+<div class="cabecalho">
+  <div>
+    <div class="sub"><a href="/">&larr; Início</a> · sessão <code>{{ session_id }}</code></div>
+    <h1>Transcrição ao vivo</h1>
+  </div>
+</div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
   <section>
     <h2>Serviço de transcrição ({{ audio|length }} trechos)</h2>

@@ -1,7 +1,7 @@
 # 8. Importar transcrições do Teams e do Meet
 
-**O que muda:** o console ganha a página **Importar transcrição** (ícone de microfone no
-menu, ou o botão na página inicial). Você escolhe o dia, a reunião da sua agenda e o
+**O que muda:** o console ganha a página **Reuniões** (ícone de calendário no menu, ou o
+botão **Importar transcrição** na página inicial; até o guia 10 era o microfone). Você escolhe o dia, a reunião da sua agenda e o
 arquivo da transcrição que o Teams ou o Meet já fizeram. O texto entra no banco ligado à
 reunião, como se tivesse sido feito pela extensão, sem custo de transcrição.
 
@@ -45,7 +45,10 @@ nas reuniões do Meet que você quer transcrever.
 
 ## 8.3 Importar
 
-1. Clique no microfone do menu (ou em **Importar transcrição** na página inicial).
+1. Clique em **Reuniões** no menu (ou em **Importar transcrição** na página inicial). Atalho:
+   no calendário da página inicial, clique numa reunião sem transcrição; a página abre com a
+   reunião já escolhida. Na própria página Reuniões, clicar numa reunião do calendário
+   escolhe a reunião no formulário.
 2. **Dia da reunião:** começa em hoje. Ao trocar a data, a lista de reuniões é lida de novo
    da sua agenda.
 3. **Reunião:** a lista mostra as reuniões com horário daquele dia, com a plataforma

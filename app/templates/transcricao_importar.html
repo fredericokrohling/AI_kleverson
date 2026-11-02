@@ -1,35 +1,85 @@
 {% extends "base.html" %}
-{% block title %}Importar transcrição · Kleverson A.I.{% endblock %}
+{% import "_macros.html" as m %}
+{% block title %}Reuniões · Kleverson A.I.{% endblock %}
+{% block head %}
+<style>
+  /* Calendário do dia à esquerda (mais largo) e o formulário à direita. */
+  .reunioes-grade { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.25fr) minmax(min(300px, 100%), 1fr); align-items: start; margin-bottom: 16px; }
+  .reunioes-grade > section { margin-bottom: 0; }
+  .reunioes-grade .agenda { --px: 1px; }
+  #evento { width: 100%; }
+  @media (max-width: 1000px) { .reunioes-grade { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<script>
+  // Clicar numa reunião sem transcrição no calendário escolhe a reunião no formulário
+  // (sem sair da página). Delegado no documento: continua valendo depois que o HTMX
+  // troca o calendário ao mudar a data.
+  document.addEventListener("click", function (ev) {
+    var bloco = ev.target.closest("#agenda-dia a[data-evento]");
+    var lista = document.getElementById("evento");
+    if (!bloco || !lista) return;
+    ev.preventDefault();
+    lista.value = bloco.dataset.evento;
+    marcarEscolhida();
+    document.getElementById("arquivo").focus();
+  });
+  // Destaca no calendário a reunião escolhida na lista.
+  function marcarEscolhida() {
+    var lista = document.getElementById("evento");
+    document.querySelectorAll("#agenda-dia .reuniao").forEach(function (el) {
+      el.classList.toggle("escolhida", !!lista && el.dataset.evento === lista.value);
+    });
+  }
+  document.addEventListener("change", function (ev) { if (ev.target.id === "evento") marcarEscolhida(); });
+  document.addEventListener("DOMContentLoaded", marcarEscolhida);
+  document.addEventListener("htmx:afterSettle", marcarEscolhida);
+</script>
+{% endblock %}
 {% block content %}
-<h1>Importar transcrição</h1>
-<section>
-  <p class="muted">Traga a transcrição que o Teams ou o Meet já fizeram, sem gastar com a extensão. Formatos: {{ aceitos }}
-    (no Teams, prefira o <strong>.vtt</strong>: ele traz o nome de quem falou em cada trecho).</p>
-  <form method="post" action="/transcricoes/importar" enctype="multipart/form-data">
-    <p>
-      <label for="data">Dia da reunião</label><br>
-      <input type="date" id="data" name="data" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}"
-             hx-get="/transcricoes/importar/reunioes" hx-target="#reunioes" hx-swap="outerHTML" hx-trigger="change">
-      <span class="htmx-indicator muted">lendo a agenda…</span>
-    </p>
-    <p>
-      <label for="evento">Reunião</label><br>
-      {% include "_reunioes.html" %}
-    </p>
-    <p>
-      <label for="titulo">Título (só se a reunião não está na agenda)</label><br>
-      <input type="text" id="titulo" name="titulo" maxlength="500" size="50">
-    </p>
-    <p>
-      <label for="arquivo">Arquivo da transcrição</label><br>
-      <input type="file" id="arquivo" name="arquivo" accept="{{ aceitos }}">
-    </p>
-    <p><button type="submit">Importar transcrição</button></p>
-  </form>
-</section>
+<div class="cabecalho">
+  <div>
+    <h1>Reuniões</h1>
+    <div class="sub">Ligue a transcrição do Teams ou do Meet à reunião certa da sua agenda.</div>
+  </div>
+</div>
+
+<div class="reunioes-grade">
+  <section>
+    {% set titulo_dia = true %}
+    <div id="agenda-dia">{% include "_agenda_dia.html" %}</div>
+  </section>
+
+  <section id="importar">
+    <div class="secao-topo">
+      <h2>Importar transcrição {% call m.dica(lado="esquerda") %}Traga a transcrição que o Teams ou o Meet já fizeram, sem gastar com a extensão.
+        Formatos: {{ aceitos }}. No Teams, prefira o <strong>.vtt</strong>: ele traz o nome de quem falou em cada trecho.{% endcall %}</h2>
+    </div>
+    <form method="post" action="/transcricoes/importar" enctype="multipart/form-data">
+      <div class="campo">
+        <label for="data">Dia da reunião</label>
+        <span><input type="date" id="data" name="data" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}"
+               hx-get="/transcricoes/importar/reunioes" hx-target="#reunioes" hx-swap="outerHTML" hx-trigger="change">
+        <span class="htmx-indicator muted pequeno">lendo a agenda…</span></span>
+      </div>
+      <div class="campo">
+        <label for="evento">Reunião</label>
+        {% include "_reunioes.html" %}
+      </div>
+      <div class="campo">
+        <label for="titulo">Título <span class="muted">(só se a reunião não está na agenda)</span></label>
+        <input type="text" id="titulo" name="titulo" maxlength="500">
+      </div>
+      <div class="campo">
+        <label for="arquivo">Arquivo da transcrição</label>
+        <input type="file" id="arquivo" name="arquivo" accept="{{ aceitos }}">
+      </div>
+      <button type="submit">Importar transcrição</button>
+    </form>
+  </section>
+</div>
 
 <section>
-  <h2>Últimas transcrições</h2>
+  {{ m.titulo("Últimas transcrições", "As 10 transcrições de reunião mais recentes, importadas ou feitas pela extensão.") }}
   {% if recentes %}
     <div class="tabela"><table>
       <tr><th>Quando</th><th>Reunião</th><th>Origem</th></tr>
@@ -42,7 +92,7 @@
       {% endfor %}
     </table></div>
   {% else %}
-    <p class="muted">Nenhuma transcrição ainda.</p>
+    <p class="vazio">Nenhuma transcrição ainda.</p>
   {% endif %}
 </section>
 {% endblock %}
