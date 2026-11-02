@@ -72,7 +72,7 @@ def _pending_attachments(session: Session) -> list[Attachment]:
         select(Attachment)
         .where(
             waiting,
-            Attachment.origin == "anexo",
+            Attachment.origin.in_(("anexo", "imagem_embutida")),
             Attachment.object_key.is_not(None),
             Attachment.dismissed_at.is_(None),
         )

@@ -1,0 +1,3 @@
+{# Pergunta ao servidor, a cada N segundos, se a marca mudou (ver app/updates.py). #}
+<div id="novidades" hidden
+     hx-get="/novidades?marca={{ novidades_marca }}" hx-trigger="every {{ novidades_segundos }}s" hx-swap="outerHTML"></div>

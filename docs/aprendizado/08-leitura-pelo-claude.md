@@ -102,6 +102,29 @@ traduzir; tabelas com `|`; diagramas com uma seção "Estrutura:" de ligações;
 com uma ou duas frases; `[ilegível]` em vez de inventar; `### Página N` em PDF (o mesmo
 marcador que o extrator de PDF já usa, para a IA citar a página).
 
+## Imagens dentro de PowerPoint e Word
+
+Avaliamos dois jeitos de ler a imagem colada num slide:
+
+- **Juntar o texto da imagem ao texto do arquivo:** um texto só por arquivo. Mas o texto
+  do arquivo é pronto na hora, e o da imagem depende do Claude: a versão ficaria
+  "incompleta" até a fila andar, e uma falha numa imagem se misturaria ao arquivo inteiro.
+- **Uma linha por imagem, ligada ao mesmo item (escolhido):** cada imagem vira um
+  `attachment` com origem `imagem_embutida`, ligado ao e-mail ou à versão do Drive. Ela
+  entra na mesma fila, com as mesmas regras de custo, aparece na lista de arquivos sem
+  texto se falhar, e pode ser tentada de novo sozinha.
+
+O nome da linha guarda a posição (`Status.pptx › slide 3 › image2.png`): a IA do bloco 3
+sabe que aquela descrição é do slide 3. O campo `external_ref` guarda a impressão digital
+do arquivo de onde a imagem saiu; é assim que o comando `extrair-imagens-embutidas` sabe
+que um arquivo já foi tratado e não duplica.
+
+Filtros antes da fila: imagens repetidas no mesmo arquivo viram uma; ícones abaixo de 200
+pixels e formatos que não abrem são ignorados sem aviso (num deck corporativo seriam
+dezenas de linhas inúteis na lista); no Word, só o corpo do documento (cabeçalho e rodapé
+guardam o logo); e no máximo 20 imagens por arquivo, para um deck de prints não consumir o
+teto do mês de uma vez.
+
 ## Onde o texto vai parar
 
 No mesmo lugar do texto extraído por biblioteca:

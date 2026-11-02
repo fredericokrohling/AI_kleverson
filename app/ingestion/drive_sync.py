@@ -68,6 +68,9 @@ from app.config import Settings
 # Download do conteúdo e tradução de erros do Drive.
 from app.ingestion.drive import FOLDER_MIME, download, explain
 
+# Imagens de dentro de PowerPoint e Word.
+from app.ingestion.embedded import add_embedded
+
 # Extração de texto (a mesma dos anexos de e-mail) e mensagens com código.
 from app.ingestion.extractors import Extraction, coded, extract_text
 
@@ -738,6 +741,9 @@ def _read_version(
         session.add(bronze)
         # Gera o id.
         session.flush()
+        # Imagens de dentro de PowerPoint e Word (Slides e Docs exportados também):
+        # vão para a fila do Claude, ligadas a esta versão.
+        add_embedded(session, store, bronze.id, item.name, found.data, found.mime_type)
         # Conta.
         summary.new_versions += 1
     # Aponta o item para a versão mais recente.

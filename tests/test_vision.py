@@ -44,6 +44,9 @@ from app.ingestion import vision_queue
 # Varredura do Drive.
 from app.ingestion.drive_sync import add_folder, retry_drive_item, sync_drive
 
+# Imagens embutidas em PowerPoint e Word.
+from app.ingestion.embedded import ORIGIN, backfill, find_images
+
 # Extração e detecção de formato.
 from app.ingestion.extractors import detect_kind, extract_text, split_error
 
@@ -69,8 +72,19 @@ from app.main import app
 from app.models import Attachment, AuditLog, BronzeItem, DriveItem, LLMCall
 
 # Falsos e geradores de arquivos.
-from tests.fakes import FakeClaude, FakeDrive, FakeGmail, make_email, make_pdf, make_png
+from tests.fakes import (
+    FakeClaude,
+    FakeDrive,
+    FakeGmail,
+    make_docx_with_image,
+    make_email,
+    make_pdf,
+    make_png,
+    make_pptx_with_images,
+)
 
+# Tipo do Word moderno.
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 # Momento fixo da coleta.
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 # Pasta monitorada do Drive falso.
@@ -431,3 +445,78 @@ def test_retry_with_claude(sessions, store, settings, reader, claude, monkeypatc
         )
         # Continua na fila.
         assert split_error(s.get(Attachment, ids["b.png"]).extraction_error)[0] == "IMAGEM_SEM_OCR"
+
+
+# PowerPoint anexado: o diagrama repetido vira uma linha, o ícone é ignorado, e a fila lê.
+def test_embedded_images_from_email(sessions, store, settings, reader, claude):
+    # Tipo do PowerPoint.
+    pptx_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    # E-mail com o PowerPoint.
+    email = make_email(attachments=[("Status.pptx", pptx_mime, make_pptx_with_images())])
+    # Gmail falso com esse e-mail.
+    gmail = FakeGmail({"m1": {"raw": email}})
+    # Coleta.
+    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    # Confere as linhas de imagem.
+    with sessions() as s:
+        # Imagens embutidas.
+        rows = s.scalars(select(Attachment).where(Attachment.origin == ORIGIN)).all()
+        # Uma só (o diagrama repetido conta uma vez; o ícone fica de fora).
+        assert len(rows) == 1
+        # Nome com o arquivo e o slide.
+        assert rows[0].filename.startswith("Status.pptx › slide 1 › ")
+        # Na fila do Claude.
+        assert split_error(rows[0].extraction_error)[0] == "IMAGEM_SEM_OCR"
+    # Rodada da fila.
+    assert vision_queue.run_pending(sessions, store, reader, limit=10).read == 1
+    # Texto gravado.
+    with sessions() as s:
+        # A imagem lida.
+        row = s.scalar(select(Attachment).where(Attachment.origin == ORIGIN))
+        # Com o texto do Claude.
+        assert row.extraction_error is None and "Cadastro" in row.extracted_text
+    # Arquivo corrompido não quebra nada: lista vazia.
+    assert find_images(b"nao e zip", "x.pptx", None) == []
+
+
+# Word numa pasta do Drive: a imagem fica ligada à versão; o comando de recuperação não
+# duplica e acha as imagens de arquivos que chegaram antes desta versão.
+def test_embedded_images_from_drive_and_backfill(sessions, store, settings):
+    # Pasta com um Word que tem um diagrama.
+    drive = FakeDrive(
+        {
+            ROOT: {"name": "CRM"},
+            "doc1": {
+                "name": "Arquitetura.docx",
+                "mimeType": DOCX_MIME,
+                "data": make_docx_with_image(),
+                "parents": [ROOT],
+            },
+        }
+    )
+    # Cadastra.
+    with sessions() as s:
+        # A pasta.
+        add_folder(s, drive, ROOT)
+        # Grava.
+        s.commit()
+    # Varre.
+    sync_drive(sessions, drive, store, settings, now=NOW)
+    # Confere.
+    with sessions() as s:
+        # A versão do Word.
+        bronze_id = s.scalar(select(DriveItem.bronze_item_id).where(DriveItem.drive_id == "doc1"))
+        # A imagem embutida, ligada à versão.
+        row = s.scalar(select(Attachment).where(Attachment.origin == ORIGIN))
+        # Ligada e na fila, com o nome do arquivo.
+        assert row.bronze_item_id == bronze_id and row.filename.startswith("Arquitetura.docx › ")
+    # Recuperação: nada novo (já registrada).
+    assert backfill(sessions, store) == 0
+    # Simula um arquivo que chegou antes desta versão: apaga as linhas de imagem.
+    with sessions() as s:
+        # Apaga.
+        s.query(Attachment).filter(Attachment.origin == ORIGIN).delete()
+        # Grava.
+        s.commit()
+    # Recuperação acha de novo.
+    assert backfill(sessions, store) == 1

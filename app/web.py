@@ -42,23 +42,33 @@ from app.db import get_session
 from app.security import require_owner
 
 
-# Dados que toda página recebe, sem cada rota precisar lembrar: o estado do coração do menu.
-def _menu_state(request: Request) -> dict[str, bool]:
+# Dados que toda página recebe, sem cada rota precisar lembrar: o estado do coração do menu
+# e a marca da atualização automática (app/updates.py).
+def _menu_state(request: Request) -> dict[str, object]:
     # Imports locais: evitam importação circular (health usa modelos que usam este módulo).
     from app.db import get_sessionmaker
 
     # Teste de "algum problema agora".
     from app.health import has_problem
 
+    # Marca do estado do sistema (atualização automática) e o intervalo.
+    from app.updates import REFRESH_SECONDS, stamp
+
     # Tenta consultar.
     try:
         # Sessão curta só para isso.
         with get_sessionmaker()() as session:
-            # Vermelho se algum serviço falhou ou se os testes pararam.
-            return {"saude_alerta": has_problem(session, get_settings())}
-    # Banco fora do ar: isso já é um problema de saúde.
+            # Configuração.
+            settings = get_settings()
+            # Vermelho se algum serviço falhou ou se os testes pararam; marca atual.
+            return {
+                "saude_alerta": has_problem(session, settings),
+                "novidades_marca": stamp(session, settings),
+                "novidades_segundos": REFRESH_SECONDS,
+            }
+    # Banco fora do ar: isso já é um problema de saúde; marca vazia (a página não atualiza).
     except Exception:
-        return {"saude_alerta": True}
+        return {"saude_alerta": True, "novidades_marca": "", "novidades_segundos": REFRESH_SECONDS}
 
 
 # Onde ficam os modelos HTML: pasta templates ao lado deste arquivo. context_processors:

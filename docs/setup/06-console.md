@@ -179,6 +179,17 @@ busca procura uma palavra no assunto e no texto; sem busca, aparecem os 50 mais 
 - Os horários do console seguem o fuso `CONSOLE_TIMEZONE` (padrão: Brasília). O banco
   guarda tudo em UTC; a conversão é só na tela.
 
+### 6.6.3 Atualização automática
+
+A página inicial se atualiza sozinha quando o sistema processa algo novo: e-mail ou versão
+do Drive nova, arquivo lido pelo Claude, linha nova no Processamento, rodada de coleta
+terminada. A página pergunta ao servidor a cada 30 segundos se algo mudou e, se mudou,
+atualiza só as seções, sem recarregar a página inteira.
+
+- Se você escolheu outro dia no calendário do Processamento, essa seção não muda até você
+  voltar para hoje.
+- O coração do menu também troca de cor sozinho, em qualquer página.
+
 ## 6.7 Botões de terminal (uma vez, no seu computador)
 
 Os botões **Abrir terminal no servidor**, **Ver serviços**, **Ver logs**, **Reiniciar
@@ -238,6 +249,9 @@ docker compose run --rm coletor python -m app.cli coletar-drive
 
 # Ler agora, com o Claude, as imagens e PDFs digitalizados da fila
 docker compose run --rm coletor python -m app.cli ler-imagens
+
+# Pôr na fila as imagens de dentro dos PowerPoint e Word que chegaram antes (uma vez)
+docker compose run --rm coletor python -m app.cli extrair-imagens-embutidas
 
 # Rodar os testes de saúde agora, no terminal
 docker compose run --rm coletor python -m app.cli verificar-saude

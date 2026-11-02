@@ -213,6 +213,20 @@ def cmd_ler_imagens(_: argparse.Namespace) -> None:
     print(summary.describe() if summary else "Nada a ler (fila vazia, sem chave ou teto do mês).")
 
 
+# Procura imagens dentro dos PowerPoint e Word que chegaram antes desta versão.
+def cmd_extrair_imagens_embutidas(_: argparse.Namespace) -> None:
+    # Import local, como nos outros comandos.
+    from app.ingestion.embedded import backfill
+
+    # Guarda dos originais.
+    from app.ingestion.storage import FileStore
+
+    # Registra as imagens; a fila do Claude lê nas próximas rodadas.
+    total = backfill(get_sessionmaker(), FileStore(get_settings().data_dir))
+    # Mostra quantas entraram na fila.
+    print(f"{total} imagem(ns) embutida(s) na fila do Claude.")
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
     """Roda sem parar: Gmail, Drive, leitura pelo Claude e saúde, cada um no seu intervalo."""
@@ -331,6 +345,8 @@ COMMANDS = {
     "coletar-drive": cmd_coletar_drive,
     # python -m app.cli ler-imagens
     "ler-imagens": cmd_ler_imagens,
+    # python -m app.cli extrair-imagens-embutidas
+    "extrair-imagens-embutidas": cmd_extrair_imagens_embutidas,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
