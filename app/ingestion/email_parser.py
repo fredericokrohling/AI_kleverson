@@ -66,6 +66,9 @@ class ParsedAttachment:
     data: bytes
     # Texto já pronto, para e-mails encaminhados como anexo; None nos demais.
     text: str | None = None
+    # True para imagem colada no corpo do e-mail (e não anexada pelo clipe). Quem grava
+    # descarta as pequenas (logo e ícones da assinatura) sem criar aviso.
+    inline: bool = False
 
 
 # O e-mail desmontado.
@@ -180,13 +183,13 @@ def _is_attachment(part) -> bool:
     disposition = part.get_content_disposition()
     # Nome do arquivo, se houver.
     filename = part.get_filename()
-    # Imagens embutidas no corpo (logo da assinatura, por exemplo) são ruído: o e-mail
-    # inteiro já fica guardado no .eml, então nada se perde ao pular essas.
-    if part.get_content_maintype() == "image" and (
-        disposition == "inline" or part.get("Content-ID")
-    ):
-        # Não é anexo.
-        return False
+    # Imagem: anexada pelo clipe ou colada no corpo, as duas valem. Antes, a imagem com
+    # Content-ID era descartada como "logo da assinatura"; mas o Gmail põe Content-ID
+    # também nos anexos comuns, e o descarte levava junto a imagem anexada. O logo e os
+    # ícones agora são filtrados pelo tamanho, na gravação (gmail.py).
+    if part.get_content_maintype() == "image":
+        # Qualquer imagem com conteúdo.
+        return True
     # Anexo declarado ou qualquer parte com nome de arquivo.
     return disposition == "attachment" or bool(filename)
 
@@ -276,6 +279,10 @@ def parse_email(raw: bytes) -> ParsedEmail:
                     mime_type=part.get_content_type(),
                     # Conteúdo.
                     data=data,
+                    # Colada no corpo: declarada "inline", ou imagem com Content-ID sem
+                    # declaração de anexo (o jeito de alguns programas de e-mail).
+                    inline=part.get_content_maintype() == "image"
+                    and part.get_content_disposition() != "attachment",
                 )
             )
         # Parte de texto ou HTML do corpo: entra na busca de links.

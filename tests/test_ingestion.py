@@ -207,8 +207,9 @@ def test_parse_email_full():
     assert parsed.drive_file_ids == [SHEET_ID]
 
 
-# Logo embutido na assinatura não vira anexo; e-mail encaminhado vira, com texto.
-def test_parse_skips_inline_images_and_reads_forwarded():
+# Logo embutido na assinatura sai marcado como "colado no corpo" (quem grava decide pelo
+# tamanho); e-mail encaminhado vira anexo, com texto.
+def test_parse_marks_inline_images_and_reads_forwarded():
     # E-mail interno, que será encaminhado como anexo.
     inner = EmailMessage()
     # Remetente do interno.
@@ -236,12 +237,14 @@ def test_parse_skips_inline_images_and_reads_forwarded():
     outer.add_attachment(inner)
     # Desmonta.
     parsed = parse_email(outer.as_bytes())
-    # Só o encaminhado virou anexo.
-    assert len(parsed.attachments) == 1
-    # Com o texto do e-mail interno.
-    assert "Valor total: 10 mil" in parsed.attachments[0].text
+    # O logo e o encaminhado.
+    logo, forwarded = parsed.attachments
+    # O logo, marcado como colado no corpo.
+    assert logo.filename == "logo.png" and logo.inline
+    # O encaminhado, com o texto do e-mail interno.
+    assert "Valor total: 10 mil" in forwarded.text and not forwarded.inline
     # E o assunto no nome.
-    assert parsed.attachments[0].filename == "Proposta comercial.eml"
+    assert forwarded.filename == "Proposta comercial.eml"
 
 
 # Formatos de link do Drive reconhecidos e ignorados.

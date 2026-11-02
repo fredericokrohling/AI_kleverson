@@ -250,6 +250,9 @@ docker compose run --rm coletor python -m app.cli coletar-drive
 # Ler agora, com o Claude, as imagens e PDFs digitalizados da fila
 docker compose run --rm coletor python -m app.cli ler-imagens
 
+# Recuperar as imagens de e-mails coletados antes de 02/11/2026 (uma vez)
+docker compose run --rm coletor python -m app.cli recuperar-imagens-emails
+
 # Pôr na fila as imagens de dentro dos PowerPoint e Word que chegaram antes (uma vez)
 docker compose run --rm coletor python -m app.cli extrair-imagens-embutidas
 

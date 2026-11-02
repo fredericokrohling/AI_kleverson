@@ -56,7 +56,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings
 
 # Desmontar o e-mail.
-from app.ingestion.email_parser import parse_email
+from app.ingestion.email_parser import ParsedAttachment, parse_email
 
 # Imagens de dentro dos PowerPoint e Word anexados.
 from app.ingestion.embedded import embedded_rows
@@ -66,6 +66,9 @@ from app.ingestion.extractors import Extraction, coded, extract_text
 
 # Guardar os originais.
 from app.ingestion.storage import FileStore, safe_suffix, sha256_hex
+
+# Regra de "está na fila do Claude" (imagem que vale a leitura).
+from app.ingestion.vision import is_pending
 
 # Tabelas usadas.
 from app.models import Attachment, BronzeItem, IngestionRun, SourceKind, audit
@@ -336,6 +339,9 @@ def _ingest_message(
     rows: list[Attachment] = []
     # Anexos de dentro do e-mail.
     for att in parsed.attachments:
+        # Imagem colada no corpo que não vale leitura (logo, ícone): nem vira linha.
+        if not _worth_keeping(att):
+            continue
         # Monta a linha.
         rows.append(
             _attachment_row(
@@ -559,6 +565,71 @@ def _finish(run: IngestionRun, summary: RunSummary, errors: list[str]) -> None:
     run.message_errors = summary.message_errors
     # Erros, um por linha; None se não houve.
     run.error_detail = "\n".join(errors) or None
+
+
+# Diz se um anexo vira linha. Só filtra imagem colada no corpo: a pequena (logo e ícones
+# da assinatura) ou ilegível é descartada sem aviso; ela continua guardada no .eml.
+def _worth_keeping(att: ParsedAttachment) -> bool:
+    # Anexo pelo clipe (ou qualquer outro arquivo): sempre.
+    if not att.inline:
+        return True
+    # Colada no corpo: só se for para a fila do Claude.
+    return is_pending(extract_text(att.data, att.filename, att.mime_type).error)
+
+
+# Recupera as imagens dos e-mails já coletados que o filtro antigo descartou (ele tratava
+# toda imagem com Content-ID como logo de assinatura, e o Gmail põe Content-ID também nos
+# anexos). Lê o .eml guardado; não chama o Gmail.
+def recover_email_images(sessions: sessionmaker[Session], store: FileStore) -> int:
+    """Cria as linhas que faltam para as imagens dos e-mails guardados. Devolve quantas."""
+    # Contador.
+    total = 0
+    # Uma sessão.
+    with sessions() as session:
+        # E-mails com o .eml guardado.
+        items = session.scalars(
+            select(BronzeItem).where(BronzeItem.source == SourceKind.GMAIL)
+        ).all()
+        # Cada e-mail.
+        for item in items:
+            # Caminho do .eml.
+            eml = (item.extra or {}).get("eml")
+            # Sem original: nada a recuperar.
+            if not eml:
+                continue
+            # Impressões digitais dos arquivos que o e-mail já tem.
+            known = set(
+                session.scalars(
+                    select(Attachment.content_sha256).where(Attachment.bronze_item_id == item.id)
+                ).all()
+            )
+            # Desmonta o e-mail guardado.
+            parsed = parse_email(store.read(eml))
+            # Cada imagem do e-mail.
+            for att in parsed.attachments:
+                # Só imagens que ainda não têm linha e que valem a leitura.
+                if (
+                    not att.mime_type.startswith("image/")
+                    or sha256_hex(att.data) in known
+                    or not _worth_keeping(att)
+                ):
+                    continue
+                # Monta a linha (vai para a fila do Claude).
+                row = _attachment_row(
+                    session, store, filename=att.filename, mime_type=att.mime_type, data=att.data
+                )
+                # Liga ao e-mail.
+                row.bronze_item_id = item.id
+                # Prepara.
+                session.add(row)
+                # Marca, para a mesma imagem duas vezes no e-mail não virar duas linhas.
+                known.add(row.content_sha256)
+                # Conta.
+                total += 1
+        # Grava.
+        session.commit()
+    # Devolve.
+    return total
 
 
 # Extrai de novo os arquivos que falharam, a partir dos originais guardados.
