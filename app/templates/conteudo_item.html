@@ -13,8 +13,27 @@
     {% if item.author %} · {{ item.author }}{% endif %}
     {% if item.extra.get("link") %} · <a href="{{ item.extra.link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}
   </p>
-  {% set ev = item.extra.get("evento_agenda") %}
-  {% if ev %}<p class="muted">Reunião da agenda: {{ ev.titulo }} · participantes: {{ ev.participantes | join(", ") or "não informados" }}</p>{% endif %}
+  {% if reuniao %}
+    {# A reunião (tabela meetings): a mesma para todas as transcrições dela. #}
+    <div class="reuniao-bloco">
+      <p><strong>Reunião:</strong> {{ reuniao.title }}
+        · {% if reuniao.time_known %}{{ reuniao.starts_at | local("%d/%m/%Y %H:%M") }}{% if reuniao.ends_at %}–{{ reuniao.ends_at | local("%H:%M") }}{% endif %}{% else %}{{ reuniao.starts_at | local("%d/%m/%Y") }} <span class="muted">(horário não informado)</span>{% endif %}
+        · <span class="muted">{{ "da agenda" if reuniao.calendar_event_id else "fora da agenda" }}{% if reuniao.platform %} · {{ reuniao.platform | capitalize }}{% endif %}{% if reuniao.organizer %} · organizada por {{ reuniao.organizer }}{% endif %}</span>
+        {% if reuniao.meeting_url %} · <a href="{{ reuniao.meeting_url }}" target="_blank" rel="noopener">endereço</a>{% endif %}
+        {{ m.dica("A reunião é uma só para todas as transcrições dela: a importada do Teams ou do Meet e a feita pela extensão, quando as duas são do mesmo evento da agenda. Os participantes vêm do convite e dos que você cadastrou durante a reunião ao vivo; o e-mail liga cada um à Pessoa.") }}</p>
+      <p><strong>Participantes:</strong>
+        {% for a, pessoa in participantes_reuniao %}
+          {% if pessoa %}<a href="/cadastros/pessoas/{{ pessoa.id }}">{{ pessoa.name }}</a>{% else %}<span title="{{ a.email or 'sem e-mail' }}">{{ a.name }}</span>{% endif %}{{ ", " if not loop.last }}
+        {% else %}
+          <span class="muted">não informados</span>
+        {% endfor %}
+      </p>
+      {% if outras_transcricoes %}
+        <p><strong>Outras transcrições desta reunião:</strong>
+          {% for t in outras_transcricoes %}<a href="/conteudo/{{ t.id }}">{{ "importada" if t.extra.get("origem") == "importada" else "da extensão" }} ({{ t.id }})</a>{{ ", " if not loop.last }}{% endfor %}</p>
+      {% endif %}
+    </div>
+  {% endif %}
   {% if item.extra.get("origem") == "importada" %}
     <p class="muted">Transcrição importada{% if item.extra.get("plataforma") %} do {{ item.extra.plataforma | capitalize }}{% endif %}
       · arquivo {{ item.extra.nome_arquivo }}{% if item.extra.get("falantes") %} · falaram: {{ item.extra.falantes | join(", ") }}{% endif %}</p>

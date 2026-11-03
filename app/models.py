@@ -315,6 +315,11 @@ class BronzeItem(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Reunião desta transcrição (só transcrições têm). Apagar a reunião não apaga a
+    # transcrição: o bronze nunca some por causa de uma camada de cima.
+    meeting_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"), index=True
+    )
 
 
 # Anexo de um item bruto (PDF, planilha, documento).
@@ -386,6 +391,80 @@ class TranscriptSegment(Base):
     )
 
 
+# --- Reuniões -------------------------------------------------------------------
+
+
+# Uma reunião: o encontro em si, com data, horário, título e participantes.
+class Meeting(Timestamped, Base):
+    """Reunião de uma Empresa. As transcrições (importadas ou feitas pela extensão)
+    apontam para ela; duas transcrições da mesma reunião ficam juntas.
+
+    Por que uma tabela própria, e não só o "extra" da transcrição: a reunião é o que a ata
+    e o relatório de um projeto vão contar ("3 reuniões nesta semana, com estas pessoas"),
+    e os participantes precisam ser linhas ligadas às Pessoas, não um texto em JSON.
+
+    Uma reunião da agenda é uma linha por Empresa: o mesmo evento na agenda das contas de
+    duas Empresas vira duas reuniões, uma em cada (os dados não se misturam).
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "meetings"
+    # O mesmo evento da agenda não se repete na mesma Empresa. Reunião fora da agenda
+    # (sem id do evento, NULL) pode haver quantas forem.
+    __table_args__ = (UniqueConstraint("company_id", "calendar_event_id"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa da reunião (obrigatória).
+    company_id: Mapped[int] = _company()
+    # Id do evento na agenda do Google (numa recorrente, o da ocorrência do dia).
+    # Vazio = reunião fora da agenda.
+    calendar_event_id: Mapped[str | None] = mapped_column(String(1024))
+    # Título.
+    title: Mapped[str] = mapped_column(Text)
+    # Início, com fuso.
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Fim, quando se sabe (agenda, ou a hora em que a extensão parou).
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Falso quando só se sabe o dia (importação de reunião fora da agenda sem horário):
+    # a tela mostra só a data, em vez de um "00:00" que parece verdade.
+    time_known: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # E-mail de quem organizou.
+    organizer: Mapped[str | None] = mapped_column(String(320))
+    # Endereço da reunião on-line.
+    meeting_url: Mapped[str | None] = mapped_column(String(500))
+    # "meet", "teams" ou vazio.
+    platform: Mapped[str | None] = mapped_column(String(20))
+
+
+# Quem foi convidado ou participou de uma reunião.
+class MeetingAttendee(Base):
+    """Participante de uma reunião: dos convidados da agenda e dos que você cadastrou
+    durante a transcrição ao vivo. Ligado à Pessoa pelo e-mail (a chave da Pessoa)."""
+
+    # Nome da tabela no banco.
+    __tablename__ = "meeting_attendees"
+    # O mesmo e-mail não aparece duas vezes na mesma reunião (vários vazios podem).
+    __table_args__ = (UniqueConstraint("meeting_id", "email"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # A reunião; apagou a reunião, apagam os participantes.
+    meeting_id: Mapped[int] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), index=True
+    )
+    # Nome como a agenda (ou você) escreveu; sem nome na agenda, o e-mail.
+    name: Mapped[str] = mapped_column(String(200))
+    # Nome na forma comparável (ver app/people.normalize).
+    name_key: Mapped[str] = mapped_column(String(200))
+    # E-mail em minúsculas, opcional.
+    email: Mapped[str | None] = mapped_column(String(320))
+    # Pessoa cadastrada com esse e-mail, na Empresa da reunião.
+    stakeholder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stakeholders.id", ondelete="SET NULL"), index=True
+    )
+
+
 # Uma reunião transcrita ao vivo pela extensão (uma por aba do Meet capturada).
 class LiveMeeting(Base):
     """Reunião ao vivo: existe desde o primeiro clique na extensão até ser salva.
@@ -419,6 +498,11 @@ class LiveMeeting(Base):
     # Item do bronze criado ao salvar.
     bronze_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("bronze_items.id", ondelete="SET NULL")
+    )
+    # Reunião (da agenda, quando o endereço do Meet está num evento da Empresa). Fica
+    # vazia enquanto a Empresa não é conhecida; ao salvar, a reunião é criada se faltar.
+    meeting_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"), index=True
     )
 
 

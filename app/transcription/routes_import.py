@@ -16,8 +16,8 @@ de novo da agenda na hora de gravar. Assim o que vai para o banco é o que está
 e não o que o navegador mandou.
 """
 
-# Data, data e hora.
-from datetime import date, datetime
+# Data, data e hora, e só a hora (horário de início digitado).
+from datetime import date, datetime, time
 
 # Annotated junta um tipo com informação extra (aqui, campos de formulário).
 from typing import Annotated
@@ -287,6 +287,8 @@ def import_submit(
     evento: Annotated[str, Form()] = "",
     # Título, para reunião fora da agenda.
     titulo: Annotated[str, Form()] = "",
+    # Horário de início (HH:MM), para reunião fora da agenda; opcional.
+    hora: Annotated[str, Form()] = "",
     # Arquivo (opcional quando o evento tem a transcrição do Meet anexada).
     arquivo: Annotated[UploadFile | None, File()] = None,
     # Empresa da transcrição (combo obrigatório).
@@ -311,6 +313,13 @@ def import_submit(
     # Nada escolhido na lista.
     if not evento:
         return _back(request, day, "Escolha a reunião na lista.", error=True, keep=keep)
+    # Horário digitado (o navegador manda "HH:MM"); vazio = só o dia.
+    try:
+        # Lê.
+        start_time = time.fromisoformat(hora) if hora.strip() else None
+    # Formato estranho (formulário antigo ou adulterado).
+    except ValueError:
+        return _back(request, day, "Horário inválido; use HH:MM.", error=True, keep=keep)
     # Tenta importar.
     try:
         # Reunião da agenda, lida de novo (None = fora da agenda).
@@ -363,6 +372,8 @@ def import_submit(
             company_id=company.id,
             # Plataforma, quando veio do Meet.
             platform=platform,
+            # Horário digitado (só vale fora da agenda).
+            start_time=start_time,
         )
     # Motivo conhecido (formato, arquivo vazio, reunião não escolhida...).
     except ImportFailure as exc:

@@ -27,6 +27,9 @@ from sqlalchemy.orm import Session
 # Configuração (idioma geral).
 from app.config import Settings
 
+# Reunião de cada transcrição (tabela meetings).
+from app.meetings import detach_live, move_item_meeting
+
 # Tabelas.
 from app.models import (
     BronzeItem,
@@ -233,7 +236,9 @@ def move_item(session: Session, item: BronzeItem, company: Company, actor: str) 
       são apagados para a extração rodar de novo com os projetos certos);
     - falas: quem falou é reconhecido de novo entre as Pessoas da Empresa nova;
     - reunião ao vivo e participantes: mudam junto, e a Pessoa de cada participante é
-      procurada de novo pelo e-mail.
+      procurada de novo pelo e-mail;
+    - reunião (tabela meetings): a transcrição passa para a reunião do mesmo evento na
+      Empresa nova, ou para uma cópia dela.
     O texto original (bronze) não muda: só a Empresa dele.
     """
     # Já está nesta Empresa: nada a fazer.
@@ -274,10 +279,13 @@ def move_item(session: Session, item: BronzeItem, company: Company, actor: str) 
         meeting.company_id = company.id
         # Pessoas dos participantes.
         relink_participants(session, meeting)
+    # A reunião: a do mesmo evento na Empresa nova, ou uma cópia (a reunião não muda de
+    # Empresa; a antiga é apagada se ficar sem transcrição).
+    move_item_meeting(session, item, company.id)
     # Pessoas da Empresa nova.
     people = PeopleIndex(session, company.id)
-    # Convidados da agenda guardados na transcrição.
-    attendees = attendees_of(item)
+    # Participantes da reunião (já na Empresa nova).
+    attendees = attendees_of(session, item)
     # Cada fala.
     for utterance in session.scalars(select(Utterance).where(Utterance.bronze_item_id == item.id)):
         # Fala de um participante: a Pessoa dele (já acertada acima).
@@ -314,8 +322,10 @@ def move_item(session: Session, item: BronzeItem, company: Company, actor: str) 
 
 
 # Descobre a Empresa de uma reunião pela agenda: o endereço do Meet está no convite.
-def detect_company(session: Session, meeting: LiveMeeting, events_for) -> Company | None:
-    """events_for(id da Empresa) devolve os eventos de hoje da agenda dessa Empresa (ou
+def detect_company(session: Session, meeting: LiveMeeting, events_for) -> tuple:
+    """Devolve (Empresa, evento da agenda) ou (None, None).
+
+    events_for(id da Empresa) devolve os eventos de hoje da agenda dessa Empresa (ou
     levanta erro). A Empresa só é escolhida quando exatamente uma agenda tem a reunião:
     se as duas têm (um convite para as duas contas), quem decide é você."""
     # Imports locais: o módulo da reunião ao vivo importa este (evita import circular).
@@ -323,9 +333,9 @@ def detect_company(session: Session, meeting: LiveMeeting, events_for) -> Compan
 
     # Sem endereço do Meet: não há o que procurar.
     if meet_code(meeting.meeting_url) is None:
-        return None
-    # Empresas cuja agenda tem a reunião.
-    found: list[Company] = []
+        return None, None
+    # Empresas cuja agenda tem a reunião, com o evento achado.
+    found: list[tuple] = []
     # Cada Empresa com conta conectada.
     for company_id in accounts_by_company(session):
         # A agenda pode falhar (rede, permissão): essa Empresa só não conta.
@@ -336,12 +346,13 @@ def detect_company(session: Session, meeting: LiveMeeting, events_for) -> Compan
         except Exception:
             # Próxima Empresa.
             continue
-        # O endereço do Meet está num evento desta agenda.
-        if matching_event(meeting, events) is not None:
-            # Guarda.
-            found.append(session.get(Company, company_id))
+        # Evento desta agenda com o endereço do Meet.
+        event = matching_event(meeting, events)
+        # Achou: guarda.
+        if event is not None:
+            found.append((session.get(Company, company_id), event))
     # Uma só: é ela.
-    return found[0] if len(found) == 1 else None
+    return found[0] if len(found) == 1 else (None, None)
 
 
 # Define (ou corrige) a Empresa de uma reunião ao vivo.
@@ -367,6 +378,9 @@ def set_meeting_company(
         return
     # A Empresa nova.
     meeting.company_id = company.id
+    # A reunião ligada antes era da Empresa antiga: desliga (a de agora é ligada por quem
+    # achar o evento na agenda da Empresa nova, ou criada ao salvar).
+    detach_live(session, meeting)
     # Pessoas dos participantes, na Empresa nova.
     relink_participants(session, meeting)
     # Diário.
