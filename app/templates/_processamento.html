@@ -1,18 +1,23 @@
-{# Seção Processamento: incluída na página inicial e devolvida sozinha pelo /processamento (HTMX). #}
-{# Na última página de hoje, a seção se atualiza sozinha com novidades; em outro dia, não. #}
+{# Seção Processamento (diário de ações do dia): incluída na página Processamento e
+   devolvida sozinha pelo /processamento (HTMX). Mesmo desenho da tabela Coleta de e-mail,
+   com rolagem que mostra 10 linhas. Abre no dia de hoje.
+   Na última página de hoje, a seção se atualiza sozinha com novidades; em outro dia, não. #}
+{% import "_macros.html" as m %}
 <section id="processamento"{% if p.scroll_to_end %} hx-get="/processamento" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
-  <h2>Processamento</h2>
-  <form class="linha" action="/" method="get"
-        hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML" hx-trigger="change">
-    <label>Dia <input type="date" name="data" value="{{ p.day.isoformat() }}" max="{{ p.today.isoformat() }}"></label>
-    <noscript><button type="submit">Ver</button></noscript>
-    {% if not p.is_today %}
-      <a href="/#processamento" hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML">Voltar para hoje</a>
-    {% endif %}
-  </form>
+  <div class="secao-topo">
+    {{ m.titulo("Processamento", "O diário do que o sistema e você fizeram no dia: coletas, leituras, tags, importações, testes. Hoje abre nos eventos mais recentes; outro dia abre no primeiro evento. Até 30 eventos por página.") }}
+    <form class="linha" style="margin: 0" action="/conteudo" method="get"
+          hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML" hx-trigger="change">
+      <label>Dia <input type="date" name="data" value="{{ p.day.isoformat() }}" max="{{ p.today.isoformat() }}"></label>
+      <noscript><button type="submit">Ver</button></noscript>
+      {% if not p.is_today %}
+        <a class="pequeno" href="/conteudo#processamento" hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML">Voltar para hoje</a>
+      {% endif %}
+    </form>
+  </div>
   {% if p.rows %}
-    <div class="rolagem-processamento"{% if p.scroll_to_end %} data-rolar-fim{% endif %}>
-      <table class="processamento">
+    <div class="tabela rolagem-10"{% if p.scroll_to_end %} data-rolar-fim{% endif %}>
+      <table>
         <thead><tr><th>Hora</th><th>Quem</th><th>Ação</th><th>Alvo</th><th>Detalhes</th></tr></thead>
         <tbody>
           {% for r in p.rows %}
@@ -26,16 +31,16 @@
     <nav class="paginas" aria-label="Páginas do dia">
       {% set dia = p.day.isoformat() %}
       {% if p.page > 1 %}
-        <a href="/?data={{ dia }}&pagina={{ p.page - 1 }}#processamento" title="Eventos anteriores"
+        <a href="/conteudo?data={{ dia }}&pagina={{ p.page - 1 }}#processamento" title="Eventos anteriores"
            hx-get="/processamento?data={{ dia }}&pagina={{ p.page - 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9664;</a>
       {% else %}<span class="muted">&#9664;</span>{% endif %}
       <span class="muted">Página {{ p.page }} de {{ p.pages }} · {{ p.total }} evento(s) em {{ p.day.strftime("%d/%m/%Y") }}</span>
       {% if p.page < p.pages %}
-        <a href="/?data={{ dia }}&pagina={{ p.page + 1 }}#processamento" title="Eventos seguintes"
+        <a href="/conteudo?data={{ dia }}&pagina={{ p.page + 1 }}#processamento" title="Eventos seguintes"
            hx-get="/processamento?data={{ dia }}&pagina={{ p.page + 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9654;</a>
       {% else %}<span class="muted">&#9654;</span>{% endif %}
     </nav>
   {% else %}
-    <p class="muted">Nenhum evento em {{ p.day.strftime("%d/%m/%Y") }}.</p>
+    <p class="vazio">Nenhum evento em {{ p.day.strftime("%d/%m/%Y") }}.</p>
   {% endif %}
 </section>

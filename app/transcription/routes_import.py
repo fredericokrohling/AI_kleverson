@@ -206,29 +206,6 @@ def meetings_list(request: Request, owner: Owner, db: DB, data: str | None = Non
     )
 
 
-# Só o cartão "Agenda do dia", carregado depois da página inicial abrir (a agenda do
-# Google leva até um segundo para responder; assim o resto da página não espera).
-@router.get("/transcricoes/agenda", response_class=HTMLResponse)
-def agenda_card(request: Request, owner: Owner, db: DB, data: str | None = None):
-    # Dia pedido (hoje, por padrão).
-    day = _day(data)
-    # Reuniões do dia.
-    meetings, calendar_error = _meetings(db, day)
-    # Devolve o cartão.
-    return templates.TemplateResponse(
-        # A requisição.
-        request,
-        # Modelo do cartão.
-        "_agenda_cartao.html",
-        {
-            # O dia desenhado.
-            "agenda": _agenda(db, day, meetings),
-            # Motivo, se a agenda não pôde ser lida.
-            "erro_agenda": calendar_error,
-        },
-    )
-
-
 # Guarda o aviso do resultado e volta para a página, no mesmo dia.
 def _back(request: Request, day: date, text: str, error: bool = False, link: str | None = None):
     # Aviso para o topo da página.

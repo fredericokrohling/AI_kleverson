@@ -185,11 +185,17 @@ servidor mostram o que vai acontecer e pedem confirmação no terminal.
 
 ## Processamento: o diário por dia
 
-A seção lê a tabela `audit_log`, um dia por vez, em ordem cronológica, 30 eventos por
-página. A caixa mostra 6 linhas (altura fixa em CSS: cada linha tem 25 px) e rola até 30.
+A seção fica na página **Processamento** (desde 03/11/2026; antes, na página inicial). Ela
+lê a tabela `audit_log`, um dia por vez, em ordem cronológica, 30 eventos por página. A
+tabela tem o mesmo desenho da Coleta de e-mail e mostra 10 linhas; o resto fica na rolagem.
+A altura é fixa em CSS (classe `rolagem-10` em `base.html`): cada linha tem 39 px (20 de
+texto, 18 de margem e 1 de borda) e o cabeçalho, 34 px, então 34 + 10 × 39 = 424 px. Para a
+conta valer, as células não quebram linha: texto longo termina em "...", e o texto inteiro
+aparece ao passar o mouse.
+
 No dia de hoje, a página abre na última página e um script curto rola a caixa até o fim,
-para os 6 eventos mais recentes aparecerem primeiro. Num dia escolhido no calendário,
-abre no começo. Trocar de dia ou de página usa o HTMX: só a seção é recarregada.
+para os eventos mais recentes aparecerem primeiro. Num dia escolhido no calendário, abre no
+começo. Trocar de dia ou de página usa o HTMX: só a seção é recarregada.
 
 > **Decisão: em que fuso mostrar os horários**
 > Avaliamos **A — mostrar em UTC, como o banco guarda** e **B — guardar em UTC e
@@ -201,10 +207,30 @@ abre no começo. Trocar de dia ou de página usa o HTMX: só a seção é recarr
 
 ## Conteúdo coletado
 
-A página `/conteudo` mostra o texto como a IA vai ler. É uma versão simples da busca
-do bloco 4: procura com `ILIKE` (contém, sem diferenciar maiúsculas) no assunto e no
-texto. Serve bem para o volume de uma pessoa; a busca por significado (pgvector) vem
-depois.
+A tabela mostra o texto como a IA vai ler. Desde 03/11/2026 ela fica na página
+**Processamento** (endereço `/conteudo`, mantido para não quebrar os links
+`/conteudo/<id>`), embaixo dos quatro números, da Coleta de e-mail e do diário.
+
+- **Um dia por vez**, hoje por padrão, com rolagem de 10 linhas (a mesma conta do diário),
+  setas para o dia anterior e o seguinte e um calendário para escolher a data. Por que por
+  dia: com meses de coleta, "os 50 mais recentes" escondia tudo o que não era de hoje.
+- **Filtros sem clicar:** trocar a fonte, a tag ou a data já troca a tabela. O formulário
+  tem `hx-trigger="submit, change[target.type !== 'search']"`: o HTMX reage ao `change` de
+  qualquer campo, menos da caixa de palavra (o filtro entre colchetes ignora o campo de
+  busca). A palavra vale ao clicar em **Procurar**, junto com a data, a fonte e a tag.
+- **Todas as datas:** apagar a data procura em tudo (os 200 mais recentes). Serve para achar
+  uma palavra sem saber o dia.
+- **Só a tabela volta:** o pedido do HTMX traz o cabeçalho `HX-Target: conteudo-lista`, e a
+  rota devolve só `_conteudo_lista.html`. Os filtros ficam dentro desse pedaço, para
+  voltarem com os valores novos (a data muda quando você clica numa seta). `hx-push-url`
+  põe os filtros no endereço: F5 ou um link guardado abrem no mesmo ponto.
+- **Linha roxa (`#550a58`):** o item teve erro de processamento, ou seja, um anexo do e-mail
+  ficou sem texto (e você não dispensou o aviso) ou o arquivo do Drive não virou texto. O
+  motivo aparece ao passar o mouse na linha.
+
+A busca por palavra é a versão simples da busca do bloco 4: `ILIKE` (contém, sem diferenciar
+maiúsculas) no assunto e no texto. Serve bem para o volume de uma pessoa; a busca por
+significado (pgvector) vem depois.
 
 ## Atualização automática da página inicial
 
@@ -238,10 +264,13 @@ Todas as cores ficam no começo do `<style>` de `app/templates/base.html`, como 
 (`--menu`, `--fundo`, `--cartao`, `--accent`...). O resto do CSS só usa os nomes. Por quê:
 trocar um tom muda o console inteiro, e fica fácil ver a paleta de uma vez.
 
-Três tons de preto separam as camadas: o **menu** é o mais escuro (`#07080b`), o **fundo**
-vem depois (`#0c0e13`) e os **cartões** são um pouco mais claros (`#12151b`). A diferença é
-pequena de propósito: o olho percebe as camadas sem que a tela fique "listrada". O azul só
-aparece no que é clicável ou no item ativo do menu.
+O **fundo** é cinza (`#333333`) e os **componentes** (menu, cartões e números) são quase
+pretos (`#0f0f0f`), por pedido da dona em 03/11/2026. O contraste entre os dois deixa cada
+cartão bem separado do fundo. Até ali eram três tons de preto muito próximos (menu, fundo e
+cartão), que ficavam bonitos mas separavam pouco. O texto escrito direto sobre o fundo cinza
+(o subtítulo da página) usa um cinza mais claro (`--sobre-fundo`), porque o cinza dos
+cartões quase sumiria sobre `#333333`. O azul só aparece no que é clicável ou no item ativo
+do menu.
 
 O console agora é **só escuro**. Antes ele seguia o sistema operacional (claro ou escuro).
 Um tema só é metade do CSS para manter, e foi o que a dona pediu.
@@ -273,12 +302,18 @@ fileira de ícones sem nome funciona com cinco páginas; com dez, ninguém lembr
 O botão no topo recolhe o menu só nos ícones, para sobrar espaço; a escolha fica guardada no
 navegador (`localStorage`). Em tela estreita (celular), o menu já abre recolhido.
 
-### A página inicial em duas colunas
+### A página inicial: só o que pede atenção
 
-Dados à esquerda, agenda à direita. O bloco que se atualiza sozinho (`#inicio-dados`) usa
-`display: contents`: para o desenho ele "some" e os cartões dele viram itens da grade da
-página, mas para o HTMX ele continua sendo um bloco só, trocado de uma vez. Assim a agenda
-fica fora da atualização automática sem quebrar a grade.
+Desde 03/11/2026 o Início tem três cartões: o **indicador de saúde**, as transcrições recentes
+e os arquivos sem texto. Os números, a coleta e o diário foram para a página Processamento,
+e a agenda saiu do Início porque a página Reuniões já tem o mesmo calendário.
+
+O indicador responde só "está tudo funcionando?": verde (tudo certo no último teste),
+vermelho (algum serviço falhou, ou os testes pararam) ou cinza (nenhum teste ainda, logo
+depois de instalar). Qual serviço falhou fica na página Saúde, de propósito. O vermelho usa o
+mesmo teste que pinta o coração do menu (`has_problem`, em `app/health.py`), então os dois
+nunca discordam. O cinza existe para o indicador não dizer "tudo funcionando" quando nada foi
+testado.
 
 ## Agenda em formato de dia do calendário
 
@@ -312,10 +347,9 @@ coluna nova nem migração.
 
 ### Quando a agenda é lida
 
-A agenda vem da API do Google, que leva até um segundo para responder. Na página inicial, o
-cartão chega logo depois do resto (`hx-trigger="load"`), e fica fora da atualização
-automática de 30 segundos: a agenda não muda com a coleta, e perguntar ao Google duas vezes
-por minuto gastaria cota à toa. As setas trocam o dia pedindo só o cartão de novo.
+A agenda vem da API do Google e é lida só ao abrir a página Reuniões ou trocar a data, nunca
+na atualização automática de 30 segundos: a agenda não muda com a coleta, e perguntar ao
+Google duas vezes por minuto gastaria cota à toa.
 
 Na página Reuniões, trocar a data devolve a lista de reuniões do formulário **e** o
 calendário do novo dia numa resposta só. O calendário vem marcado com `hx-swap-oob="true"`
@@ -343,7 +377,8 @@ esperar os 30 minutos.
 - `app/routes_config.py` e `app/routes_health.py`: as páginas.
 - `app/templates/base.html`: as cores, a fonte, o menu e o CSS de todas as páginas.
 - `app/templates/_macros.html`: a dica que aparece ao passar o mouse.
-- `app/transcription/agenda.py`, `_agenda_dia.html` e `_agenda_cartao.html`: o dia de calendário.
+- `app/transcription/agenda.py` e `_agenda_dia.html`: o dia de calendário.
+- `app/routes_content.py`, `conteudo.html` e `_conteudo_lista.html`: a página Processamento.
 - `app/static/`: logo claro (`logo-claro.png`), o olho do menu recolhido (`marca.png`) e a fonte.
 - `migrations/versions/0004_console_configuracoes_drive_saude.py`: tabelas e as duas views.
 - `scripts/terminal-local/`: o atendente dos links `kleverson://`.

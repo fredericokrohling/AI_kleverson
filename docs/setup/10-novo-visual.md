@@ -8,8 +8,12 @@
   **Conteúdo** e botão para recolher o menu só nos ícones.
 - As explicações de cada caixa viraram o ícone ⓘ ao lado do título: passe o mouse (ou use
   Tab) para ler.
-- Página inicial com números de resumo no topo e o cartão **Agenda**: as reuniões do dia
-  num dia de calendário, com a situação da transcrição de cada uma.
+- As reuniões do dia num dia de calendário, com a situação da transcrição de cada uma (página
+  Reuniões).
+
+> Os ajustes de 03/11/2026 (cores `#333333` e `#0f0f0f`, página Processamento, indicador de
+> saúde no Início, agenda só em Reuniões) estão no [guia 11](11-pagina-processamento.md). Os
+> passos 3 e 4 do roteiro abaixo foram trocados por ele.
 - A página de importar transcrição virou **Reuniões**, com o calendário do dia ao lado do
   formulário.
 

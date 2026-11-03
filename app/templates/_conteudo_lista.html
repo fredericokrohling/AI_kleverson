@@ -1,0 +1,67 @@
+{# Conteúdo coletado: filtros, setas de dia e a tabela (rolagem de 10 linhas).
+   Devolvido sozinho pelo /conteudo quando o HTMX pede (HX-Target = conteudo-lista).
+   Os filtros ficam aqui dentro para voltarem junto com a tabela já com os valores novos
+   (por exemplo, a data depois de clicar numa seta). #}
+{% set filtros = {"q": q, "fonte": fonte, "tag": tag} %}
+<div id="conteudo-lista"
+     {%- if dia == hoje and not q %} hx-get="/conteudo?{{ filtros | urlencode }}&dia={{ dia.isoformat() }}" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
+  {# Trocar fonte, tag ou data já troca a tabela; a palavra só vale ao clicar em Procurar
+     (o filtro [target.type !== 'search'] ignora a mudança na caixa de texto). #}
+  <form id="filtros" class="linha" method="get" action="/conteudo"
+        hx-get="/conteudo" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="true"
+        hx-trigger="submit, change[target.type !== 'search']">
+    <span class="agenda-nav">
+      {% if ontem %}
+        <a class="botao" href="/conteudo?{{ filtros | urlencode }}&dia={{ ontem.isoformat() }}" title="Dia anterior" aria-label="Dia anterior"
+           hx-get="/conteudo?{{ filtros | urlencode }}&dia={{ ontem.isoformat() }}" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="true">&#8249;</a>
+      {% endif %}
+      <input type="date" name="dia" value="{{ dia.isoformat() if dia else '' }}" max="{{ hoje.isoformat() }}" aria-label="Dia">
+      {% if amanha %}
+        <a class="botao" href="/conteudo?{{ filtros | urlencode }}&dia={{ amanha.isoformat() }}" title="Dia seguinte" aria-label="Dia seguinte"
+           hx-get="/conteudo?{{ filtros | urlencode }}&dia={{ amanha.isoformat() }}" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="true">&#8250;</a>
+      {% endif %}
+    </span>
+    <select name="fonte" aria-label="Fonte">
+      <option value="">Todas as fontes</option>
+      {% for kind, label in labels.items() %}
+        <option value="{{ kind.value }}" {{ "selected" if fonte == kind.value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="tag" aria-label="Tag">
+      <option value="">Todas as tags</option>
+      {% for t in tags %}
+        <option value="{{ t.id }}" {{ "selected" if tag == t.id | string }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <input type="search" name="q" value="{{ q }}" placeholder="Palavra no assunto ou no texto" aria-label="Procurar">
+    <button type="submit">Procurar</button>
+    {% if dia != hoje %}
+      <a class="pequeno" href="/conteudo" hx-get="/conteudo?dia={{ hoje.isoformat() }}" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="/conteudo">Voltar para hoje</a>
+    {% endif %}
+  </form>
+  {% if items %}
+    <div class="tabela rolagem-10">
+      <table>
+        <thead><tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr></thead>
+        <tbody>
+          {% for i in items %}
+            {% set erro = erros.get(i.id) %}
+            <tr{% if erro %} class="com-erro" title="Erro de processamento: {{ erro }}"{% endif %}>
+              <td>{{ i.occurred_at | local("%H:%M" if dia else "%d/%m/%Y %H:%M") }}</td>
+              <td>{{ labels.get(i.source, i.source) }}</td>
+              <td title="{{ i.subject or '' }}"><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
+              <td title="{{ i.author or '' }}">{{ i.author or "" }}</td>
+              <td>{% for name in item_tags.get(i.id, []) %}<span class="tag">{{ name }}</span>{% endfor %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+  <p class="muted pequeno" style="margin-top: 10px">
+    {% if dia %}{{ items | length }} item(ns) em {{ dia.strftime("%d/%m/%Y") }}{% if erros %} · {{ erros | length }} com erro de processamento{% endif %}.
+    {% elif items | length == limit %}Todas as datas: mostrando os {{ limit }} mais recentes.
+    {% else %}Todas as datas: {{ items | length }} item(ns).{% endif %}
+    {% if not items %}Nada encontrado.{% endif %}
+  </p>
+</div>

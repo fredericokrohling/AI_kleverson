@@ -1,15 +1,30 @@
-"""Conteúdo coletado: ver o que entrou no banco (e-mails, arquivos do Drive, transcrições).
+"""Página Processamento: números da coleta, diário de ações e o conteúdo coletado.
 
 Por que existe: sem esta tela, conferir se um anexo foi bem lido exigia consultar o
-banco pelo terminal. Aqui você vê o texto exatamente como a IA vai ler: o corpo do
-e-mail, o texto extraído de cada anexo e o de cada versão de arquivo do Drive.
+banco pelo terminal. Aqui ficam, de cima para baixo:
 
-É uma versão simples da busca prevista para o bloco 4: procura por palavra no assunto e
-no texto, mostra os 50 mais recentes.
+1. quatro números de resumo (e-mails no bronze, anexos, versões do Drive, transcrições);
+2. a tabela Coleta de e-mail (as últimas rodadas do Gmail);
+3. o diário de ações do dia (seção Processamento, app/activity.py);
+4. o Conteúdo coletado: o texto exatamente como a IA vai ler, um dia por vez.
+
+O Conteúdo coletado mostra o dia escolhido (hoje, por padrão) numa tabela com rolagem de
+10 linhas, setas para o dia anterior e o seguinte e um calendário para escolher a data.
+Trocar a fonte, a tag ou a data já troca a tabela (HTMX); "Procurar" junta a palavra a
+esses filtros. Com a data apagada, a busca vale para todas as datas (os 200 mais recentes).
+Linha com erro de processamento (anexo ou arquivo sem texto) fica roxa.
+
+O endereço continua /conteudo, para não quebrar os links /conteudo/<id> já existentes.
 """
+
+# Data, data e hora, hora zero e intervalo de tempo.
+from datetime import date, datetime, time, timedelta
 
 # Annotated junta um tipo com informação extra (aqui, parâmetros da URL).
 from typing import Annotated
+
+# Fusos horários pelo nome.
+from zoneinfo import ZoneInfo
 
 # APIRouter agrupa rotas; HTTPException devolve erro; Query lê parâmetros; Request é o pedido.
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -20,10 +35,20 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Consultas; or_ junta condições com "ou".
 from sqlalchemy import func, or_, select
 
+# Seção Processamento (diário de ações por dia).
+from app.activity import activity_page, parse_day
+
+# Configuração (fuso do console).
+from app.config import get_settings
+
+# Resumo da coleta de e-mail.
+from app.ingestion.gmail import collection_overview
+
 # Tabelas.
 from app.models import (
     Attachment,
     BronzeItem,
+    DriveFolder,
     DriveItem,
     Project,
     ProjectStakeholder,
@@ -52,8 +77,8 @@ from app.web import DB, Owner, SameOrigin, templates
 # Grupo de rotas; o main.py acrescenta este grupo ao app.
 router = APIRouter()
 
-# Quantos itens a lista mostra.
-_LIMIT = 50
+# Quantos itens a lista mostra quando a busca vale para todas as datas.
+_LIMIT = 200
 
 # Nome legível de cada fonte.
 SOURCE_LABELS = {
@@ -66,7 +91,129 @@ SOURCE_LABELS = {
 }
 
 
-# Lista do conteúdo coletado, com busca por palavra.
+# Os quatro números do topo da página.
+def _summary(db) -> dict:
+    # Totais do bronze (e-mails, anexos, anexos sem texto) e as últimas rodadas da coleta.
+    coleta = collection_overview(db)
+    # Monta o resumo.
+    return {
+        # Rodadas e totais da coleta de e-mail.
+        "coleta": coleta,
+        # Pastas do Drive monitoradas e ligadas.
+        "folders": db.scalar(
+            # Conta as pastas...
+            select(func.count())
+            # ... da tabela de pastas monitoradas...
+            .select_from(DriveFolder)
+            # ... que estão ligadas.
+            .where(DriveFolder.active.is_(True))
+        ),
+        # Arquivos (não pastas) ainda presentes nas pastas monitoradas.
+        "files": db.scalar(
+            # Conta os itens...
+            select(func.count())
+            # ... do espelho do Drive...
+            .select_from(DriveItem)
+            # ... que são arquivos, não saíram da pasta e estão numa pasta monitorada.
+            .where(
+                DriveItem.is_folder.is_(False),
+                DriveItem.removed.is_(False),
+                DriveItem.folder_id.is_not(None),
+            )
+        ),
+        # Arquivos que chegaram por link num e-mail (fora das pastas).
+        "linked": db.scalar(
+            # Conta os itens...
+            select(func.count())
+            # ... do espelho do Drive...
+            .select_from(DriveItem)
+            # ... que são arquivos e não estão em pasta monitorada.
+            .where(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None))
+        ),
+        # Versões de arquivos do Drive gravadas no bronze.
+        "versions": db.scalar(
+            # Conta as linhas...
+            select(func.count())
+            # ... do bronze...
+            .select_from(BronzeItem)
+            # ... que vieram do Drive.
+            .where(BronzeItem.source == SourceKind.DRIVE)
+        ),
+        # Transcrições de reunião (importadas e da extensão).
+        "transcripts": db.scalar(
+            # Conta as linhas...
+            select(func.count())
+            # ... do bronze...
+            .select_from(BronzeItem)
+            # ... de transcrição de reunião.
+            .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT)
+        ),
+    }
+
+
+# Hoje, no fuso do console.
+def _today() -> date:
+    # Data atual no fuso configurado.
+    return datetime.now(ZoneInfo(get_settings().console_timezone)).date()
+
+
+# Lê o dia do Conteúdo coletado. None = parâmetro ausente (hoje); "" = todas as datas.
+def _content_day(value: str | None) -> date | None:
+    """Devolve o dia escolhido, ou None para "todas as datas"."""
+    # Sem o parâmetro: hoje.
+    if value is None:
+        return _today()
+    # Campo apagado: todas as datas.
+    if not value.strip():
+        return None
+    # Tenta ler "AAAA-MM-DD"; inválido volta para hoje.
+    try:
+        # Data do texto.
+        return date.fromisoformat(value.strip())
+    # Formato inválido.
+    except ValueError:
+        return _today()
+
+
+# Motivo do erro de processamento de cada item da lista (sem erro, o item não aparece).
+def _error_reasons(db, items: list[BronzeItem]) -> dict[int, str]:
+    """Anexo sem texto (e não dispensado) ou arquivo do Drive sem texto."""
+    # Resultado: id do item → motivo.
+    reasons: dict[int, str] = {}
+    # Arquivos do Drive: o erro da extração fica no próprio item.
+    for item in items:
+        # Erro gravado na extração da versão.
+        if item.extra.get("erro_extracao"):
+            # Guarda o motivo.
+            reasons[item.id] = str(item.extra["erro_extracao"])
+    # Ids da lista.
+    ids = [i.id for i in items]
+    # Sem itens, sem consulta.
+    if not ids:
+        return reasons
+    # Anexos com erro dos e-mails da lista (os dispensados já foram aceitos por você).
+    rows = db.execute(
+        # Item, nome do arquivo e erro.
+        select(Attachment.bronze_item_id, Attachment.filename, Attachment.extraction_error)
+        # Só os da lista, com erro e não dispensados.
+        .where(
+            Attachment.bronze_item_id.in_(ids),
+            Attachment.extraction_error.is_not(None),
+            Attachment.dismissed_at.is_(None),
+        )
+        # Ordem estável.
+        .order_by(Attachment.id)
+    ).all()
+    # Cada anexo com erro.
+    for item_id, filename, error in rows:
+        # Guarda o primeiro motivo de cada e-mail.
+        reasons.setdefault(item_id, f"{filename}: {error}")
+    # Devolve.
+    return reasons
+
+
+# Página Processamento (no endereço /conteudo). Com o cabeçalho HX-Target do HTMX pedindo
+# "conteudo-lista", devolve só a tabela do Conteúdo coletado.
 @router.get("/conteudo", response_class=HTMLResponse)
 def content_list(
     request: Request,
@@ -78,9 +225,35 @@ def content_list(
     fonte: Annotated[str, Query(max_length=50)] = "",
     # Id da tag (vazio = todas).
     tag: Annotated[str, Query(max_length=20)] = "",
+    # Dia do Conteúdo coletado (ausente = hoje; vazio = todas as datas).
+    dia: Annotated[str | None, Query(max_length=20)] = None,
+    # Dia e página da seção Processamento (diário de ações), quando o navegador não usa HTMX.
+    data: str | None = None,
+    # Página do diário.
+    pagina: int | None = None,
 ):
+    # Fuso do console.
+    timezone = get_settings().console_timezone
+    # Dia escolhido (None = todas as datas).
+    day = _content_day(dia)
+    # Hoje.
+    today = _today()
+    # Um dia no futuro não tem conteúdo: volta para hoje.
+    if day is not None and day > today:
+        day = today
     # Consulta base: mais recentes primeiro.
-    query = select(BronzeItem).order_by(BronzeItem.occurred_at.desc().nulls_last()).limit(_LIMIT)
+    query = select(BronzeItem).order_by(BronzeItem.occurred_at.desc().nulls_last())
+    # Um dia escolhido: da meia-noite à meia-noite seguinte, no fuso do console.
+    if day is not None:
+        # Meia-noite do dia.
+        start = datetime.combine(day, time.min, tzinfo=ZoneInfo(timezone))
+        # Só os itens do dia (o dia inteiro cabe na rolagem).
+        query = query.where(
+            BronzeItem.occurred_at >= start, BronzeItem.occurred_at < start + timedelta(days=1)
+        )
+    # Todas as datas: só os mais recentes.
+    else:
+        query = query.limit(_LIMIT)
     # Filtro de fonte, se for uma fonte conhecida.
     if fonte in {s.value for s in SourceKind}:
         # Só essa fonte.
@@ -99,24 +272,53 @@ def content_list(
         query = query.where(BronzeItem.id.in_(items_with_tag(int(tag))))
     # Executa.
     items = db.scalars(query).all()
-    # Monta a página.
+    # Dados da tabela do Conteúdo coletado.
+    content = {
+        # Itens.
+        "items": items,
+        # Palavra procurada.
+        "q": q,
+        # Fonte escolhida.
+        "fonte": fonte,
+        # Tag escolhida.
+        "tag": tag,
+        # Dia mostrado (None = todas as datas).
+        "dia": day,
+        # Hoje (limite do calendário e do botão "Voltar para hoje").
+        "hoje": today,
+        # Dia anterior, para a seta da esquerda (sem data escolhida, não há seta).
+        "ontem": day - timedelta(days=1) if day else None,
+        # Dia seguinte, para a seta da direita (só até hoje).
+        "amanha": day + timedelta(days=1) if day and day < today else None,
+        # Limite quando a busca vale para todas as datas.
+        "limit": _LIMIT,
+        # Nome de cada fonte.
+        "labels": SOURCE_LABELS,
+        # Tags para o filtro.
+        "tags": db.scalars(select(Tag).order_by(func.lower(Tag.name))).all(),
+        # Tags de cada item da lista.
+        "item_tags": tag_names(db, [i.id for i in items]),
+        # Motivo do erro de processamento de cada item com erro (linha roxa).
+        "erros": _error_reasons(db, items),
+    }
+    # Pedido do HTMX só para a tabela: devolve só ela.
+    if request.headers.get("HX-Target") == "conteudo-lista":
+        return templates.TemplateResponse(request, "_conteudo_lista.html", content)
+    # Página inteira.
     return templates.TemplateResponse(
         request,
         "conteudo.html",
         {
+            # Seu login.
             "owner": owner,
-            "menu": "conteudo",
-            "items": items,
-            "q": q,
-            "fonte": fonte,
-            "labels": SOURCE_LABELS,
-            "limit": _LIMIT,
-            # Tags para o filtro.
-            "tags": db.scalars(select(Tag).order_by(func.lower(Tag.name))).all(),
-            # Tag escolhida.
-            "tag": tag,
-            # Tags de cada item da lista.
-            "item_tags": tag_names(db, [i.id for i in items]),
+            # Item do menu destacado.
+            "menu": "processamento",
+            # Os quatro números e a coleta de e-mail.
+            "resumo": _summary(db),
+            # Diário de ações do dia (hoje, por padrão).
+            "p": activity_page(db, timezone, parse_day(data), pagina),
+            # A tabela do Conteúdo coletado.
+            **content,
         },
     )
 
@@ -192,7 +394,7 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
         "conteudo_item.html",
         {
             "owner": owner,
-            "menu": "conteudo",
+            "menu": "processamento",
             "item": item,
             "label": SOURCE_LABELS.get(item.source, item.source),
             "attachments": attachments,

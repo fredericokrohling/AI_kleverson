@@ -1,33 +1,13 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block head %}
-<style>
-  /* Página inicial: dados à esquerda; agenda à direita, ocupando a altura toda.
-     A última linha (1fr) absorve a sobra, para a agenda alta não abrir buracos à esquerda. */
-  .inicio { display: grid; gap: 16px; margin-bottom: 16px; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-            grid-template-rows: auto auto auto 1fr;
-            grid-template-areas: "kpis agenda" "coleta agenda" "transcricoes agenda" "erros agenda"; }
-  /* display: contents: o bloco que se atualiza some do desenho e os cartões dele viram
-     itens da grade (o HTMX continua trocando o bloco inteiro). */
-  .inicio-dados { display: contents; }
-  .inicio section { margin-bottom: 0; align-self: start; }
-  .inicio .kpis { grid-area: kpis; } .cartao-coleta { grid-area: coleta; } .cartao-transcricoes { grid-area: transcricoes; }
-  .cartao-erros { grid-area: erros; } .inicio .cartao-agenda { grid-area: agenda; position: sticky; top: 16px; }
-  @media (max-width: 1100px) {
-    .inicio { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-              grid-template-areas: "kpis" "agenda" "coleta" "transcricoes" "erros"; }
-    .inicio .cartao-agenda { position: static; }
-  }
-</style>
-{% endblock %}
 {% block content %}
 <div class="cabecalho">
   <div>
     <h1>Início</h1>
-    <div class="sub">O que chegou, o que falta ler e as reuniões do dia.</div>
+    <div class="sub">Se tudo está funcionando, as últimas transcrições e o que ficou sem ler.</div>
   </div>
   <div class="acoes">
-    <a class="botao" href="/conteudo">
+    <a class="botao" href="/conteudo#conteudo">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>Procurar no conteúdo</a>
     <a class="botao primario" href="/transcricoes/importar">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>Importar transcrição</a>
@@ -37,60 +17,27 @@
   <div class="aviso-caixa">Nenhuma conta Google conectada. Conecte em <a href="/config#contas">Configurações → Contas conectadas</a>.</div>
 {% endif %}
 
-{# Página em duas colunas: à esquerda os dados da coleta, à direita a agenda do dia.
-   Cada cartão novo entra numa das colunas sem mexer no resto. #}
-<div class="inicio">
-  {# Com novidades (ver app/updates.py), este bloco se busca de novo na página inicial.
-     A agenda fica de fora: ela é lida do Google e não muda com a coleta. #}
-  <div id="inicio-dados" class="inicio-dados" hx-get="/" hx-select="#inicio-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
-    <div class="kpis">
-      <a class="kpi" href="/conteudo?fonte=email">
-        <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></svg>E-mails</div>
-        <div class="valor">{{ coleta.emails }}</div>
-        <div class="detalhe">no bronze</div>
-      </a>
-      <a class="kpi {{ 'alerta' if coleta.files_without_text }}" href="#erros">
-        <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5"/></svg>Anexos</div>
-        <div class="valor">{{ coleta.files }}</div>
-        <div class="detalhe">{{ coleta.files_without_text }} sem texto extraído</div>
-      </a>
-      <a class="kpi" href="/config#drive">
-        <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Drive</div>
-        <div class="valor">{{ drive.versions }}</div>
-        <div class="detalhe">versões · {{ drive.folders }} pasta(s), {{ drive.files }} arquivo(s), {{ drive.linked }} por link</div>
-      </a>
-      <a class="kpi" href="/transcricoes/importar">
-        <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Transcrições</div>
-        <div class="valor">{{ transcricoes_total }}</div>
-        <div class="detalhe">de reunião</div>
-      </a>
-    </div>
-
-    <section class="cartao-coleta">
-      <div class="secao-topo">
-        {{ m.titulo("Coleta de e-mail", "Cada linha é uma rodada da coleta do Gmail: quantos e-mails novos chegaram, quantos anexos foram gravados, quantos ficaram sem texto e quantos deram erro (passe o mouse no número de erros para ver o motivo).") }}
-        <a class="pequeno" href="/conteudo">Ver o conteúdo coletado</a>
-      </div>
-      {% if coleta.runs %}
-        <div class="tabela"><table>
-          <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
-          {% for r in coleta.runs %}
-            <tr>
-              <td>{{ r.started_at | local }}</td>
-              <td>{{ r.status }}</td>
-              <td>{{ r.messages_new }}</td>
-              <td>{{ r.attachments_saved }}</td>
-              <td>{{ r.extraction_errors }}</td>
-              <td{% if r.message_errors %} class="erro" title="{{ r.error_detail or '' }}"{% endif %}>{{ r.message_errors }}</td>
-            </tr>
-          {% endfor %}
-        </table></div>
+{# Com novidades (ver app/updates.py), este bloco se busca de novo na página inicial. #}
+<div id="inicio-dados" hx-get="/" hx-select="#inicio-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
+  {# Só "tudo funcionando" ou "algum problema": o detalhe de cada serviço fica em Saúde.
+     saude_alerta é o mesmo teste que pinta o coração do menu de vermelho. #}
+  <section class="saude-resumo {{ 'problema' if saude_alerta }} {{ 'sem-teste' if not saude_testada }}" id="saude-resumo">
+    <span class="luz" aria-hidden="true"></span>
+    <div>
+      {% if not saude_testada %}
+        <strong>Nenhum teste automático ainda</strong>
+        <div class="muted pequeno">Os testes rodam no serviço coletor a cada poucos minutos. Veja em <a href="/monitoramento">Saúde</a>.</div>
+      {% elif saude_alerta %}
+        <strong>Algum serviço está com problema</strong>
+        <div class="muted pequeno">Veja qual em <a href="/monitoramento">Saúde</a>.</div>
       {% else %}
-        <p class="vazio">Nenhuma coleta ainda. Ela começa sozinha alguns minutos depois de conectar a conta Google.</p>
+        <strong>Todos os serviços funcionando</strong>
+        <div class="muted pequeno">No último teste automático. Detalhes em <a href="/monitoramento">Saúde</a>.</div>
       {% endif %}
-    </section>
+    </div>
+  </section>
 
-    <section id="reunioes" class="cartao-transcricoes">
+  <section id="reunioes">
       <div class="secao-topo">
         {{ m.titulo("Transcrições recentes", "As últimas transcrições de reunião que entraram no sistema: importadas do Teams ou do Meet, ou feitas pela extensão do navegador.") }}
         <a class="pequeno" href="/transcricoes/importar">Importar transcrição</a>
@@ -105,58 +52,49 @@
       {% else %}
         <p class="vazio">Nenhuma transcrição ainda.</p>
       {% endif %}
-    </section>
+  </section>
 
-    <section id="erros" class="cartao-erros">
-      <div class="secao-topo">
-        <h2>Arquivos sem texto {% call m.dica() %}A IA não enxerga o conteúdo destes arquivos; o código diz o motivo.
-          <strong>Tentar de novo</strong> lê outra vez (útil depois que o dono liberar o download, por exemplo).
-          <strong>Dispensar</strong> tira o aviso da lista sem apagar nada (por exemplo, depois de exportar à mão um
-          diagrama do Lucid para a pasta monitorada).{% endcall %}</h2>
-        {% if failures %}
-          <form method="post" action="/arquivos/tentar-todos"><button class="secundario" type="submit">Tentar todos de novo</button></form>
-        {% endif %}
-      </div>
+  <section id="erros">
+    <div class="secao-topo">
+      <h2>Arquivos sem texto {% call m.dica() %}A IA não enxerga o conteúdo destes arquivos; o código diz o motivo.
+        <strong>Tentar de novo</strong> lê outra vez (útil depois que o dono liberar o download, por exemplo).
+        <strong>Dispensar</strong> tira o aviso da lista sem apagar nada (por exemplo, depois de exportar à mão um
+        diagrama do Lucid para a pasta monitorada).{% endcall %}</h2>
       {% if failures %}
-        <div class="tabela"><table>
-          <tr><th>Arquivo</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
-          {% for f in failures %}
-            <tr>
-              <td>{% if f.item_id %}<a href="/conteudo/{{ f.item_id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
-              <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
-              <td>{{ f.sender or "" }}</td>
-              <td>{{ f.when | local("%d/%m/%Y %H:%M") }}</td>
-              <td><code>{{ f.code or "—" }}</code></td>
-              <td>{{ f.message }}</td>
-              <td style="white-space: nowrap">
-                {% if f.retryable %}
-                  <form class="inline" method="post" action="/arquivos/tentar">
-                    <input type="hidden" name="origem" value="{{ f.kind }}">
-                    <input type="hidden" name="id" value="{{ f.ref_id }}">
-                    <button class="mini" type="submit">Tentar de novo</button>
-                  </form>
-                {% endif %}
-                <form class="inline" method="post" action="/arquivos/dispensar">
+        <form method="post" action="/arquivos/tentar-todos"><button class="secundario" type="submit">Tentar todos de novo</button></form>
+      {% endif %}
+    </div>
+    {% if failures %}
+      <div class="tabela"><table>
+        <tr><th>Arquivo</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
+        {% for f in failures %}
+          <tr>
+            <td>{% if f.item_id %}<a href="/conteudo/{{ f.item_id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+            <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
+            <td>{{ f.sender or "" }}</td>
+            <td>{{ f.when | local("%d/%m/%Y %H:%M") }}</td>
+            <td><code>{{ f.code or "—" }}</code></td>
+            <td>{{ f.message }}</td>
+            <td style="white-space: nowrap">
+              {% if f.retryable %}
+                <form class="inline" method="post" action="/arquivos/tentar">
                   <input type="hidden" name="origem" value="{{ f.kind }}">
                   <input type="hidden" name="id" value="{{ f.ref_id }}">
-                  <button class="mini secundario" type="submit">Dispensar</button>
+                  <button class="mini" type="submit">Tentar de novo</button>
                 </form>
-              </td>
-            </tr>
-          {% endfor %}
-        </table></div>
-      {% else %}
-        <p class="vazio">Nenhum arquivo sem texto.</p>
-      {% endif %}
-    </section>
-  </div>
-
-  {# A agenda chega logo depois da página abrir: o Google leva até um segundo para responder. #}
-  <section id="agenda-cartao" class="cartao-agenda" hx-get="/transcricoes/agenda" hx-trigger="load" hx-swap="outerHTML">
-    <h2>Agenda</h2>
-    <p class="carregando">Lendo a agenda…</p>
+              {% endif %}
+              <form class="inline" method="post" action="/arquivos/dispensar">
+                <input type="hidden" name="origem" value="{{ f.kind }}">
+                <input type="hidden" name="id" value="{{ f.ref_id }}">
+                <button class="mini secundario" type="submit">Dispensar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table></div>
+    {% else %}
+      <p class="vazio">Nenhum arquivo sem texto.</p>
+    {% endif %}
   </section>
 </div>
-
-{% include "_processamento.html" %}
 {% endblock %}

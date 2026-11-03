@@ -44,6 +44,7 @@ Siga na ordem:
 8. [Importar transcrições do Teams e do Meet](docs/setup/08-importar-transcricoes.md)
 9. [Projetos, equipe, quem falou nas reuniões e tags nos e-mails](docs/setup/09-projetos-equipe-tags.md)
 10. [Novo visual do console e agenda em formato de calendário](docs/setup/10-novo-visual.md)
+11. [Página Processamento, cores novas e indicador de saúde](docs/setup/11-pagina-processamento.md)
 
 ## Desenvolvimento local
 
