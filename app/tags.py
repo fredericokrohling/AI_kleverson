@@ -5,6 +5,8 @@ Regras:
 - Um item pode ter várias tags, próprias e herdadas.
 - A herança não é copiada para os itens: a view drive_item_effective_tags (migração
   0004) calcula na hora da consulta, subindo pelas pastas-mãe.
+- Cada tag é de uma Empresa. Duas Empresas podem ter tags de mesmo nome, e um item só
+  recebe tags da Empresa dele (o banco recusa o contrário).
 
 Por que calcular em vez de copiar: com cópia, renomear, apagar ou tirar uma tag de uma
 pasta exigiria atualizar milhares de linhas, e um arquivo novo precisaria "lembrar" de
@@ -54,55 +56,60 @@ def _clean_name(name: str) -> str:
     return name
 
 
-# Procura uma tag pelo nome, sem diferenciar maiúsculas ("crm" acha "CRM").
-def _find_by_name(session: Session, name: str) -> Tag | None:
-    # lower() dos dois lados.
-    return session.scalars(select(Tag).where(func.lower(Tag.name) == name.lower())).first()
+# Procura uma tag da Empresa pelo nome, sem diferenciar maiúsculas ("crm" acha "CRM").
+def _find_by_name(session: Session, company_id: int, name: str) -> Tag | None:
+    # lower() dos dois lados; só as tags desta Empresa.
+    return session.scalars(
+        select(Tag).where(Tag.company_id == company_id, func.lower(Tag.name) == name.lower())
+    ).first()
 
 
-# Acha a tag pelo nome ou cria (sem diferenciar maiúsculas).
-def find_or_create_tag(session: Session, name: str) -> Tag:
+# Acha a tag da Empresa pelo nome ou cria (sem diferenciar maiúsculas).
+def find_or_create_tag(session: Session, company_id: int, name: str) -> Tag:
     # Valida.
     name = _clean_name(name)
     # Já existe: devolve a existente.
-    found = _find_by_name(session, name)
+    found = _find_by_name(session, company_id, name)
     # Achou.
     if found is not None:
         return found
     # Cria.
-    return create_tag(session, name)
+    return create_tag(session, company_id, name)
 
 
-# Lista todas as tags com quantos itens têm cada uma diretamente.
-def list_tags(session: Session) -> list[tuple[Tag, int]]:
+# Lista as tags (de uma Empresa, ou de todas) com quantos itens têm cada uma diretamente.
+def list_tags(session: Session, company_id: int | None = None) -> list[tuple[Tag, int]]:
     """[(tag, número de itens com a tag colocada diretamente)], em ordem alfabética."""
     # LEFT JOIN: tags sem uso aparecem com 0.
-    rows = session.execute(
+    query = (
         select(Tag, func.count(DriveItemTag.drive_item_id))
         .outerjoin(DriveItemTag, DriveItemTag.tag_id == Tag.id)
         .group_by(Tag.id)
-        .order_by(func.lower(Tag.name))
-    ).all()
+        .order_by(func.lower(Tag.name), Tag.company_id)
+    )
+    # Só uma Empresa, se pedido.
+    if company_id is not None:
+        query = query.where(Tag.company_id == company_id)
     # Converte cada linha numa tupla simples.
-    return [(tag, count) for tag, count in rows]
+    return [(tag, count) for tag, count in session.execute(query).all()]
 
 
-# Cria uma tag.
-def create_tag(session: Session, name: str) -> Tag:
-    """Cria a tag. Nome repetido (mesmo com outras maiúsculas) vira ValueError."""
+# Cria uma tag numa Empresa.
+def create_tag(session: Session, company_id: int, name: str) -> Tag:
+    """Cria a tag. Nome repetido na Empresa (mesmo com outras maiúsculas) vira ValueError."""
     # Valida.
     name = _clean_name(name)
-    # Já existe.
-    if _find_by_name(session, name):
-        raise ValueError(f"A tag “{name}” já existe.")
+    # Já existe nesta Empresa (em outra pode).
+    if _find_by_name(session, company_id, name):
+        raise ValueError(f"A tag “{name}” já existe nesta Empresa.")
     # Nova linha.
-    tag = Tag(name=name)
+    tag = Tag(company_id=company_id, name=name)
     # Prepara.
     session.add(tag)
     # Gera o id.
     session.flush()
     # Auditoria.
-    audit(session, "dona", "tag.criar", target=name)
+    audit(session, "dona", "tag.criar", target=name, company_id=company_id)
     # Devolve.
     return tag
 
@@ -124,17 +131,25 @@ def rename_tag(session: Session, tag_id: int, name: str, allow_project: bool = F
         )
     # Valida o novo nome.
     name = _clean_name(name)
-    # Outra tag já tem esse nome.
-    other = _find_by_name(session, name)
+    # Outra tag da mesma Empresa já tem esse nome.
+    other = _find_by_name(session, tag.company_id, name)
     # Só é conflito se for outra tag (trocar maiúsculas da própria pode).
     if other is not None and other.id != tag.id:
-        raise ValueError(f"A tag “{name}” já existe.")
+        raise ValueError(f"A tag “{name}” já existe nesta Empresa.")
     # Nome antigo, para a auditoria.
     old = tag.name
     # Troca.
     tag.name = name
     # Auditoria.
-    audit(session, "dona", "tag.renomear", target=str(tag.id), de=old, para=name)
+    audit(
+        session,
+        "dona",
+        "tag.renomear",
+        target=str(tag.id),
+        company_id=tag.company_id,
+        de=old,
+        para=name,
+    )
     # Devolve.
     return tag
 
@@ -153,7 +168,7 @@ def delete_tag(session: Session, tag_id: int) -> None:
             f"A tag “{tag.name}” é de um projeto. Desative o projeto em vez de apagar a tag."
         )
     # Auditoria antes de apagar (depois o nome não existe mais).
-    audit(session, "dona", "tag.apagar", target=tag.name)
+    audit(session, "dona", "tag.apagar", target=tag.name, company_id=tag.company_id)
     # Apaga os vínculos explicitamente (a sessão não conhece o CASCADE do banco).
     session.execute(delete(DriveItemTag).where(DriveItemTag.tag_id == tag_id))
     # Tags de e-mails e transcrições.
@@ -174,14 +189,23 @@ def assign_tag(session: Session, item_id: int, name: str) -> Tag:
         raise ValueError("Item do Drive não encontrado.")
     # Valida o nome.
     name = _clean_name(name)
-    # Tag existente com esse nome, ou uma nova.
-    tag = _find_by_name(session, name) or create_tag(session, name)
+    # Tag da Empresa do item com esse nome, ou uma nova nessa Empresa.
+    tag = _find_by_name(session, item.company_id, name) or create_tag(
+        session, item.company_id, name
+    )
     # Já colocada diretamente neste item?
     if session.get(DriveItemTag, (item.id, tag.id)) is None:
         # Cria o vínculo.
         session.add(DriveItemTag(drive_item_id=item.id, tag_id=tag.id))
         # Auditoria.
-        audit(session, "dona", "tag.colocar", target=item.path or item.name, tag=tag.name)
+        audit(
+            session,
+            "dona",
+            "tag.colocar",
+            target=item.path or item.name,
+            company_id=item.company_id,
+            tag=tag.name,
+        )
     # Devolve a tag.
     return tag
 
@@ -202,6 +226,7 @@ def unassign_tag(session: Session, item_id: int, tag_id: int) -> None:
         "dona",
         "tag.retirar",
         target=(item.path or item.name) if item else str(item_id),
+        company_id=item.company_id if item else None,
         tag=tag.name if tag else str(tag_id),
     )
     # Apaga o vínculo.

@@ -30,9 +30,15 @@ chrome.action.onClicked.addListener(async (tab) => {
     return;
   }
 
+  const sessao = crypto.randomUUID();
+  // Avisa o console ANTES de abrir o áudio: ele cria a reunião e procura a Empresa na
+  // agenda de cada conta. O idioma da transcrição é o da Empresa, e é escolhido quando o
+  // áudio conecta; por isso o áudio só começa depois desta resposta (no máximo 6 s).
+  const inicio = await avisarServidor(
+    backendUrl, `/transcricoes/${sessao}/iniciar`, { titulo: tab.title, url_reuniao: tab.url }, 6000,
+  );
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
   await garantirOffscreen();
-  const sessao = crypto.randomUUID();
   capturas[tab.id] = {
     sessao,
     tabId: tab.id,
@@ -40,11 +46,10 @@ chrome.action.onClicked.addListener(async (tab) => {
     titulo: tab.title,
     inicio: Date.now(),
     microfone: true, // você pode desligar no painel; mudo no Meet também não envia
+    empresa: inicio && inicio.empresa, // null: escolha no Início do console
   };
   await chrome.storage.session.set({ capturas });
   chrome.runtime.sendMessage({ alvo: "offscreen", tipo: "iniciar", streamId, sessao, backendUrl, tabId: tab.id });
-  // Avisa o console: o Início abre a área desta reunião, com o título da aba.
-  avisarServidor(backendUrl, `/transcricoes/${sessao}/iniciar`, { titulo: tab.title, url_reuniao: tab.url });
 });
 
 // Aba do Meet fechada sem "Parar e salvar": para a captura e salva o que já foi dito.
@@ -64,14 +69,21 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }, 4000);
 });
 
-// POST em JSON para o console; falha é ignorada (o Início se acerta na próxima mudança).
-function avisarServidor(backendUrl, caminho, corpo) {
-  if (!backendUrl) return;
-  fetch(`${backendUrl.replace(/\/$/, "")}${caminho}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo),
-  }).catch(() => {});
+// POST em JSON para o console. Devolve a resposta lida, ou null se falhar ou passar do
+// tempo (falha é ignorada: o Início se acerta na próxima mudança).
+async function avisarServidor(backendUrl, caminho, corpo, limiteMs = 15000) {
+  if (!backendUrl) return null;
+  try {
+    const resposta = await fetch(`${backendUrl.replace(/\/$/, "")}${caminho}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+      signal: AbortSignal.timeout(limiteMs),
+    });
+    return resposta.ok ? await resposta.json() : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 async function garantirOffscreen() {

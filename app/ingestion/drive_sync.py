@@ -1,6 +1,6 @@
 """Monitor das pastas do Google Drive: espelha a árvore e grava cada versão no bronze.
 
-Você cadastra uma pasta no console (Configurações → Pastas do Drive). A cada rodada
+Você cadastra uma pasta no console (Cadastros → Pastas do Drive). A cada rodada
 (DRIVE_POLL_MINUTES, padrão 30 min) este módulo:
 1. Percorre a pasta e todas as subpastas, nível por nível (files.list).
 2. Atualiza a tabela drive_items, que espelha a árvore (nome, caminho, pasta-mãe).
@@ -18,6 +18,10 @@ cópias iguais e, depois, pagar a IA para ler a mesma coisa de novo.
 Por que uma versão por item no bronze: o bronze é imutável. Uma planilha de cronograma
 que muda toda semana vira uma linha por mudança, e o bloco 3 pode comparar as datas
 entre versões (é assim que se descobre que um marco escorregou).
+
+Empresa: cada pasta é de uma Empresa e é lida com a conta Google dessa Empresa. Uma
+rodada é sempre de uma Empresa só (pastas, links e versões); o mesmo arquivo do Drive
+compartilhado com as contas de duas Empresas vira um item em cada uma, sem misturar.
 
 Arquivos citados por link nos e-mails: o coletor do Gmail só registra o id (origem
 "link_drive"). Depois das pastas, a rodada lê cada arquivo citado a que a sua conta tem
@@ -86,7 +90,8 @@ from app.models import Attachment, BronzeItem, DriveFolder, DriveItem, SourceKin
 # Logger com o nome do módulo.
 log = logging.getLogger(__name__)
 
-# Número da trava consultiva do Postgres (diferente da do Gmail, 20_002).
+# Número da trava consultiva do Postgres (diferente da do Gmail, 20_002). A trava é por
+# Empresa: o segundo número é o id dela.
 _LOCK_KEY = 20_003
 
 # Campos pedidos ao Drive para cada item; pedir só o necessário deixa a resposta menor.
@@ -162,9 +167,12 @@ def _parse_time(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value)
 
 
-# Cadastra (ou reativa) uma pasta para monitorar.
-def add_folder(session: Session, drive, ref: str) -> DriveFolder:
-    """Confere no Drive que é uma pasta acessível e cadastra. Erros viram ValueError."""
+# Cadastra (ou reativa) uma pasta para monitorar, numa Empresa.
+def add_folder(session: Session, drive, ref: str, company_id: int) -> DriveFolder:
+    """Confere no Drive que é uma pasta acessível e cadastra. Erros viram ValueError.
+
+    drive é o cliente da conta da Empresa: se a conta dela não enxerga a pasta, a pasta
+    não entra (ela seria lida com a conta de outra Empresa)."""
     # Id a partir do link.
     folder_id = parse_folder_ref(ref)
     # Texto que não é link nem id.
@@ -184,12 +192,16 @@ def add_folder(session: Session, drive, ref: str) -> DriveFolder:
     # É um arquivo, não uma pasta.
     if meta.get("mimeType") != FOLDER_MIME:
         raise ValueError(f"“{meta.get('name')}” não é uma pasta.")
-    # Já cadastrada antes?
-    folder = session.scalars(select(DriveFolder).where(DriveFolder.drive_id == folder_id)).first()
+    # Já cadastrada antes nesta Empresa?
+    folder = session.scalars(
+        select(DriveFolder).where(
+            DriveFolder.company_id == company_id, DriveFolder.drive_id == folder_id
+        )
+    ).first()
     # Nova: cria.
     if folder is None:
         # Linha da pasta monitorada.
-        folder = DriveFolder(drive_id=folder_id, name=meta["name"])
+        folder = DriveFolder(company_id=company_id, drive_id=folder_id, name=meta["name"])
         # Prepara.
         session.add(folder)
         # flush gera o id, usado logo abaixo.
@@ -205,19 +217,31 @@ def add_folder(session: Session, drive, ref: str) -> DriveFolder:
     # A própria pasta vira um item da árvore (é nela que você põe as tags da pasta toda).
     _upsert_root_item(session, folder, meta)
     # Registra na auditoria.
-    audit(session, "dona", "drive.pasta.adicionar", target=folder_id, nome=meta["name"])
+    audit(
+        session,
+        "dona",
+        "drive.pasta.adicionar",
+        target=folder_id,
+        company_id=company_id,
+        nome=meta["name"],
+    )
     # Devolve a pasta (o commit é de quem chamou).
     return folder
 
 
 # Cria ou atualiza o item que representa a própria pasta monitorada.
 def _upsert_root_item(session: Session, folder: DriveFolder, meta: dict[str, Any]) -> DriveItem:
-    # Procura o item pelo id do Drive.
-    item = session.scalars(select(DriveItem).where(DriveItem.drive_id == folder.drive_id)).first()
+    # Procura o item pelo id do Drive, na Empresa da pasta.
+    item = _find_item(session, folder.company_id, folder.drive_id)
     # Ainda não existe.
     if item is None:
         # Sem pasta-mãe: é o topo desta árvore.
-        item = DriveItem(drive_id=folder.drive_id, folder_id=folder.id, is_folder=True)
+        item = DriveItem(
+            company_id=folder.company_id,
+            drive_id=folder.drive_id,
+            folder_id=folder.id,
+            is_folder=True,
+        )
         # Prepara.
         session.add(item)
     # Se a pasta já existia como subpasta de outra pasta monitorada, a pasta-mãe dela é
@@ -236,6 +260,14 @@ def _upsert_root_item(session: Session, folder: DriveFolder, meta: dict[str, Any
     return item
 
 
+# Item do Drive de uma Empresa pelo id do Drive.
+def _find_item(session: Session, company_id: int, drive_id: str) -> DriveItem | None:
+    # O par (Empresa, id do Drive) não se repete.
+    return session.scalars(
+        select(DriveItem).where(DriveItem.company_id == company_id, DriveItem.drive_id == drive_id)
+    ).first()
+
+
 # Desliga o monitoramento de uma pasta (arquivos, versões e tags ficam guardados).
 def deactivate_folder(session: Session, folder_id: int) -> None:
     """Para de varrer a pasta. Nada é apagado: cadastrar de novo retoma de onde parou."""
@@ -247,38 +279,63 @@ def deactivate_folder(session: Session, folder_id: int) -> None:
     # Desliga.
     folder.active = False
     # Registra na auditoria.
-    audit(session, "dona", "drive.pasta.remover", target=folder.drive_id, nome=folder.name)
+    audit(
+        session,
+        "dona",
+        "drive.pasta.remover",
+        target=folder.drive_id,
+        company_id=folder.company_id,
+        nome=folder.name,
+    )
 
 
 # A varredura está atrasada? (usado pelo agendador)
-def drive_scan_due(session: Session, settings: Settings, now: datetime) -> bool:
-    """True se há pasta ou link novo, ou se passou o intervalo desde a última conferência."""
+def drive_scan_due(
+    session: Session, settings: Settings, now: datetime, company_id: int | None = None
+) -> bool:
+    """True se há pasta ou link novo, ou se passou o intervalo desde a última conferência.
+
+    company_id: só aquela Empresa; None = alguma Empresa."""
+    # Condições de Empresa (vazias = todas).
+    of_folder = [DriveFolder.company_id == company_id] if company_id is not None else []
+    # A mesma para os itens.
+    of_item = [DriveItem.company_id == company_id] if company_id is not None else []
+    # A mesma para os e-mails.
+    of_email = [BronzeItem.company_id == company_id] if company_id is not None else []
     # Pasta ativa ainda não varrida (recém-cadastrada): varre já.
     never = session.scalar(
         select(func.count())
         .select_from(DriveFolder)
-        .where(DriveFolder.active.is_(True), DriveFolder.last_scan_at.is_(None))
+        .where(DriveFolder.active.is_(True), DriveFolder.last_scan_at.is_(None), *of_folder)
     )
     # Tem pasta nova.
     if never:
         return True
-    # Link citado num e-mail e ainda não lido (não há item com esse id): lê já.
+    # Link citado num e-mail e ainda não lido (não há item com esse id na Empresa do
+    # e-mail): lê já.
     if session.scalar(
         select(func.count())
         .select_from(Attachment)
+        .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
         .where(
             Attachment.origin == "link_drive",
-            ~select(DriveItem.id).where(DriveItem.drive_id == Attachment.external_ref).exists(),
+            *of_email,
+            ~select(DriveItem.id)
+            .where(
+                DriveItem.drive_id == Attachment.external_ref,
+                DriveItem.company_id == BronzeItem.company_id,
+            )
+            .exists(),
         )
     ):
         return True
     # Varredura mais antiga entre as pastas ativas.
     oldest_folder = session.scalar(
-        select(func.min(DriveFolder.last_scan_at)).where(DriveFolder.active.is_(True))
+        select(func.min(DriveFolder.last_scan_at)).where(DriveFolder.active.is_(True), *of_folder)
     )
     # Conferência mais antiga entre os arquivos que chegaram por link.
     oldest_link = session.scalar(
-        select(func.min(DriveItem.last_seen_at)).where(DriveItem.folder_id.is_(None))
+        select(func.min(DriveItem.last_seen_at)).where(DriveItem.folder_id.is_(None), *of_item)
     )
     # As datas que existem (sem pasta e sem link, a lista fica vazia).
     dates = [d for d in (oldest_folder, oldest_link) if d is not None]
@@ -301,18 +358,23 @@ def sync_drive(
     settings: Settings,
     # Daqui em diante, argumentos só por nome.
     *,
+    # Empresa (drive é o cliente da conta dela).
+    company_id: int,
     # "Agora"; os testes fixam um valor para não depender do relógio.
     now: datetime | None = None,
 ) -> SyncSummary:
-    """Varre todas as pastas ativas. Só uma varredura por vez (trava no Postgres)."""
+    """Varre as pastas ativas e os links de uma Empresa. Uma varredura por Empresa por
+    vez (trava no Postgres)."""
     # Momento de referência.
     now = now or datetime.now(UTC)
     # Resumo devolvido.
     summary = SyncSummary()
     # Sessão só para a trava (a trava pertence à conexão, que fica aberta até o fim).
     with sessions() as lock_session:
+        # A trava do Drive desta Empresa.
+        lock = {"k": _LOCK_KEY, "c": company_id}
         # Tenta pegar a trava sem esperar.
-        if not lock_session.scalar(text("SELECT pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY}):
+        if not lock_session.scalar(text("SELECT pg_try_advisory_lock(:k, :c)"), lock):
             # Outra varredura rodando.
             summary.skipped = True
             # Sai sem fazer nada.
@@ -321,9 +383,11 @@ def sync_drive(
         try:
             # Sessão de trabalho.
             with sessions() as session:
-                # Pastas ativas.
+                # Pastas ativas desta Empresa.
                 folders = session.scalars(
-                    select(DriveFolder).where(DriveFolder.active.is_(True)).order_by(DriveFolder.id)
+                    select(DriveFolder)
+                    .where(DriveFolder.active.is_(True), DriveFolder.company_id == company_id)
+                    .order_by(DriveFolder.id)
                 ).all()
                 # Uma por vez.
                 for folder in folders:
@@ -356,7 +420,7 @@ def sync_drive(
                 # Depois das pastas, os arquivos citados por link nos e-mails.
                 try:
                     # Lê os novos e confere os já lidos.
-                    _sync_links(session, drive, store, settings, now, summary)
+                    _sync_links(session, drive, store, settings, now, summary, company_id)
                 # Falha inesperada (rede): as pastas já foram gravadas; a próxima rodada tenta.
                 except Exception:
                     # Desfaz o que estava pela metade.
@@ -370,6 +434,7 @@ def sync_drive(
                         session,
                         "sistema",
                         "drive.varredura",
+                        company_id=company_id,
                         versoes_novas=summary.new_versions,
                         pastas_com_erro=summary.folder_errors,
                         arquivos_com_erro=summary.file_errors,
@@ -379,7 +444,7 @@ def sync_drive(
         # Sempre executa.
         finally:
             # Solta a trava.
-            lock_session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
+            lock_session.execute(text("SELECT pg_advisory_unlock(:k, :c)"), lock)
             # Fecha a transação da sessão da trava.
             lock_session.commit()
     # Linha no log.
@@ -507,12 +572,12 @@ def _sync_item(
 ) -> DriveItem:
     # Id e caminho da pasta-mãe.
     parent_id, parent_path = parent
-    # Procura pelo id do Drive.
-    item = session.scalars(select(DriveItem).where(DriveItem.drive_id == meta["id"])).first()
+    # Procura pelo id do Drive, na Empresa da pasta.
+    item = _find_item(session, folder.company_id, meta["id"])
     # Novo.
     if item is None:
-        # Cria.
-        item = DriveItem(drive_id=meta["id"])
+        # Cria, na Empresa da pasta.
+        item = DriveItem(company_id=folder.company_id, drive_id=meta["id"])
         # Prepara.
         session.add(item)
     # Pertence à pasta monitorada que o encontrou (mesmo que antes tenha chegado por link:
@@ -554,8 +619,7 @@ def _apply_meta(item: DriveItem, meta: dict[str, Any]) -> None:
 # Mensagem para link de pasta: o sistema não varre pastas que só foram citadas.
 _FOLDER_LINK = coded(
     "DRIVE_LINK_PASTA",
-    "O link aponta para uma pasta. Para ler o conteúdo, cadastre-a em Configurações → "
-    "Pastas do Drive.",
+    "O link aponta para uma pasta. Para ler o conteúdo, cadastre-a em Cadastros → Pastas do Drive.",
 )
 
 
@@ -567,22 +631,38 @@ def _sync_links(
     settings: Settings,
     now: datetime,
     summary: SyncSummary,
+    company_id: int,
 ) -> None:
-    # Ids de arquivos citados em algum e-mail.
+    # Ids de arquivos citados em algum e-mail desta Empresa.
     refs = session.scalars(
         select(Attachment.external_ref)
-        .where(Attachment.origin == "link_drive", Attachment.external_ref.is_not(None))
+        .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
+        .where(
+            Attachment.origin == "link_drive",
+            Attachment.external_ref.is_not(None),
+            BronzeItem.company_id == company_id,
+        )
         .distinct()
     ).all()
     # Nenhum link: nada a fazer.
     if not refs:
         return
-    # Pastas monitoradas ligadas.
-    active = set(session.scalars(select(DriveFolder.id).where(DriveFolder.active.is_(True))))
-    # Itens que já existem, por id do Drive.
+    # Pastas monitoradas ligadas desta Empresa.
+    active = set(
+        session.scalars(
+            select(DriveFolder.id).where(
+                DriveFolder.active.is_(True), DriveFolder.company_id == company_id
+            )
+        )
+    )
+    # Itens que já existem nesta Empresa, por id do Drive.
     known = {
         i.drive_id: i
-        for i in session.scalars(select(DriveItem).where(DriveItem.drive_id.in_(refs)))
+        for i in session.scalars(
+            select(DriveItem).where(
+                DriveItem.company_id == company_id, DriveItem.drive_id.in_(refs)
+            )
+        )
     }
     # Limite em bytes para download (o mesmo das pastas).
     max_bytes = settings.drive_max_file_mb * 1024 * 1024
@@ -606,7 +686,7 @@ def _sync_links(
         # Link novo: cria o item, por enquanto só com o id.
         if item is None:
             # Nome provisório; o Drive informa o real logo abaixo.
-            item = DriveItem(drive_id=ref, name=ref, path=ref)
+            item = DriveItem(company_id=company_id, drive_id=ref, name=ref, path=ref)
             # Prepara.
             session.add(item)
         # Daqui em diante é acompanhado pelo link: sem pasta, sem pasta-mãe, presente.
@@ -689,10 +769,12 @@ def _read_version(
         return
     # Id único desta versão no bronze.
     external_id = f"{item.drive_id}:{version}"
-    # Pode já existir (ex.: rodada anterior caiu depois de gravar).
+    # Pode já existir nesta Empresa (ex.: rodada anterior caiu depois de gravar).
     bronze = session.scalars(
         select(BronzeItem).where(
-            BronzeItem.source == SourceKind.DRIVE, BronzeItem.external_id == external_id
+            BronzeItem.company_id == item.company_id,
+            BronzeItem.source == SourceKind.DRIVE,
+            BronzeItem.external_id == external_id,
         )
     ).first()
     # Não existe: grava.
@@ -703,6 +785,8 @@ def _read_version(
         user = meta.get("lastModifyingUser") or {}
         # Linha do bronze.
         bronze = BronzeItem(
+            # Empresa do arquivo.
+            company_id=item.company_id,
             # Fonte.
             source=SourceKind.DRIVE,
             # Id do arquivo + versão.
@@ -866,35 +950,43 @@ def apply_version_text(item: DriveItem, bronze: BronzeItem, result: Extraction) 
 
 
 # Conveniência para a linha de comando e o agendador: monta tudo a partir da configuração.
-def run_from_settings(settings: Settings) -> SyncSummary:
-    """Carrega as credenciais do banco, cria o cliente do Drive e roda uma varredura."""
+def run_from_settings(settings: Settings) -> list[SyncSummary]:
+    """Uma varredura por Empresa com conta conectada, cada uma com o cliente da conta dela."""
     # Imports locais: só carregam quando a varredura de verdade roda.
-    from googleapiclient.discovery import build
-
-    # Fábrica de sessões.
     from app.db import get_sessionmaker
 
-    # Leitura das credenciais do Google.
-    from app.google_auth import load_credentials
-
-    # Criptografia dos tokens.
-    from app.security import get_cipher
+    # Tabela das contas.
+    from app.models import OAuthToken
 
     # Fábrica de sessões.
     sessions = get_sessionmaker()
-    # Credenciais válidas.
+    # Empresas com conta Google conectada.
     with sessions() as session:
-        # Lê e descriptografa.
-        creds = load_credentials(session, get_cipher(), settings)
-    # Cliente do Drive.
-    drive = build("drive", "v3", credentials=creds, cache_discovery=False)
-    # Varre.
-    return sync_drive(sessions, drive, FileStore(settings.data_dir), settings)
+        # Uma por conta.
+        companies = session.scalars(
+            select(OAuthToken.company_id).order_by(OAuthToken.company_id)
+        ).all()
+    # Resumos.
+    summaries: list[SyncSummary] = []
+    # Cada Empresa.
+    for company_id in companies:
+        # Cliente do Drive da conta desta Empresa.
+        with sessions() as session:
+            # Credenciais renovadas se preciso.
+            drive = drive_client(session, settings, company_id)
+        # Varre só as pastas e os links desta Empresa.
+        summaries.append(
+            sync_drive(
+                sessions, drive, FileStore(settings.data_dir), settings, company_id=company_id
+            )
+        )
+    # Devolve.
+    return summaries
 
 
-# Cliente do Drive para o console (cadastrar pasta), a partir das credenciais gravadas.
-def drive_client(session: Session, settings: Settings):
-    """Devolve um cliente da API do Drive, ou levanta erro se o Google não estiver conectado."""
+# Cliente do Drive da conta de uma Empresa, a partir das credenciais gravadas.
+def drive_client(session: Session, settings: Settings, company_id: int):
+    """Devolve um cliente da API do Drive, ou levanta erro se a Empresa não tem conta."""
     # Imports locais.
     from googleapiclient.discovery import build
 
@@ -904,7 +996,7 @@ def drive_client(session: Session, settings: Settings):
     # Criptografia.
     from app.security import get_cipher
 
-    # Credenciais.
-    creds = load_credentials(session, get_cipher(), settings)
+    # Credenciais da conta da Empresa.
+    creds = load_credentials(session, get_cipher(), settings, company_id=company_id)
     # Cliente.
     return build("drive", "v3", credentials=creds, cache_discovery=False)

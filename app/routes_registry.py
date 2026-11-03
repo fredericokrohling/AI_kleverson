@@ -6,6 +6,12 @@ cá em 03/11/2026 (rotas em app/routes_drive.py).
 
 Todo POST volta para uma página (padrão "POST, redireciona, GET"): apertar F5 não repete
 o cadastro, e o resultado aparece como aviso no topo.
+
+Empresas (pedido de 03/11/2026): a página começa pelas Empresas (botão "Nova Empresa").
+Projeto, pessoa, pasta do Drive e tag só são cadastrados com a Empresa escolhida no combo
+do formulário; o servidor confere de novo (o navegador pode ser enganado). O combo
+"Mostrar" no topo filtra as listas por Empresa e já deixa essa Empresa escolhida nos
+formulários.
 """
 
 # Annotated junta um tipo com informação extra (aqui, campos de formulário).
@@ -23,11 +29,20 @@ from googleapiclient.errors import HttpError
 # Consultas.
 from sqlalchemy import func, select
 
+# Tabelas.
+from app.companies import (
+    accounts_by_company,
+    create_company,
+    filter_id,
+    list_companies,
+    parse_company,
+    update_company,
+)
+
 # Configuração.
 from app.config import get_settings
-
-# Tabelas.
 from app.models import (
+    Company,
     GmailLabelTag,
     Project,
     ProjectStakeholder,
@@ -56,6 +71,7 @@ from app.projects import (
 from app.routes_drive import folders_context
 
 # Tags.
+from app.runtime_settings import TRANSCRIPTION_LANGUAGES
 from app.tags import create_tag, delete_tag, list_tags, rename_tag
 
 # Peças comuns: modelos HTML, dono, banco e proteção de POST.
@@ -69,7 +85,7 @@ Text = Annotated[str, Form()]
 
 
 # Cliente da API do Gmail com as credenciais gravadas (erro se o Google não estiver conectado).
-def gmail_client(db, settings):
+def gmail_client(db, settings, company_id: int):
     # Import local: só carrega quando a página precisa do Gmail.
     from googleapiclient.discovery import build
 
@@ -79,19 +95,21 @@ def gmail_client(db, settings):
     # Criptografia.
     from app.security import get_cipher
 
-    # Credenciais.
-    creds = load_credentials(db, get_cipher(), settings)
+    # Credenciais da conta da Empresa.
+    creds = load_credentials(db, get_cipher(), settings, company_id=company_id)
     # Cliente.
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-# Pastas (marcadores) criadas por você no Gmail: [(id, nome)], em ordem de nome.
-def gmail_labels(db) -> tuple[list[tuple[str, str]], str | None]:
-    """(pastas, motivo se não deu para ler)."""
+# Pastas (marcadores) criadas por você no Gmail da Empresa: [(id, nome)], por nome.
+def gmail_labels(db, company_id: int) -> tuple[list[tuple[str, str]], str | None]:
+    """(pastas, motivo se não deu para ler). Só as pastas da conta da Empresa."""
     # Tenta.
     try:
+        # Cliente da conta da Empresa.
+        gmail = gmail_client(db, get_settings(), company_id)
         # Lista os marcadores.
-        response = gmail_client(db, get_settings()).users().labels().list(userId="me").execute()
+        response = gmail.users().labels().list(userId="me").execute()
     # Sem conta Google.
     except RuntimeError as exc:
         return [], str(exc)
@@ -122,9 +140,11 @@ def _checked(value: str) -> bool:
 
 # Página principal: projetos, pessoas e tags.
 @router.get("/cadastros", response_class=HTMLResponse)
-def registry_page(request: Request, owner: Owner, db: DB):
+def registry_page(request: Request, owner: Owner, db: DB, empresa: str | None = None):
+    # Empresa do filtro "Mostrar" (None = todas).
+    company_id = filter_id(empresa)
     # Projetos (ativos primeiro) com o tamanho da equipe.
-    projects = db.execute(
+    query = (
         # Projeto, tag e quantas pessoas.
         select(Project, Tag, func.count(ProjectStakeholder.stakeholder_id))
         # Tag do projeto (pode não haver).
@@ -135,9 +155,30 @@ def registry_page(request: Request, owner: Owner, db: DB):
         .group_by(Project.id, Tag.id)
         # Ativos primeiro, depois por nome.
         .order_by(Project.active.desc(), func.lower(Project.name))
-    ).all()
+    )
     # Pessoas, por nome.
-    people = db.scalars(select(Stakeholder).order_by(func.lower(Stakeholder.name))).all()
+    people_query = select(Stakeholder).order_by(func.lower(Stakeholder.name))
+    # Filtro de Empresa.
+    if company_id is not None:
+        # Projetos da Empresa.
+        query = query.where(Project.company_id == company_id)
+        # Pessoas da Empresa.
+        people_query = people_query.where(Stakeholder.company_id == company_id)
+    # Executa.
+    projects = db.execute(query).all()
+    # Pessoas.
+    people = db.scalars(people_query).all()
+    # Quantos projetos e pessoas cada Empresa tem (para a tabela de Empresas).
+    counts = {
+        "projetos": dict(
+            db.execute(select(Project.company_id, func.count()).group_by(Project.company_id)).all()
+        ),
+        "pessoas": dict(
+            db.execute(
+                select(Stakeholder.company_id, func.count()).group_by(Stakeholder.company_id)
+            ).all()
+        ),
+    }
     # Monta a página.
     return templates.TemplateResponse(
         # A requisição.
@@ -158,13 +199,78 @@ def registry_page(request: Request, owner: Owner, db: DB):
             # Projetos de cada pessoa.
             "memberships": projects_by_person(db),
             # Tags com contagem de uso.
-            "tags": list_tags(db),
+            "tags": list_tags(db, company_id),
             # Ids das tags que são de projeto (não podem ser apagadas aqui).
-            "project_tags": {p.tag_id for p, _, _ in projects if p.tag_id},
+            "project_tags": set(
+                db.scalars(select(Project.tag_id).where(Project.tag_id.is_not(None)))
+            ),
+            # Empresas, com a conta e as contagens.
+            "companies": list_companies(db),
+            # Conta Google de cada Empresa.
+            "accounts": accounts_by_company(db),
+            # Projetos e pessoas por Empresa.
+            "counts": counts,
+            # Idiomas de transcrição (para a Empresa nova).
+            "languages": TRANSCRIPTION_LANGUAGES,
+            # Empresa do filtro (None = todas); também vem escolhida nos formulários.
+            "filtro": company_id,
             # Pastas do Drive monitoradas (folders, roots, root_tags).
-            **folders_context(db),
+            **folders_context(db, company_id),
         },
     )
+
+
+# Endereço da página Cadastros, mantendo o filtro de Empresa.
+def _registry(empresa: str = "", anchor: str = "") -> str:
+    # Com filtro.
+    if filter_id(empresa) is not None:
+        return f"/cadastros?empresa={filter_id(empresa)}#{anchor}"
+    # Sem filtro.
+    return f"/cadastros#{anchor}"
+
+
+# Cadastra uma Empresa.
+@router.post("/cadastros/empresas", dependencies=[SameOrigin])
+def new_company(request: Request, owner: Owner, db: DB, nome: Text, idioma: Text = ""):
+    # Tenta.
+    try:
+        # Cria.
+        company = create_company(db, nome, idioma)
+        # Confirma.
+        db.commit()
+    # Nome vazio ou repetido.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Erro.
+        return _back(request, "/cadastros#empresas", str(exc), error=True)
+    # Volta já filtrando pela Empresa nova (os formulários vêm com ela escolhida).
+    return _back(
+        request,
+        f"/cadastros?empresa={company.id}#empresas",
+        f"Empresa “{company.name}” cadastrada. Conecte a conta Google dela em Configurações.",
+    )
+
+
+# Renomeia uma Empresa ou troca o idioma padrão dela.
+@router.post("/cadastros/empresas/{company_id}", dependencies=[SameOrigin])
+def edit_company(
+    request: Request, owner: Owner, db: DB, company_id: int, nome: Text, idioma: Text = ""
+):
+    # Tenta.
+    try:
+        # Atualiza.
+        company = update_company(db, company_id, nome, idioma)
+        # Confirma.
+        db.commit()
+    # Inexistente, nome vazio ou repetido.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Erro.
+        return _back(request, "/cadastros#empresas", str(exc), error=True)
+    # Pronto.
+    return _back(request, "/cadastros#empresas", f"Empresa “{company.name}” salva.")
 
 
 # Cria um projeto.
@@ -181,11 +287,15 @@ def new_project(
     outros_nomes: Text = "",
     # Palavras-chave, separadas por vírgula.
     palavras: Text = "",
+    # Empresa (combo obrigatório).
+    empresa: Text = "",
 ):
     # Tenta.
     try:
+        # Empresa escolhida (sem ela, não cadastra).
+        company = parse_company(db, empresa)
         # Cria o projeto e a tag.
-        project = create_project(db, nome, codigo, outros_nomes, palavras)
+        project = create_project(db, company.id, nome, codigo, outros_nomes, palavras)
         # Grava.
         db.commit()
     # Nome vazio ou repetido.
@@ -193,7 +303,7 @@ def new_project(
         # Desfaz.
         db.rollback()
         # Volta com o erro.
-        return _back(request, "/cadastros#projetos", str(exc), error=True)
+        return _back(request, _registry(empresa, "projetos"), str(exc), error=True)
     # Abre o projeto para cadastrar a equipe.
     return _back(
         request,
@@ -216,8 +326,8 @@ def project_page(request: Request, owner: Owner, db: DB, project_id: int):
         if project.tag_id
         else []
     )
-    # Pastas existentes no Gmail (para escolher).
-    labels, labels_error = gmail_labels(db)
+    # Pastas existentes no Gmail da conta da Empresa do projeto (para escolher).
+    labels, labels_error = gmail_labels(db, project.company_id)
     # Quantos itens têm a tag do projeto (e-mails e transcrições).
     tagged = (
         db.scalar(
@@ -247,15 +357,18 @@ def project_page(request: Request, owner: Owner, db: DB, project_id: int):
             "tag": db.get(Tag, project.tag_id) if project.tag_id else None,
             # Equipe.
             "team": team_of(db, project.id),
-            # Pessoas que ainda não estão na equipe (para escolher).
+            # Empresa do projeto.
+            "company": db.get(Company, project.company_id),
+            # Pessoas da Empresa que ainda não estão na equipe (para escolher).
             "others": db.scalars(
                 select(Stakeholder)
                 .where(
+                    Stakeholder.company_id == project.company_id,
                     ~Stakeholder.id.in_(
                         select(ProjectStakeholder.stakeholder_id).where(
                             ProjectStakeholder.project_id == project.id
                         )
-                    )
+                    ),
                 )
                 .order_by(func.lower(Stakeholder.name))
             ).all(),
@@ -333,13 +446,13 @@ def add_member(
     nome: Text = "",
     # E-mail.
     email: Text = "",
-    # Cargo na empresa.
+    # Cargo.
     cargo: Text = "",
-    # Empresa.
-    empresa: Text = "",
+    # Organização ou área (texto livre; não é a Empresa cliente).
+    organizacao: Text = "",
     # Outros nomes, separados por vírgula.
     outros_nomes: Text = "",
-    # Caixa "liderança na empresa".
+    # Caixa "liderança na organização".
     lider_empresa: Text = "",
     # Função no projeto.
     funcao: Text = "",
@@ -356,16 +469,23 @@ def add_member(
             person_id = int(pessoa)
         # Pessoa nova (ou a existente com o mesmo e-mail).
         else:
-            # Cria ou atualiza.
+            # Projeto (a pessoa nova entra na Empresa dele).
+            project = db.get(Project, project_id)
+            # Não existe.
+            if project is None:
+                raise ValueError("Projeto não encontrado.")
+            # Cria ou atualiza, na Empresa do projeto.
             person_id = save_person(
                 db,
                 None,
+                # Empresa do projeto.
+                company_id=project.company_id,
                 # Nome.
                 name=nome,
                 # E-mail.
                 email=email,
-                # Empresa.
-                organization=empresa,
+                # Organização ou área.
+                organization=organizacao,
                 # Cargo na empresa.
                 role=cargo,
                 # Liderança na empresa.
@@ -445,8 +565,8 @@ def add_label(request: Request, owner: Owner, db: DB, project_id: int, pasta: Te
     # Sem projeto ou sem tag.
     if project is None or project.tag_id is None:
         return _back(request, url, "Projeto sem tag.", error=True)
-    # Pastas do Gmail, para conferir o id e pegar o nome.
-    labels, error = gmail_labels(db)
+    # Pastas do Gmail da Empresa do projeto, para conferir o id e pegar o nome.
+    labels, error = gmail_labels(db, project.company_id)
     # Nome da pasta escolhida.
     name = dict(labels).get(pasta)
     # Não achou (Gmail fora, ou pasta apagada).
@@ -457,7 +577,9 @@ def add_label(request: Request, owner: Owner, db: DB, project_id: int, pasta: Te
     # Tenta já colocar a tag nos e-mails da pasta (senão, na próxima coleta).
     try:
         # Confere as pastas agora.
-        added, _ = sync_label_tags(db, gmail_client(db, get_settings()))
+        added, _ = sync_label_tags(
+            db, gmail_client(db, get_settings(), project.company_id), project.company_id
+        )
     # Falhou: a próxima coleta faz.
     except (RuntimeError, HttpError):
         added = 0
@@ -498,27 +620,33 @@ def new_person(
     nome: Text,
     # E-mail.
     email: Text = "",
-    # Cargo na empresa.
+    # Cargo.
     cargo: Text = "",
-    # Empresa.
-    empresa: Text = "",
+    # Organização ou área (texto livre; não é a Empresa cliente).
+    organizacao: Text = "",
     # Outros nomes, separados por vírgula.
     outros_nomes: Text = "",
-    # Caixa "liderança na empresa".
+    # Caixa "liderança na organização".
     lider_empresa: Text = "",
+    # Empresa (combo obrigatório).
+    empresa: Text = "",
 ):
     # Tenta.
     try:
-        # Cria (ou atualiza a de mesmo e-mail).
+        # Empresa escolhida (sem ela, não cadastra).
+        company = parse_company(db, empresa)
+        # Cria (ou atualiza a de mesmo e-mail nesta Empresa).
         person = save_person(
             db,
             None,
+            # Empresa.
+            company_id=company.id,
             # Nome.
             name=nome,
             # E-mail.
             email=email,
-            # Empresa.
-            organization=empresa,
+            # Organização ou área.
+            organization=organizacao,
             # Cargo na empresa.
             role=cargo,
             # Liderança na empresa.
@@ -533,9 +661,9 @@ def new_person(
         # Desfaz.
         db.rollback()
         # Volta com o erro.
-        return _back(request, "/cadastros#pessoas", str(exc), error=True)
+        return _back(request, _registry(empresa, "pessoas"), str(exc), error=True)
     # Sucesso.
-    return _back(request, "/cadastros#pessoas", f"Pessoa “{person.name}” salva.")
+    return _back(request, _registry(empresa, "pessoas"), f"Pessoa “{person.name}” salva.")
 
 
 # Página de uma pessoa: dados, projetos e falas reconhecidas.
@@ -561,6 +689,8 @@ def person_page(request: Request, owner: Owner, db: DB, person_id: int):
             "flash": request.session.pop("flash", None),
             # A pessoa.
             "person": person,
+            # Empresa dela.
+            "company": db.get(Company, person.company_id),
             # Projetos dela.
             "memberships": projects_by_person(db).get(person.id, []),
             # Total de falas reconhecidas.
@@ -591,13 +721,13 @@ def edit_person(
     nome: Text,
     # E-mail.
     email: Text = "",
-    # Cargo na empresa.
+    # Cargo.
     cargo: Text = "",
-    # Empresa.
-    empresa: Text = "",
+    # Organização ou área (texto livre; não é a Empresa cliente).
+    organizacao: Text = "",
     # Outros nomes, separados por vírgula.
     outros_nomes: Text = "",
-    # Caixa "liderança na empresa".
+    # Caixa "liderança na organização".
     lider_empresa: Text = "",
 ):
     # Endereço da página da pessoa.
@@ -612,8 +742,8 @@ def edit_person(
             name=nome,
             # E-mail.
             email=email,
-            # Empresa.
-            organization=empresa,
+            # Organização ou área.
+            organization=organizacao,
             # Cargo na empresa.
             role=cargo,
             # Liderança na empresa.
@@ -635,34 +765,38 @@ def edit_person(
 
 # Reaplica as regras de tag e religa as falas (depois de uma mudança grande).
 @router.post("/cadastros/reaplicar", dependencies=[SameOrigin])
-def reapply(request: Request, owner: Owner, db: DB):
-    # Religa falas e reaplica tags.
-    linked, tagged = refresh(db)
+def reapply(request: Request, owner: Owner, db: DB, empresa: Text = ""):
+    # Religa falas e reaplica tags (só da Empresa do filtro, ou de todas).
+    linked, tagged = refresh(db, filter_id(empresa))
     # Grava.
     db.commit()
     # Volta.
     return _back(
-        request, "/cadastros", f"{linked} fala(s) ligada(s) a pessoas e {tagged} tag(s) nova(s)."
+        request,
+        _registry(empresa, "pessoas"),
+        f"{linked} fala(s) ligada(s) a pessoas e {tagged} tag(s) nova(s).",
     )
 
 
 # Cria uma tag.
 @router.post("/cadastros/tags", dependencies=[SameOrigin])
-def new_tag(request: Request, owner: Owner, db: DB, nome: Text):
+def new_tag(request: Request, owner: Owner, db: DB, nome: Text, empresa: Text = ""):
     # Tenta.
     try:
+        # Empresa escolhida (sem ela, não cadastra).
+        company = parse_company(db, empresa)
         # Cria.
-        tag = create_tag(db, nome)
+        tag = create_tag(db, company.id, nome)
         # Grava.
         db.commit()
-    # Nome vazio ou repetido.
+    # Sem Empresa, nome vazio ou repetido.
     except ValueError as exc:
         # Desfaz.
         db.rollback()
         # Volta com o erro.
-        return _back(request, "/cadastros#tags", str(exc), error=True)
+        return _back(request, _registry(empresa, "tags"), str(exc), error=True)
     # Sucesso.
-    return _back(request, "/cadastros#tags", f"Tag “{tag.name}” criada.")
+    return _back(request, _registry(empresa, "tags"), f"Tag “{tag.name}” criada.")
 
 
 # Renomeia uma tag.

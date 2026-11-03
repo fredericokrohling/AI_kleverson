@@ -35,14 +35,17 @@ from sqlalchemy.orm import Session
 # Erro de desconexão e estados possíveis de um WebSocket.
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+# Empresa da reunião: descobrir pela agenda, definir, e o idioma dela.
+from app.companies import detect_company, set_meeting_company, transcription_language
+
 # Configuração.
 from app.config import get_settings
 
 # Sessão por requisição e fábrica de sessões.
 from app.db import get_session, get_sessionmaker
 
-# Idioma da transcrição escolhido no console.
-from app.runtime_settings import get_value
+# Tabela das Empresas.
+from app.models import Company
 
 # Verificação de acesso (versão para cabeçalhos e versão para rotas HTTP).
 from app.security import owner_login, require_owner
@@ -98,7 +101,7 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
     # Fábrica de sessões do banco, para gravar os trechos.
     sessions = get_sessionmaker()
     # Registra a reunião ao vivo (a primeira conexão da captura cria; a segunda só acha).
-    created = await asyncio.to_thread(_open_meeting, sessions, sessao)
+    created, company_id = await asyncio.to_thread(_open_meeting, sessions, sessao)
     # Reunião nova: o Início abre uma área para ela.
     if created:
         # Aviso para todas as abas do console.
@@ -107,11 +110,11 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
     try:
         # Configuração do .env.
         settings = get_settings()
-        # Idioma escolhido no console (se nunca mudou, o do .env).
+        # Idioma da Empresa da reunião (ou o geral de Configurações, sem Empresa).
         with sessions() as session:
             # Lê o valor em vigor.
-            language = get_value(session, settings, "transcription_language")
-        # Cria o cliente configurado (Deepgram), com o idioma do console.
+            language = transcription_language(session, settings, company_id)
+        # Cria o cliente configurado (Deepgram), com esse idioma.
         provider = create_provider(settings.model_copy(update={"transcription_language": language}))
         # Abre a conexão com o serviço.
         stream = await provider.__aenter__()
@@ -242,15 +245,17 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
 
 
 # Cria a reunião ao vivo, se ainda não existir (roda numa thread separada).
-def _open_meeting(sessions, session_id: str) -> bool:
+def _open_meeting(sessions, session_id: str) -> tuple[bool, int | None]:
+    """(criada agora?, Empresa da reunião). A extensão avisa o começo (/iniciar) antes
+    de abrir o áudio, e é ali que a Empresa é descoberta; por isso ela já vem aqui."""
     # Sessão só para isto.
     with sessions() as session:
         # Cria ou acha.
-        _, created = live.ensure_meeting(session, session_id)
+        meeting, created = live.ensure_meeting(session, session_id)
         # Grava.
         session.commit()
-        # Devolve se foi criada agora.
-        return created
+        # Devolve se foi criada agora e a Empresa.
+        return created, meeting.company_id
 
 
 # Grava um trecho numa sessão própria (roda numa thread separada, ver to_thread acima).
@@ -302,17 +307,51 @@ class StartIn(BaseModel):
 
 # A extensão começou a capturar uma aba: o Início abre a área da reunião, com o título.
 @router.post("/transcricoes/{session_id}/iniciar")
-def start(session_id: str, body: StartIn, owner: Owner, db: DB) -> dict[str, int]:
+def start(session_id: str, body: StartIn, owner: Owner, db: DB) -> dict:
     # Valida o id.
     _check_session_id(session_id)
     # Cria a reunião (ou acha, se o WebSocket chegou antes) com título e endereço.
     meeting, _ = live.ensure_meeting(db, session_id, body.titulo, body.url_reuniao)
+    # Ainda sem Empresa: procura o endereço do Meet na agenda de cada Empresa.
+    if meeting.company_id is None:
+        # A Empresa cuja agenda tem a reunião (uma só), ou None.
+        company = detect_company(db, meeting, _today_events(db))
+        # Achou: a reunião passa a ser dela.
+        if company is not None:
+            set_meeting_company(db, meeting, company, "sistema")
     # Grava.
     db.commit()
-    # O Início redesenha as áreas das reuniões (com o título novo).
+    # O Início redesenha as áreas das reuniões (com o título e a Empresa).
     live.hub.publish({"tipo": "reunioes"})
-    # Devolve o id interno.
-    return {"reuniao": meeting.id}
+    # Nome da Empresa, para o painel da extensão mostrar.
+    company = db.get(Company, meeting.company_id) if meeting.company_id else None
+    # Devolve o id interno e a Empresa.
+    return {"reuniao": meeting.id, "empresa": company.name if company else None}
+
+
+# Função "Empresa → eventos de hoje da agenda dela" (usada para descobrir a Empresa).
+def _today_events(db):
+    # Imports locais: a agenda só é lida quando a reunião começa.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # Cliente e leitura da agenda.
+    from app.transcription.calendar import calendar_client, events_on
+
+    # Configuração (fuso do console).
+    settings = get_settings()
+    # Hoje, no fuso do console.
+    today = datetime.now(ZoneInfo(settings.console_timezone)).date()
+
+    # A função devolvida.
+    def events_for(company_id: int):
+        # Eventos de hoje da agenda da conta da Empresa.
+        return events_on(
+            calendar_client(db, settings, company_id), today, settings.console_timezone
+        )
+
+    # Devolve.
+    return events_for
 
 
 # Formato do pedido de finalização.
@@ -325,15 +364,18 @@ class FinalizeIn(BaseModel):
 
 # Botão "Finalizar" do painel: junta os trechos num item do bronze.
 @router.post("/transcricoes/{session_id}/finalizar")
-def finalize(session_id: str, body: FinalizeIn, owner: Owner, db: DB) -> dict[str, int]:
+def finalize(session_id: str, body: FinalizeIn, owner: Owner, db: DB) -> dict:
     # Valida o id.
     _check_session_id(session_id)
     # Monta (ou atualiza) o item do bronze.
     item = store.finalize(
         db, session_id, actor=owner, title=body.titulo, meeting_url=body.url_reuniao
     )
-    # O Início mostra a reunião como salva.
+    # O Início mostra a reunião como salva (ou esperando a Empresa).
     live.hub.publish({"tipo": "reunioes"})
+    # Sem Empresa: guardada, mas não salva no bronze; o painel da extensão avisa.
+    if item is None:
+        return {"bronze_id": None, "pendente": "empresa"}
     # Devolve o id do item criado.
     return {"bronze_id": item.id}
 

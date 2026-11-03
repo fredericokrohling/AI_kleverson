@@ -48,7 +48,7 @@ from app.ingestion.extractors import decode_text, extract_text, split_error
 from app.ingestion.storage import FileStore, safe_suffix, sha256_hex
 
 # Tabelas e o registro de auditoria.
-from app.models import BronzeItem, SourceKind, audit
+from app.models import BronzeItem, Company, SourceKind, audit
 
 # Gravação das falas, com o reconhecimento de quem falou.
 from app.people import Spoken, save_utterances
@@ -372,10 +372,12 @@ def import_transcript(
     day: date,
     # Fuso do console.
     timezone: str,
+    # Empresa da reunião (combo obrigatório da página).
+    company_id: int,
     # "teams" ou "meet", quando se sabe pela origem do arquivo.
     platform: str | None = None,
 ) -> ImportResult:
-    """Cria o item do bronze. Levanta ImportFailure com o motivo."""
+    """Cria o item do bronze na Empresa. Levanta ImportFailure com o motivo."""
     # Sem reunião escolhida e sem título: não dá para saber de que reunião é.
     if event is None and not (title or "").strip():
         raise ImportFailure("Escolha a reunião na lista ou digite o título da reunião.")
@@ -385,15 +387,28 @@ def import_transcript(
     digest = sha256_hex(transcript.text.encode())
     # Id no bronze.
     external_id = f"importada:{digest}"
-    # Já importada antes?
-    existing = session.scalar(
+    # Já importada antes (em qualquer Empresa)?
+    existing = session.scalars(
         select(BronzeItem).where(
             BronzeItem.source == SourceKind.MEET_TRANSCRIPT, BronzeItem.external_id == external_id
         )
-    )
-    # Sim: não duplica.
-    if existing is not None:
-        return ImportResult(existing.id, False, existing.subject or "", transcript)
+    ).all()
+    # Na mesma Empresa: não duplica.
+    for item in existing:
+        # Mesma Empresa.
+        if item.company_id == company_id:
+            return ImportResult(item.id, False, item.subject or "", transcript)
+    # Em outra Empresa: recusa. A mesma conversa em duas Empresas misturaria os clientes;
+    # se a Empresa de lá estava errada, corrija na própria transcrição.
+    if existing:
+        # Nome da outra Empresa.
+        other = session.get(Company, existing[0].company_id)
+        # Motivo.
+        raise ImportFailure(
+            f"Essa transcrição já foi importada na Empresa {other.name if other else '?'} "
+            f"(reunião “{existing[0].subject or ''}”). Se a Empresa de lá está errada, "
+            "abra a transcrição e corrija a Empresa nela."
+        )
     # Título: o do evento, ou o digitado.
     subject = event.title if event else title.strip()[:500]
     # Quando: início do evento, ou meia-noite do dia escolhido, no fuso do console.
@@ -402,6 +417,8 @@ def import_transcript(
     key = store.save(data, safe_suffix(filename))
     # Item novo.
     item = BronzeItem(
+        # Empresa da reunião.
+        company_id=company_id,
         # A mesma fonte da transcrição feita pela extensão.
         source=SourceKind.MEET_TRANSCRIPT,
         # Id pela impressão digital.
@@ -470,6 +487,8 @@ def import_transcript(
         evento=event.id if event else None,
         # Arquivo enviado.
         arquivo=filename[:300],
+        # Empresa (o diário de Processamento filtra por ela).
+        company_id=company_id,
     )
     # Confirma.
     session.commit()

@@ -26,13 +26,16 @@ from starlette.websockets import WebSocketDisconnect
 from app.main import app
 
 # Tabelas consultadas para conferir as gravações.
-from app.models import BronzeItem, SourceKind, TranscriptSegment
+from app.models import BronzeItem, LiveMeeting, SourceKind, TranscriptSegment
 
 # Módulo de rotas (para trocar o serviço real pelo falso).
 from app.transcription import routes
 
 # Formato de trecho e a função que lê mensagens do Deepgram.
 from app.transcription.providers import Segment, parse_deepgram_message
+
+# Empresa que todo teste tem.
+from tests.fakes import EMPRESA
 
 # Cabeçalho do dono.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
@@ -187,6 +190,8 @@ def test_missing_key_is_reported(monkeypatch):
 def _seed_audio(sessions):
     # Abre uma sessão.
     with sessions() as s:
+        # A reunião, já com a Empresa (a agenda ou você disse qual).
+        s.add(LiveMeeting(session_id=SESSION, company_id=EMPRESA))
         # Para cada trecho de exemplo (canal, falante, texto, início em ms)...
         for channel, speaker, text, start in [
             ("outros", "Falante 1", "Vamos revisar o cronograma.", 2000),

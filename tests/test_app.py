@@ -12,6 +12,9 @@ from app.main import app
 # Tabela bronze e tipos de fonte.
 from app.models import BronzeItem, SourceKind
 
+# Empresa que todo teste tem.
+from tests.fakes import EMPRESA
+
 # Cabeçalho que o Tailscale enviaria para a dona do sistema.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
 # Um cliente compartilhado pelos testes deste arquivo.
@@ -65,10 +68,25 @@ def test_console_renders_for_owner():
     assert "Nenhuma coleta ainda" in client.get("/conteudo", headers=OWNER).text
 
 
+# Sem Empresa escolhida, o login nem começa: volta para Configurações com o aviso.
+def test_google_login_requires_company():
+    # Sem o parâmetro.
+    response = client.get("/auth/google/login", headers=OWNER, follow_redirects=False)
+    # Volta para Configurações.
+    assert response.status_code == 303 and response.headers["location"] == "/config#contas"
+    # Empresa inexistente: o mesmo.
+    response = client.get("/auth/google/login?empresa=99", headers=OWNER, follow_redirects=False)
+    # Volta.
+    assert response.status_code == 303
+
+
 # O botão de login manda para o Google com os parâmetros certos.
 def test_google_login_redirects_to_google():
-    # follow_redirects=False: queremos ver o redirecionamento, não segui-lo.
-    response = client.get("/auth/google/login", headers=OWNER, follow_redirects=False)
+    # follow_redirects=False: queremos ver o redirecionamento, não segui-lo. A conta é
+    # sempre de uma Empresa.
+    response = client.get(
+        f"/auth/google/login?empresa={EMPRESA}", headers=OWNER, follow_redirects=False
+    )
     # 307 = redirecionamento temporário.
     assert response.status_code == 307
     # Endereço de destino.
@@ -101,11 +119,19 @@ def test_bronze_is_idempotent(sessions):
     # Abre uma sessão.
     with sessions() as s:
         # Primeiro item.
-        s.add(BronzeItem(source=SourceKind.GMAIL, external_id="m1", content_sha256="a"))
+        s.add(
+            BronzeItem(
+                source=SourceKind.GMAIL, external_id="m1", content_sha256="a", company_id=EMPRESA
+            )
+        )
         # Grava com sucesso.
         s.commit()
         # Mesmo item de novo (mesma fonte e mesmo id externo).
-        s.add(BronzeItem(source=SourceKind.GMAIL, external_id="m1", content_sha256="a"))
+        s.add(
+            BronzeItem(
+                source=SourceKind.GMAIL, external_id="m1", content_sha256="a", company_id=EMPRESA
+            )
+        )
         # pytest.raises: o teste passa só se o erro esperado acontecer.
         with pytest.raises(IntegrityError):
             # A gravação falha por causa da regra única.

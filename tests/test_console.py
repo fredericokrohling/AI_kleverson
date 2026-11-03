@@ -37,6 +37,9 @@ from app.models import AppSetting, Attachment, AuditLog, BronzeItem, HealthCheck
 # Configurações do console.
 from app.runtime_settings import current, get_value, set_value
 
+# Empresa que todo teste tem.
+from tests.fakes import EMPRESA
+
 # Cabeçalho do Tailscale da dona.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
 # Origem do próprio console no TestClient.
@@ -107,7 +110,7 @@ def test_config_forms(sessions):
     # Aviso.
     assert "não permitido" in client.get("/config", headers=OWNER).text
     # Tags pelo formulário (agora em Cadastros): cria.
-    client.post("/cadastros/tags", data={"nome": "Arquitetura"}, headers=SAME)
+    client.post("/cadastros/tags", data={"nome": "Arquitetura", "empresa": EMPRESA}, headers=SAME)
     # Aparece em Cadastros.
     assert "Arquitetura" in client.get("/cadastros", headers=OWNER).text
 
@@ -131,7 +134,10 @@ def test_config_forms(sessions):
 def test_post_requires_same_origin(headers, status):
     # Tenta criar uma tag.
     response = client.post(
-        "/cadastros/tags", data={"nome": "Teste"}, headers=headers, follow_redirects=False
+        "/cadastros/tags",
+        data={"empresa": EMPRESA, "nome": "Teste"},
+        headers=headers,
+        follow_redirects=False,
     )
     # Confere.
     assert response.status_code == status
@@ -478,6 +484,7 @@ def test_content_pages(sessions):
             subject="Cronograma Atlas",
             body_text="Segue o cronograma.",
             content_sha256="a" * 64,
+            company_id=EMPRESA,
         )
         # Outro.
         other = BronzeItem(
@@ -487,6 +494,7 @@ def test_content_pages(sessions):
             subject="Almoço",
             body_text="Vamos?",
             content_sha256="b" * 64,
+            company_id=EMPRESA,
         )
         # Grava os dois.
         s.add_all([email, other])
@@ -535,6 +543,7 @@ def test_content_by_day(sessions):
             occurred_at=now,
             subject="Relatório de hoje",
             content_sha256="c" * 64,
+            company_id=EMPRESA,
         )
         # Arquivo de ontem.
         old_file = BronzeItem(
@@ -543,6 +552,7 @@ def test_content_by_day(sessions):
             occurred_at=yesterday,
             subject="Planilha de ontem",
             content_sha256="d" * 64,
+            company_id=EMPRESA,
         )
         # Grava os dois.
         s.add_all([today_email, old_file])

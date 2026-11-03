@@ -17,6 +17,7 @@ consideradas e onde ela aparece no código.
 9. [Importar transcrições do Teams e do Meet: ligação com a agenda](09-importar-transcricoes.md)
 10. [Projetos, equipe, quem falou e tags nos e-mails](10-projetos-equipe-falas-tags.md)
 11. [Reuniões ao vivo no Início: duas reuniões, participantes e quem falou](11-reunioes-ao-vivo.md)
+12. [Empresas: separar os dados de cada cliente em todas as camadas](12-empresas.md)
 
 ## Como ler o código
 
@@ -42,7 +43,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 8. `app/transcription/`: a transcrição ao vivo (comece pelo `__init__.py`).
 9. `app/ingestion/`: a coleta de e-mail (comece pelo `__init__.py`).
 10. `app/people.py`, `app/project_tags.py` e `app/projects.py`: quem falou, tags e cadastros.
-10. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+11. `app/companies.py`: as Empresas e a correção de Empresa de uma transcrição.
+12. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 

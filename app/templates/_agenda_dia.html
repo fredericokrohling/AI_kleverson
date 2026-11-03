@@ -1,18 +1,12 @@
-{# Um dia de calendário (ver app/transcription/agenda.py). Recebe "agenda".
-   Cada reunião é um link: sem transcrição, abre a importação já com a reunião escolhida;
-   com transcrição, abre a transcrição. Na página de importação, o clique só escolhe a
-   reunião no formulário (script em transcricao_importar.html). #}
+{# Um dia de calendário (ver app/transcription/agenda.py). Recebe "agenda", "cal_empresa"
+   (id da Empresa da agenda) e "cal_params" (e1/e2 da página, para o link manter os dois
+   calendários). Cada reunião é um link: sem transcrição, abre a importação já com a
+   Empresa e a reunião escolhidas; com transcrição, abre a transcrição. Na página
+   Reuniões, o clique só escolhe no formulário (script em transcricao_importar.html). #}
 {% import "_macros.html" as m %}
 {% set a = agenda %}
 {% set dias = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] %}
-{# Na página Reuniões, o título com o dia vem junto, para trocar quando a data muda. #}
-{% if titulo_dia %}
-<div class="secao-topo">
-  <h2>{{ "Hoje" if a.today else dias[a.day.weekday()] | capitalize }}, {{ a.day.strftime("%d/%m/%Y") }}
-    {{ m.dica("Clique numa reunião sem transcrição para escolhê-la no formulário ao lado. As que já têm transcrição abrem o texto. A cor é a plataforma; a bolinha, a situação da transcrição.") }}</h2>
-  {% if a.blocks %}<span class="muted pequeno">{{ a.blocks | length }} reunião(ões) · {{ a.linked }} com transcrição</span>{% endif %}
-</div>
-{% endif %}
+{% if a.blocks %}<div class="muted pequeno">{{ a.blocks | length }} reunião(ões) · {{ a.linked }} com transcrição</div>{% endif %}
 {% set nomes = {"ligada": "transcrição ligada", "meet": "transcrição do Meet pronta", "pendente": "sem transcrição"} %}
 <div class="agenda" style="--total: {{ a.total_minutes }}">
   <div class="agenda-horas" style="height: calc({{ a.total_minutes }} * var(--px))">
@@ -26,7 +20,7 @@
       <a class="reuniao {{ plataforma }} {{ 'ligada' if b.status == 'ligada' else 'st-' ~ b.status }} {{ 'curta' if b.height < 40 else ('media' if b.height < 75) }}"
          style="--ini: {{ b.top }}; --dur: {{ b.height }}; --col: {{ b.lane }}; --cols: {{ b.lanes }}"
          {% if b.item_id %}href="/conteudo/{{ b.item_id }}"
-         {% else %}href="/transcricoes/importar?data={{ a.day.isoformat() }}&evento={{ e.id | urlencode }}" data-evento="{{ e.id }}"{% endif %}
+         {% else %}href="/transcricoes/importar?data={{ a.day.isoformat() }}&amp;empresa={{ cal_empresa }}&amp;evento={{ e.id | urlencode }}{{ cal_params }}#importar" data-evento="{{ e.id }}" data-empresa="{{ cal_empresa }}"{% endif %}
          title="{{ hora }} · {{ e.title }}{% if e.platform %} · {{ e.platform | capitalize }}{% endif %} · {{ nomes[b.status] }}{% if e.attendees %} · {{ e.attendees | length }} participante(s){% endif %}">
         <span class="hora">{{ hora }}</span>
         <span class="titulo">{{ e.title }}</span>
@@ -38,9 +32,11 @@
 </div>
 {% if not a.blocks %}<p class="vazio">Nenhuma reunião com horário na agenda neste dia.</p>{% endif %}
 <div class="agenda-legenda">
+  {% if not roxa %}
   <span><i style="background: var(--meet)"></i>Meet</span>
   <span><i style="background: var(--teams)"></i>Teams</span>
   <span><i style="background: var(--outra)"></i>Outra</span>
+  {% endif %}
   <span><i class="bola" style="background: var(--ok)"></i>com transcrição</span>
   <span><i class="bola" style="background: var(--accent)"></i>Meet pronta para baixar</span>
   <span><i class="bola" style="background: var(--muted)"></i>sem transcrição</span>

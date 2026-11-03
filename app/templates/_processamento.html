@@ -3,25 +3,26 @@
    com rolagem que mostra 10 linhas. Abre no dia de hoje.
    Na última página de hoje, a seção se atualiza sozinha com novidades; em outro dia, não. #}
 {% import "_macros.html" as m %}
-<section id="processamento"{% if p.scroll_to_end %} hx-get="/processamento" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
+<section id="processamento"{% if p.scroll_to_end %} hx-get="/processamento?data={{ p.day.isoformat() }}{{ p.company_query }}" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
   <div class="secao-topo">
-    {{ m.titulo("Processamento", "O diário do que o sistema e você fizeram no dia: coletas, leituras, tags, importações, testes. Hoje abre nos eventos mais recentes; outro dia abre no primeiro evento. Até 30 eventos por página.") }}
+    {{ m.titulo("Processamento", "O diário do que o sistema e você fizeram no dia: coletas, leituras, tags, importações, testes. Com uma Empresa escolhida no topo, só os eventos dela (os testes do sistema, que não são de Empresa nenhuma, aparecem em Todas). Hoje abre nos eventos mais recentes; outro dia abre no primeiro evento. Até 30 eventos por página.") }}
     <form class="linha" style="margin: 0" action="/conteudo" method="get"
           hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML" hx-trigger="change">
       <label>Dia <input type="date" name="data" value="{{ p.day.isoformat() }}" max="{{ p.today.isoformat() }}"></label>
+      {% if p.company_id is not none %}<input type="hidden" name="empresa" value="{{ p.company_id }}">{% endif %}
       <noscript><button type="submit">Ver</button></noscript>
       {% if not p.is_today %}
-        <a class="pequeno" href="/conteudo#processamento" hx-get="/processamento" hx-target="#processamento" hx-swap="outerHTML">Voltar para hoje</a>
+        <a class="pequeno" href="/conteudo?{{ p.company_query[1:] }}#processamento" hx-get="/processamento?{{ p.company_query[1:] }}" hx-target="#processamento" hx-swap="outerHTML">Voltar para hoje</a>
       {% endif %}
     </form>
   </div>
   {% if p.rows %}
     <div class="tabela rolagem-10"{% if p.scroll_to_end %} data-rolar-fim{% endif %}>
       <table>
-        <thead><tr><th>Hora</th><th>Quem</th><th>Ação</th><th>Alvo</th><th>Detalhes</th></tr></thead>
+        <thead><tr><th>Hora</th>{% if p.company_id is none %}<th>Empresa</th>{% endif %}<th>Quem</th><th>Ação</th><th>Alvo</th><th>Detalhes</th></tr></thead>
         <tbody>
           {% for r in p.rows %}
-            <tr><td>{{ r.created_at | local("%H:%M:%S") }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td><td title="{{ r.target or '' }}">{{ r.target or "" }}</td>
+            <tr><td>{{ r.created_at | local("%H:%M:%S") }}</td>{% if p.company_id is none %}<td>{{ nomes_empresa.get(r.company_id, "") }}</td>{% endif %}<td>{{ r.actor }}</td><td>{{ r.action }}</td><td title="{{ r.target or '' }}">{{ r.target or "" }}</td>
               {% set detalhes = r.details.items() | map("join", "=") | join(", ") if r.details else "" %}
               <td title="{{ detalhes }}">{{ detalhes }}</td></tr>
           {% endfor %}
@@ -31,13 +32,13 @@
     <nav class="paginas" aria-label="Páginas do dia">
       {% set dia = p.day.isoformat() %}
       {% if p.page > 1 %}
-        <a href="/conteudo?data={{ dia }}&pagina={{ p.page - 1 }}#processamento" title="Eventos anteriores"
-           hx-get="/processamento?data={{ dia }}&pagina={{ p.page - 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9664;</a>
+        <a href="/conteudo?data={{ dia }}&pagina={{ p.page - 1 }}{{ p.company_query }}#processamento" title="Eventos anteriores"
+           hx-get="/processamento?data={{ dia }}&pagina={{ p.page - 1 }}{{ p.company_query }}" hx-target="#processamento" hx-swap="outerHTML">&#9664;</a>
       {% else %}<span class="muted">&#9664;</span>{% endif %}
       <span class="muted">Página {{ p.page }} de {{ p.pages }} · {{ p.total }} evento(s) em {{ p.day.strftime("%d/%m/%Y") }}</span>
       {% if p.page < p.pages %}
-        <a href="/conteudo?data={{ dia }}&pagina={{ p.page + 1 }}#processamento" title="Eventos seguintes"
-           hx-get="/processamento?data={{ dia }}&pagina={{ p.page + 1 }}" hx-target="#processamento" hx-swap="outerHTML">&#9654;</a>
+        <a href="/conteudo?data={{ dia }}&pagina={{ p.page + 1 }}{{ p.company_query }}#processamento" title="Eventos seguintes"
+           hx-get="/processamento?data={{ dia }}&pagina={{ p.page + 1 }}{{ p.company_query }}" hx-target="#processamento" hx-swap="outerHTML">&#9654;</a>
       {% else %}<span class="muted">&#9654;</span>{% endif %}
     </nav>
   {% else %}

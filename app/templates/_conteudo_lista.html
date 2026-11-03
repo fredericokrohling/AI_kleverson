@@ -2,7 +2,7 @@
    Devolvido sozinho pelo /conteudo quando o HTMX pede (HX-Target = conteudo-lista).
    Os filtros ficam aqui dentro para voltarem junto com a tabela já com os valores novos
    (por exemplo, a data depois de clicar numa seta). #}
-{% set filtros = {"q": q, "fonte": fonte, "tag": tag} %}
+{% set filtros = {"q": q, "fonte": fonte, "tag": tag, "empresa": empresa if empresa is not none else ""} %}
 <div id="conteudo-lista"
      {%- if dia == hoje and not q %} hx-get="/conteudo?{{ filtros | urlencode }}&dia={{ dia.isoformat() }}" hx-trigger="novidades from:body" hx-swap="outerHTML"{% endif %}>
   {# Trocar fonte, tag ou data já troca a tabela; a palavra só vale ao clicar em Procurar
@@ -10,6 +10,7 @@
   <form id="filtros" class="linha" method="get" action="/conteudo"
         hx-get="/conteudo" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="true"
         hx-trigger="submit, change[target.type !== 'search']">
+    {% if empresa is not none %}<input type="hidden" name="empresa" value="{{ empresa }}">{% endif %}
     <span class="agenda-nav">
       {% if ontem %}
         <a class="botao" href="/conteudo?{{ filtros | urlencode }}&dia={{ ontem.isoformat() }}" title="Dia anterior" aria-label="Dia anterior"
@@ -36,18 +37,19 @@
     <input type="search" name="q" value="{{ q }}" placeholder="Palavra no assunto ou no texto" aria-label="Procurar">
     <button type="submit">Procurar</button>
     {% if dia != hoje %}
-      <a class="pequeno" href="/conteudo" hx-get="/conteudo?dia={{ hoje.isoformat() }}" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="/conteudo">Voltar para hoje</a>
+      <a class="pequeno" href="/conteudo?{{ filtros | urlencode }}" hx-get="/conteudo?{{ filtros | urlencode }}&dia={{ hoje.isoformat() }}" hx-target="#conteudo-lista" hx-swap="outerHTML" hx-push-url="/conteudo?{{ filtros | urlencode }}">Voltar para hoje</a>
     {% endif %}
   </form>
   {% if items %}
     <div class="tabela rolagem-10">
       <table>
-        <thead><tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr></thead>
+        <thead><tr><th>Quando</th>{% if empresa is none %}<th>Empresa</th>{% endif %}<th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr></thead>
         <tbody>
           {% for i in items %}
             {% set erro = erros.get(i.id) %}
             <tr{% if erro %} class="com-erro" title="Erro de processamento: {{ erro }}"{% endif %}>
               <td>{{ i.occurred_at | local("%H:%M" if dia else "%d/%m/%Y %H:%M") }}</td>
+              {% if empresa is none %}<td>{{ nomes_empresa.get(i.company_id, "") }}</td>{% endif %}
               <td>{{ labels.get(i.source, i.source) }}</td>
               <td title="{{ i.subject or '' }}"><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
               <td title="{{ i.author or '' }}">{{ i.author or "" }}</td>

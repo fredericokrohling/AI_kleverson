@@ -21,8 +21,14 @@ Tentar de novo:
 - anexo: extrai de novo a partir do original guardado no disco (imagem e PDF
   digitalizado vão para o Claude na hora, sem esperar a rodada do coletor);
 - Drive: se o arquivo já foi baixado, extrai de novo do original; se o download falhou,
-  pergunta ao Drive e baixa outra vez.
+  pergunta ao Drive e baixa outra vez, com a conta da Empresa do arquivo.
+
+Cada linha mostra a Empresa e os projetos (tags de projeto) do arquivo, para saber de
+qual cliente é sem abrir.
 """
+
+# Callable: "uma função"; usado no parâmetro drive_for.
+from collections.abc import Callable
 
 # dataclass cria classes simples de dados.
 from dataclasses import dataclass
@@ -55,7 +61,13 @@ from app.ingestion.vision import VisionReader, extract_or_read
 from app.ingestion.vision_queue import apply_attachment_text
 
 # Tabelas usadas.
-from app.models import Attachment, BronzeItem, DriveItem, audit
+from app.models import Attachment, BronzeItem, DriveItem, Project, audit
+
+# Projetos pelas tags de projeto.
+from app.project_tags import project_names
+
+# Tags efetivas dos arquivos do Drive (com a herança das pastas).
+from app.tags import effective_tags
 
 
 # Uma linha da lista "Arquivos sem texto".
@@ -81,21 +93,47 @@ class Failure:
     retryable: bool = True
     # Item do bronze para abrir em "Conteúdo coletado" (o e-mail, ou a versão do arquivo).
     item_id: int | None = None
+    # Empresa do arquivo.
+    company_id: int | None = None
+    # Projetos do arquivo (tags de projeto do e-mail ou das pastas do Drive).
+    projects: tuple[str, ...] = ()
+
+
+# Projetos de arquivos do Drive sem versão lida (só as tags das pastas): id → nomes.
+def _drive_projects(session: Session, item_ids: list[int]) -> dict[int, list[str]]:
+    # Tags efetivas (próprias e herdadas) de cada item.
+    tags = effective_tags(session, item_ids)
+    # Tag de projeto → nome do projeto.
+    by_tag = dict(session.execute(select(Project.tag_id, Project.name)).all())
+    # Só as tags que são de projeto.
+    return {
+        i: sorted({by_tag[t.tag_id] for t in ts if t.tag_id in by_tag}) for i, ts in tags.items()
+    }
 
 
 # Lista os arquivos que estão sem texto agora.
-def list_failures(session: Session, limit: int = 100) -> list[Failure]:
-    """Anexos e arquivos do Drive com erro, mais recentes primeiro."""
+def list_failures(
+    session: Session, limit: int = 100, company_id: int | None = None
+) -> list[Failure]:
+    """Anexos e arquivos do Drive com erro, mais recentes primeiro.
+
+    company_id: só uma Empresa; None = todas."""
     # Resultado.
     result: list[Failure] = []
+    # Condição de Empresa nos e-mails (vazia = todas).
+    of_email = [BronzeItem.company_id == company_id] if company_id is not None else []
     # Anexos e links externos com erro, não dispensados, com o e-mail de origem.
     rows = session.execute(
         select(Attachment, BronzeItem)
         .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
-        .where(Attachment.extraction_error.is_not(None), Attachment.dismissed_at.is_(None))
+        .where(
+            Attachment.extraction_error.is_not(None), Attachment.dismissed_at.is_(None), *of_email
+        )
         .order_by(BronzeItem.occurred_at.desc().nulls_last())
         .limit(limit)
     ).all()
+    # Projetos dos e-mails.
+    email_projects = project_names(session, [item.id for _, item in rows])
     # Cada anexo.
     for attachment, item in rows:
         # Separa código e explicação.
@@ -113,6 +151,8 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
                 sender=item.author,
                 retryable=attachment.origin != "link_externo",
                 item_id=item.id,
+                company_id=item.company_id,
+                projects=tuple(email_projects.get(item.id, [])),
             )
         )
     # Arquivos do Drive presentes e não dispensados. Pastas só entram quando chegaram por
@@ -122,18 +162,35 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
             or_(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None)),
             DriveItem.removed.is_(False),
             DriveItem.dismissed_at.is_(None),
+            *([DriveItem.company_id == company_id] if company_id is not None else []),
         )
     ).all()
     # Os que têm erro agora, com o motivo.
     failing = [(item, error) for item in items if (error := item_failure(session, item))]
     # E-mail mais recente que cita cada arquivo que chegou por link.
-    emails = _citing_emails(session, [i.drive_id for i, _ in failing if i.folder_id is None])
+    emails = _citing_emails(session, [i for i, _ in failing if i.folder_id is None])
+    # Projetos: pela versão lida (tags das pastas) ou pelo e-mail que citou o arquivo.
+    by_item = project_names(
+        session,
+        [i.bronze_item_id for i, _ in failing if i.bronze_item_id]
+        + [e.id for e in emails.values()],
+    )
+    # Arquivos de pasta ainda sem versão: pelas tags das pastas.
+    by_folder = _drive_projects(session, [i.id for i, _ in failing if not i.bronze_item_id])
     # Cada arquivo com erro.
     for item, error in failing:
         # Separa código e explicação.
         code, message = split_error(error)
         # E-mail que citou o arquivo, se chegou por link.
-        email = emails.get(item.drive_id)
+        email = emails.get(item.id)
+        # Projetos: da versão, do e-mail que citou ou das pastas.
+        projects = (
+            by_item.get(item.bronze_item_id, [])
+            if item.bronze_item_id
+            else by_item.get(email.id, [])
+            if email
+            else by_folder.get(item.id, [])
+        )
         # Linha da lista: por link, a origem é o e-mail (assunto, remetente e data).
         result.append(
             Failure(
@@ -147,6 +204,8 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
                 sender=email.author if email else None,
                 # A versão lida, se houver; senão o e-mail que citou o arquivo.
                 item_id=item.bronze_item_id or (email.id if email else None),
+                company_id=item.company_id,
+                projects=tuple(projects),
             )
         )
     # Mais recentes primeiro (sem data vão para o fim) e corta no limite.
@@ -155,24 +214,32 @@ def list_failures(session: Session, limit: int = 100) -> list[Failure]:
     return result[:limit]
 
 
-# E-mail mais recente que cita cada arquivo do Drive (por id).
-def _citing_emails(session: Session, drive_ids: list[str]) -> dict[str, BronzeItem]:
-    # Nenhum id: nada a buscar.
-    if not drive_ids:
+# E-mail mais recente (da mesma Empresa) que cita cada arquivo do Drive: id do item → e-mail.
+def _citing_emails(session: Session, items: list[DriveItem]) -> dict[int, BronzeItem]:
+    # Nenhum item: nada a buscar.
+    if not items:
         return {}
     # Links registrados para esses ids, com o e-mail, mais recentes primeiro.
     rows = session.execute(
         select(Attachment.external_ref, BronzeItem)
         .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
-        .where(Attachment.origin == "link_drive", Attachment.external_ref.in_(drive_ids))
+        .where(
+            Attachment.origin == "link_drive",
+            Attachment.external_ref.in_({i.drive_id for i in items}),
+        )
         .order_by(BronzeItem.occurred_at.desc().nulls_last())
     ).all()
-    # Resultado: o primeiro (mais recente) de cada id.
-    found: dict[str, BronzeItem] = {}
+    # (Empresa, id do Drive) → item.
+    by_key = {(i.company_id, i.drive_id): i for i in items}
+    # Resultado: o primeiro (mais recente) de cada item.
+    found: dict[int, BronzeItem] = {}
     # Cada par.
     for ref, email in rows:
-        # setdefault só grava se o id ainda não tiver e-mail.
-        found.setdefault(ref, email)
+        # O item da mesma Empresa do e-mail (o mesmo id pode estar em duas Empresas).
+        item = by_key.get((email.company_id, ref))
+        # setdefault só grava se o item ainda não tiver e-mail.
+        if item is not None:
+            found.setdefault(item.id, email)
     # Devolve.
     return found
 
@@ -217,10 +284,13 @@ def retry(
     ref_id: int,
     drive=None,
     vision: VisionReader | None = None,
+    drive_for: Callable[[int], object] | None = None,
 ) -> str | None:
     """Devolve None se deu certo; senão o erro (com código).
 
-    drive: cliente da API do Drive. vision: leitor do Claude (None = sem chave).
+    drive: cliente da API do Drive. drive_for: função que devolve o cliente da conta de
+    uma Empresa (id → cliente, ou None); usada quando drive não é passado, para cada
+    arquivo ser baixado com a conta da Empresa dele. vision: leitor do Claude.
     """
     # Anexo de e-mail.
     if kind == "anexo":
@@ -228,23 +298,42 @@ def retry(
         error = retry_attachment(session, store, ref_id, vision)
     # Arquivo do Drive.
     elif kind == "drive":
+        # O arquivo (para saber a Empresa).
+        item = session.get(DriveItem, ref_id)
+        # Cliente da conta da Empresa do arquivo, se quem chamou não passou um.
+        if drive is None and drive_for is not None and item is not None:
+            drive = drive_for(item.company_id)
         # Tenta (o cliente só é usado se o download tiver falhado).
         error = retry_drive_item(session, drive, store, settings, ref_id, vision)
     # Origem desconhecida (formulário adulterado).
     else:
         raise ValueError(f"Origem desconhecida: {kind}")
+    # A linha (anexo ou arquivo).
+    row = _row(session, kind, ref_id)
     # Tentar de novo devolve à lista um aviso que tinha sido dispensado (se ainda falhar).
-    _row(session, kind, ref_id).dismissed_at = None
+    row.dismissed_at = None
     # Auditoria: o que foi tentado e o resultado.
     audit(
         session,
         "dona",
         "arquivo.tentar_de_novo",
         target=f"{kind}:{ref_id}",
+        company_id=_company_of(session, row),
         resultado="ok" if error is None else error[:200],
     )
     # Devolve.
     return error
+
+
+# Empresa de um anexo (a do e-mail) ou de um arquivo do Drive.
+def _company_of(session: Session, row: Attachment | DriveItem) -> int | None:
+    # Arquivo do Drive: tem a Empresa.
+    if isinstance(row, DriveItem):
+        return row.company_id
+    # Anexo: a do e-mail.
+    item = session.get(BronzeItem, row.bronze_item_id)
+    # Devolve.
+    return item.company_id if item else None
 
 
 # A linha do banco de um item da lista.
@@ -269,7 +358,13 @@ def dismiss(session: Session, kind: str, ref_id: int) -> None:
     # Marca.
     row.dismissed_at = datetime.now(UTC)
     # Auditoria.
-    audit(session, "dona", "arquivo.dispensar", target=f"{kind}:{ref_id}")
+    audit(
+        session,
+        "dona",
+        "arquivo.dispensar",
+        target=f"{kind}:{ref_id}",
+        company_id=_company_of(session, row),
+    )
 
 
 # "Tentar todos de novo".
@@ -279,8 +374,11 @@ def retry_all(
     settings: Settings,
     drive=None,
     vision: VisionReader | None = None,
+    drive_for: Callable[[int], object] | None = None,
 ) -> tuple[int, int]:
-    """Tenta cada arquivo da lista. Devolve (tentados, resolvidos)."""
+    """Tenta cada arquivo da lista. Devolve (tentados, resolvidos).
+
+    drive_for: cliente do Drive de cada Empresa (ver retry)."""
     # Contadores.
     tried = fixed = 0
     # Cada linha da lista atual (sem limite).
@@ -293,7 +391,16 @@ def retry_all(
         # Tenta; um erro inesperado num arquivo não impede os outros.
         try:
             # Resultado.
-            error = retry(session, store, settings, failure.kind, failure.ref_id, drive, vision)
+            error = retry(
+                session,
+                store,
+                settings,
+                failure.kind,
+                failure.ref_id,
+                drive,
+                vision,
+                drive_for=drive_for,
+            )
         # Erro inesperado (rede, disco).
         except Exception:
             # Segue para o próximo.

@@ -28,7 +28,8 @@ async function carregarCaptura() {
   botaoParar.hidden = !captura;
   botaoMic.hidden = !captura;
   if (captura) {
-    estado.textContent = `Transcrevendo: ${captura.titulo || "reunião"}`;
+    estado.textContent = `Transcrevendo: ${captura.titulo || "reunião"}`
+      + (captura.empresa ? ` · Empresa ${captura.empresa}` : " · Empresa não identificada: escolha no Início do console");
     botaoMic.textContent = captura.microfone ? "Desligar meu microfone aqui" : "Ligar meu microfone aqui";
     // Pede ao documento de áudio a situação do microfone.
     chrome.runtime.sendMessage({ alvo: "offscreen", tipo: "estado" }).catch(() => {});
@@ -127,13 +128,20 @@ botaoParar.addEventListener("click", async () => {
   await enviarLegendas();
   try {
     const titulo = (esta.titulo || "").replace(/\s*-\s*Google Meet$/, "") || null;
-    await backend(`/transcricoes/${esta.sessao}/finalizar`, { titulo, url_reuniao: esta.url });
+    const resposta = await backend(`/transcricoes/${esta.sessao}/finalizar`, { titulo, url_reuniao: esta.url });
     const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+    const base = backendUrl.replace(/\/$/, "");
     estado.innerHTML = "";
     const link = document.createElement("a");
-    link.href = `${backendUrl.replace(/\/$/, "")}/transcricoes/${esta.sessao}`;
     link.target = "_blank";
-    link.textContent = "Salvo. Ver a transcrição e acertar os participantes";
+    // Sem Empresa, o console guarda a reunião mas só salva no banco depois que você escolhe.
+    if (resposta && resposta.pendente === "empresa") {
+      link.href = `${base}/`;
+      link.textContent = "Encerrada. Escolha a Empresa no Início do console para salvar";
+    } else {
+      link.href = `${base}/transcricoes/${esta.sessao}`;
+      link.textContent = "Salvo. Ver a transcrição e acertar os participantes";
+    }
     estado.append(link);
   } catch (e) {
     estado.textContent = `Não foi possível salvar: ${e.message}. Os trechos já estão no servidor.`;

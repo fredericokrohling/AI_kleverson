@@ -73,6 +73,7 @@ from app.models import Attachment, AuditLog, BronzeItem, DriveItem, LLMCall
 
 # Falsos e geradores de arquivos.
 from tests.fakes import (
+    EMPRESA,
     FakeClaude,
     FakeDrive,
     FakeGmail,
@@ -256,7 +257,7 @@ def test_queue_reads_email_images(sessions, store, settings, reader, claude):
         }
     )
     # Coleta: as imagens entram na fila.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Dispensa o aviso da foto (você decidiu que não interessa).
     with sessions() as s:
         # Id da foto.
@@ -292,7 +293,7 @@ def test_queue_stops_at_budget(sessions, store, settings, reader, claude, monkey
         {"m1": {"raw": make_email(attachments=[("scan.pdf", "application/pdf", make_pdf())])}}
     )
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Teto esgotado.
     _spend_budget(sessions)
     # Rodada direta: para no primeiro arquivo.
@@ -314,7 +315,7 @@ def test_queue_unexpected_error(sessions, store, settings, reader, monkeypatch):
     # Um e-mail com uma imagem.
     gmail = FakeGmail({"m1": {"raw": make_email(attachments=[("a.png", "image/png", make_png())])}})
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
 
     # Leitura que quebra (ex.: original apagado do disco).
     def broken(*_):
@@ -357,11 +358,11 @@ def test_queue_reads_drive_image(sessions, store, settings, reader, claude):
     # Cadastra e varre.
     with sessions() as s:
         # Cadastra a pasta.
-        add_folder(s, drive, ROOT)
+        add_folder(s, drive, ROOT, EMPRESA)
         # Grava.
         s.commit()
     # Varre: os dois arquivos entram na fila.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Rodada com limite 1: só a imagem.
     assert vision_queue.run_pending(sessions, store, reader, limit=1).read == 1
     # Confere a imagem.
@@ -396,7 +397,7 @@ def test_retry_with_claude(sessions, store, settings, reader, claude, monkeypatc
         }
     )
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Ids dos anexos.
     with sessions() as s:
         # Por nome.
@@ -456,7 +457,7 @@ def test_embedded_images_from_email(sessions, store, settings, reader, claude):
     # Gmail falso com esse e-mail.
     gmail = FakeGmail({"m1": {"raw": email}})
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Confere as linhas de imagem.
     with sessions() as s:
         # Imagens embutidas.
@@ -497,11 +498,11 @@ def test_embedded_images_from_drive_and_backfill(sessions, store, settings):
     # Cadastra.
     with sessions() as s:
         # A pasta.
-        add_folder(s, drive, ROOT)
+        add_folder(s, drive, ROOT, EMPRESA)
         # Grava.
         s.commit()
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Confere.
     with sessions() as s:
         # A versão do Word.
@@ -580,7 +581,12 @@ def _gmail_style_email() -> bytes:
 def test_gmail_images_are_kept(sessions, store, settings):
     # Coleta.
     collect_gmail(
-        sessions, FakeGmail({"m1": {"raw": _gmail_style_email()}}), store, settings, now=NOW
+        sessions,
+        FakeGmail({"m1": {"raw": _gmail_style_email()}}),
+        store,
+        settings,
+        now=NOW,
+        company_id=EMPRESA,
     )
     # Confere.
     with sessions() as s:
@@ -594,7 +600,12 @@ def test_gmail_images_are_kept(sessions, store, settings):
 def test_recover_email_images(sessions, store, settings):
     # Coleta.
     collect_gmail(
-        sessions, FakeGmail({"m1": {"raw": _gmail_style_email()}}), store, settings, now=NOW
+        sessions,
+        FakeGmail({"m1": {"raw": _gmail_style_email()}}),
+        store,
+        settings,
+        now=NOW,
+        company_id=EMPRESA,
     )
     # Simula o filtro antigo: apaga as linhas das imagens.
     with sessions() as s:

@@ -34,7 +34,7 @@ from app.transcription.calendar import events_on, parse_event
 from app.transcription.importer import ImportFailure, parse_captions, read_transcript
 
 # Agenda e Drive falsos, e geradores de arquivos.
-from tests.fakes import FakeCalendar, FakeDrive, make_docx, make_pdf
+from tests.fakes import EMPRESA, FakeCalendar, FakeDrive, make_docx, make_pdf
 
 # Cabeçalho do Tailscale da dona.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
@@ -153,9 +153,9 @@ def google(monkeypatch, tmp_path):
         }
     )
     # As rotas usam os falsos.
-    monkeypatch.setattr(routes_import, "calendar_client", lambda db, settings: calendar)
+    monkeypatch.setattr(routes_import, "calendar_client", lambda db, settings, *_a: calendar)
     # Drive.
-    monkeypatch.setattr(routes_import, "drive_client", lambda db, settings: drive)
+    monkeypatch.setattr(routes_import, "drive_client", lambda db, settings, *_a: drive)
     # Originais numa pasta temporária.
     monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path))
     # Entrega os dois ao teste.
@@ -246,8 +246,14 @@ def test_calendar_events():
 
 # A página lista as reuniões do dia e troca a lista quando a data muda.
 def test_import_page_lists_meetings(google):
-    # Abre a página no dia das reuniões.
+    # Sem Empresa no formulário, a lista pede que você escolha (o calendário já mostra).
     page = client.get("/transcricoes/importar?data=2026-11-02", headers=OWNER).text
+    # Aviso.
+    assert "Escolha a Empresa acima para ver as reuniões da agenda dela." in page
+    # Abre a página no dia das reuniões, com a Empresa escolhida.
+    page = client.get(
+        f"/transcricoes/importar?data=2026-11-02&empresa={EMPRESA}", headers=OWNER
+    ).text
     # As duas reuniões aparecem com horário e plataforma.
     assert "09:00–10:00 · Comitê do cliente · Teams" in page
     # A do Meet avisa que tem transcrição anexada.
@@ -256,8 +262,10 @@ def test_import_page_lists_meetings(google):
     assert "Finados" not in page
     # A opção de reunião fora da agenda está sempre lá.
     assert "Não está na agenda" in page
-    # Trocar a data devolve só a lista do novo dia.
-    part = client.get("/transcricoes/importar/reunioes?data=2026-11-03", headers=OWNER).text
+    # Trocar a data: a mesma página, já com o novo dia (o HTMX recorta os pedaços).
+    part = client.get(
+        f"/transcricoes/importar?data=2026-11-03&empresa={EMPRESA}", headers=OWNER
+    ).text
     # Reunião do dia 3.
     assert "Amanhã" in part and "Status semanal" not in part
 
@@ -265,13 +273,13 @@ def test_import_page_lists_meetings(google):
 # Sem a agenda, a página abre e deixa importar "fora da agenda".
 def test_import_page_without_google(monkeypatch):
     # Sem conta Google: a agenda falha.
-    def no_account(db, settings):
+    def no_account(db, settings, company_id=None):
         raise RuntimeError("Nenhuma conta Google conectada.")
 
     # As rotas usam a agenda que falha.
     monkeypatch.setattr(routes_import, "calendar_client", no_account)
     # A página abre mesmo assim.
-    page = client.get("/transcricoes/importar", headers=OWNER).text
+    page = client.get(f"/transcricoes/importar?empresa={EMPRESA}", headers=OWNER).text
     # Com o motivo e a saída "fora da agenda".
     assert "Nenhuma conta Google conectada." in page and "Não está na agenda" in page
 
@@ -281,17 +289,22 @@ def test_import_vtt_linked_to_event(google, sessions):
     # Envia a legenda do Teams ligada à reunião do Teams.
     response = client.post(
         "/transcricoes/importar",
-        data={"data": "2026-11-02", "evento": "teams1"},
+        data={"empresa": EMPRESA, "data": "2026-11-02", "evento": "teams1"},
         files={"arquivo": ("Comite.vtt", TEAMS_VTT.encode(), "text/vtt")},
         headers=SAME,
         follow_redirects=False,
     )
     # Volta para a página, no mesmo dia.
-    assert response.headers["location"] == "/transcricoes/importar?data=2026-11-02"
+    assert (
+        response.headers["location"] == f"/transcricoes/importar?data=2026-11-02&empresa={EMPRESA}"
+    )
     # Aviso de sucesso com o resumo.
     page = client.get(response.headers["location"], headers=OWNER).text
     # Texto do aviso.
-    assert "Transcrição carregada com sucesso: “Comitê do cliente”, 2 falas, 2 pessoas." in page
+    assert (
+        "Transcrição carregada com sucesso em Empresa Teste: "
+        "“Comitê do cliente”, 2 falas, 2 pessoas." in page
+    )
     # Lê o que foi gravado.
     with sessions() as session:
         # O item.
@@ -319,7 +332,7 @@ def test_import_vtt_linked_to_event(google, sessions):
     # Importar o mesmo arquivo de novo não duplica.
     again = client.post(
         "/transcricoes/importar",
-        data={"data": "2026-11-02", "evento": "teams1"},
+        data={"empresa": EMPRESA, "data": "2026-11-02", "evento": "teams1"},
         files={"arquivo": ("copia.vtt", TEAMS_VTT.encode(), "text/vtt")},
         headers=SAME,
     ).text
@@ -341,11 +354,11 @@ def test_import_meet_transcript_from_drive(google, sessions):
     # Reunião do Meet, sem arquivo: baixa a transcrição anexada.
     page = client.post(
         "/transcricoes/importar",
-        data={"data": "2026-11-02", "evento": "meet1"},
+        data={"empresa": EMPRESA, "data": "2026-11-02", "evento": "meet1"},
         headers=SAME,
     ).text
     # Sucesso (documento: conta caracteres).
-    assert "Transcrição carregada com sucesso: “Status semanal”" in page
+    assert "Transcrição carregada com sucesso em Empresa Teste: “Status semanal”" in page
     # Só a transcrição foi baixada (não as anotações do Gemini).
     assert drive.downloads == ["doc-transcricao"]
     # O item guarda a plataforma e os participantes da agenda.
@@ -365,7 +378,7 @@ def test_import_outside_calendar(google, sessions):
     # Fora da agenda e sem título: recusa.
     page = client.post(
         "/transcricoes/importar",
-        data={"data": "2026-10-30", "evento": routes_import.OUTSIDE_CALENDAR},
+        data={"empresa": EMPRESA, "data": "2026-10-30", "evento": routes_import.OUTSIDE_CALENDAR},
         files={"arquivo": ("notas.txt", b"Ana: bom dia", "text/plain")},
         headers=SAME,
     ).text
@@ -375,6 +388,7 @@ def test_import_outside_calendar(google, sessions):
     page = client.post(
         "/transcricoes/importar",
         data={
+            "empresa": EMPRESA,
             "data": "2026-10-30",
             "evento": routes_import.OUTSIDE_CALENDAR,
             "titulo": "Conversa com fornecedor",
@@ -406,7 +420,9 @@ def test_import_outside_calendar(google, sessions):
 def test_import_form_errors(google, form, message):
     # Envia sem arquivo.
     page = client.post(
-        "/transcricoes/importar", data={"data": "2026-11-02", **form}, headers=SAME
+        "/transcricoes/importar",
+        data={"empresa": EMPRESA, "data": "2026-11-02", **form},
+        headers=SAME,
     ).text
     # Mostra o motivo.
     assert message in page
@@ -415,7 +431,9 @@ def test_import_form_errors(google, form, message):
 # Proteção contra pedido forjado por outro site.
 def test_import_requires_same_origin():
     # POST sem a origem do console é recusado (proteção contra pedido forjado).
-    response = client.post("/transcricoes/importar", data={"evento": "x"}, headers=OWNER)
+    response = client.post(
+        "/transcricoes/importar", data={"empresa": EMPRESA, "evento": "x"}, headers=OWNER
+    )
     # 403 = proibido.
     assert response.status_code == 403
 
@@ -428,7 +446,9 @@ def test_meet_transcript_blocked(google):
     drive.blocked["doc-transcricao"] = "insufficientFilePermissions"
     # Tenta importar a reunião do Meet sem arquivo.
     page = client.post(
-        "/transcricoes/importar", data={"data": "2026-11-02", "evento": "meet1"}, headers=SAME
+        "/transcricoes/importar",
+        data={"empresa": EMPRESA, "data": "2026-11-02", "evento": "meet1"},
+        headers=SAME,
     ).text
     # Mostra o motivo, sem gravar nada.
     assert "Não consegui baixar a transcrição do Meet" in page
@@ -493,6 +513,7 @@ def test_agenda_links(google, sessions):
             thread_id="agenda:teams1",
             subject="Comitê do cliente",
             content_sha256="0" * 64,
+            company_id=EMPRESA,
         )
         # Grava.
         s.add(item)
@@ -505,16 +526,18 @@ def test_agenda_links(google, sessions):
     # A do Teams abre a transcrição já ligada.
     assert f'href="/conteudo/{item_id}"' in card and "transcrição ligada" in card
     # A do Meet leva para a importação com a reunião já escolhida.
-    assert "/transcricoes/importar?data=2026-11-02&evento=meet1" in card
+    assert f"/transcricoes/importar?data=2026-11-02&amp;empresa={EMPRESA}&amp;evento=meet1" in card
     # E diz que a transcrição do Meet está pronta para baixar.
     assert "transcrição do Meet pronta" in card
     # Resumo no topo do calendário.
     assert "2 reunião(ões) · 1 com transcrição" in card
     # A página de importação aberta por esse link já deixa a reunião escolhida.
-    page = client.get("/transcricoes/importar?data=2026-11-02&evento=meet1", headers=OWNER).text
+    page = client.get(
+        f"/transcricoes/importar?data=2026-11-02&empresa={EMPRESA}&evento=meet1", headers=OWNER
+    ).text
     # A opção da reunião do Meet vem marcada.
     assert '<option value="meet1" selected>' in page
-    # Trocar a data devolve a lista e o calendário do novo dia (troca "fora da faixa").
-    part = client.get("/transcricoes/importar/reunioes?data=2026-11-03", headers=OWNER).text
-    # O calendário vem marcado para ir para o lugar dele.
-    assert 'id="agenda-dia" hx-swap-oob="true"' in part and "Amanhã" in part
+    # Trocar a data devolve a página do novo dia; o HTMX recorta os calendários e a lista.
+    part = client.get(f"/transcricoes/importar?data=2026-11-03&e1={EMPRESA}", headers=OWNER).text
+    # Os pedaços que ele recorta, com a reunião do novo dia.
+    assert 'id="calendarios"' in part and 'id="reunioes"' in part and "Amanhã" in part

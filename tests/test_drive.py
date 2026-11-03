@@ -60,7 +60,16 @@ from app.tags import (
 )
 
 # Falsos e geradores de arquivos.
-from tests.fakes import FakeDrive, FakeGmail, http_error, make_docx, make_email, make_pdf, make_xlsx
+from tests.fakes import (
+    EMPRESA,
+    FakeDrive,
+    FakeGmail,
+    http_error,
+    make_docx,
+    make_email,
+    make_pdf,
+    make_xlsx,
+)
 
 # Id da pasta monitorada (com o tamanho mínimo de um id do Drive).
 ROOT = "pastaCRM000001"
@@ -140,7 +149,9 @@ def _add(sessions, drive) -> int:
     # Uma sessão.
     with sessions() as s:
         # Cadastra pelo link, como no console.
-        folder = add_folder(s, drive, f"https://drive.google.com/drive/u/0/folders/{ROOT}?usp=x")
+        folder = add_folder(
+            s, drive, f"https://drive.google.com/drive/u/0/folders/{ROOT}?usp=x", EMPRESA
+        )
         # Grava.
         s.commit()
         # Id.
@@ -186,15 +197,15 @@ def test_add_folder_validates(sessions, drive):
         # Arquivo, não pasta.
         with pytest.raises(ValueError, match="não é uma pasta"):
             # Tenta cadastrar um PDF.
-            add_folder(s, drive, "arquivoPdf001")
+            add_folder(s, drive, "arquivoPdf001", EMPRESA)
         # Inexistente ou sem acesso.
         with pytest.raises(ValueError, match="Sem acesso"):
             # Tenta um id inexistente.
-            add_folder(s, drive, "naoexiste123")
+            add_folder(s, drive, "naoexiste123", EMPRESA)
         # Texto que não é link.
         with pytest.raises(ValueError, match="Não reconheci"):
             # Tenta um texto qualquer.
-            add_folder(s, drive, "a pasta do CRM")
+            add_folder(s, drive, "a pasta do CRM", EMPRESA)
 
 
 # Primeira varredura: espelha a árvore e grava uma versão por arquivo lido.
@@ -202,7 +213,7 @@ def test_first_scan(sessions, drive, store, settings):
     # Cadastra.
     _add(sessions, drive)
     # Varre.
-    summary = sync_drive(sessions, drive, store, settings, now=NOW)
+    summary = sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Raiz: 4 itens (paginados de 2 em 2); subpasta: 1. O PDF grande falha.
     assert (summary.items_seen, summary.new_versions, summary.file_errors) == (5, 3, 1)
     # Confere o banco.
@@ -238,11 +249,13 @@ def test_versions_only_when_text_changes(sessions, drive, store, settings):
     # Cadastra e varre.
     _add(sessions, drive)
     # Primeira.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Downloads da primeira.
     first = len(drive.downloads)
     # Segunda, nada mudou.
-    again = sync_drive(sessions, drive, store, settings, now=NOW + timedelta(minutes=30))
+    again = sync_drive(
+        sessions, drive, store, settings, now=NOW + timedelta(minutes=30), company_id=EMPRESA
+    )
     # Nenhuma versão nova e nenhum download (a versão do Drive é a mesma).
     assert again.new_versions == 0 and len(drive.downloads) == first
     # A planilha muda de versão sem mudar o texto (ex.: alguém só renomeou uma aba de volta).
@@ -250,7 +263,9 @@ def test_versions_only_when_text_changes(sessions, drive, store, settings):
     # O PDF muda de verdade.
     drive.files_by_id["pdf1"].update(version=2, data=make_pdf("Ata revisada"))
     # Terceira.
-    third = sync_drive(sessions, drive, store, settings, now=NOW + timedelta(hours=1))
+    third = sync_drive(
+        sessions, drive, store, settings, now=NOW + timedelta(hours=1), company_id=EMPRESA
+    )
     # Só o PDF virou versão nova.
     assert third.new_versions == 1
     # Confere.
@@ -279,11 +294,13 @@ def test_removed_items(sessions, drive, store, settings):
     # Cadastra e varre.
     _add(sessions, drive)
     # Primeira.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # O PDF vai para a lixeira.
     drive.files_by_id["pdf1"]["trashed"] = True
     # Varre de novo.
-    sync_drive(sessions, drive, store, settings, now=NOW + timedelta(minutes=30))
+    sync_drive(
+        sessions, drive, store, settings, now=NOW + timedelta(minutes=30), company_id=EMPRESA
+    )
     # Confere.
     with sessions() as s:
         # Marcado como removido; a versão no bronze continua.
@@ -310,13 +327,13 @@ def test_folder_error_is_recorded(sessions, drive, store, settings):
     # Segunda.
     with sessions() as s:
         # Pelo id.
-        add_folder(s, drive, "outraPasta001")
+        add_folder(s, drive, "outraPasta001", EMPRESA)
         # Grava.
         s.commit()
     # A listagem da subpasta do CRM falha.
     drive.failing.add(SUB)
     # Varre.
-    summary = sync_drive(sessions, drive, store, settings, now=NOW)
+    summary = sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Uma pasta com erro; a outra foi lida.
     assert summary.folder_errors == 1 and summary.new_versions >= 1
     # Confere.
@@ -342,7 +359,7 @@ def test_drive_scan_due(sessions, drive, store, settings):
         # Precisa.
         assert drive_scan_due(s, settings, NOW)
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Logo depois: não; depois do intervalo: sim.
     with sessions() as s:
         # 10 minutos depois.
@@ -362,19 +379,19 @@ def test_tag_crud(sessions):
     # Uma sessão.
     with sessions() as s:
         # Cria.
-        tag = create_tag(s, "  Projeto   CRM ")
+        tag = create_tag(s, EMPRESA, "  Projeto   CRM ")
         # Espaços normalizados.
         assert tag.name == "Projeto CRM"
         # Repetida com outras maiúsculas.
         with pytest.raises(ValueError, match="já existe"):
             # Mesmo nome, minúsculas.
-            create_tag(s, "projeto crm")
+            create_tag(s, EMPRESA, "projeto crm")
         # Vazia.
         with pytest.raises(ValueError):
             # Só espaços.
-            create_tag(s, "   ")
+            create_tag(s, EMPRESA, "   ")
         # Outra.
-        other = create_tag(s, "Arquitetura")
+        other = create_tag(s, EMPRESA, "Arquitetura")
         # Renomear para um nome em uso.
         with pytest.raises(ValueError, match="já existe"):
             # Nome da outra tag.
@@ -394,7 +411,7 @@ def test_tags_are_inherited(sessions, drive, store, settings):
     # Cadastra e varre.
     _add(sessions, drive)
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Tags na raiz e no documento.
     with sessions() as s:
         # Raiz: Projeto CRM.
@@ -428,7 +445,9 @@ def test_tags_are_inherited(sessions, drive, store, settings):
         "parents": [SUB],
     }
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW + timedelta(minutes=30))
+    sync_drive(
+        sessions, drive, store, settings, now=NOW + timedelta(minutes=30), company_id=EMPRESA
+    )
     # A versão no bronze já nasce com as tags (pela view bronze_item_tags).
     with sessions() as s:
         # Versão do arquivo novo.
@@ -470,24 +489,25 @@ def test_config_and_browse_pages(sessions, drive, store, settings, monkeypatch):
     from app import routes_drive
 
     # Troca a fábrica do cliente.
-    monkeypatch.setattr(routes_drive, "drive_client", lambda db, settings: drive)
+    monkeypatch.setattr(routes_drive, "drive_client", lambda db, settings, *_a: drive)
     # Cliente do navegador simulado.
     client = TestClient(app)
     # Cadastra a pasta pelo formulário.
     response = client.post(
         "/cadastros/drive/pastas",
-        data={"link": f"https://drive.google.com/drive/folders/{ROOT}"},
+        data={"link": f"https://drive.google.com/drive/folders/{ROOT}", "empresa": EMPRESA},
         headers=SAME,
         follow_redirects=False,
     )
-    # Redireciona para a seção.
-    assert response.status_code == 303 and response.headers["location"] == "/cadastros#drive"
+    # Redireciona para a seção, filtrando pela Empresa da pasta.
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/cadastros?empresa={EMPRESA}#drive"
     # A página mostra a pasta e o aviso.
     page = client.get("/cadastros", headers=OWNER).text
     # Nome e aviso.
     assert "CRM" in page and "cadastrada" in page
     # Varre (como o agendador faria).
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Ids dos itens.
     with sessions() as s:
         # Raiz e subpasta.
@@ -532,10 +552,21 @@ def test_add_folder_without_google(sessions):
     # Sem conta Google no banco, o cliente do Drive não pode ser criado. Sem seguir o
     # redirecionamento, para o aviso ser lido pela página abaixo.
     client.post(
+        "/cadastros/drive/pastas",
+        data={"link": ROOT, "empresa": EMPRESA},
+        headers=SAME,
+        follow_redirects=False,
+    )
+    # O aviso aparece, com o nome da Empresa.
+    page = client.get("/cadastros", headers=OWNER).text
+    # Aviso.
+    assert "Nenhuma conta Google conectada para a Empresa Empresa Teste" in page
+    # Sem Empresa escolhida: recusado antes de ir ao Google.
+    client.post(
         "/cadastros/drive/pastas", data={"link": ROOT}, headers=SAME, follow_redirects=False
     )
-    # O aviso aparece.
-    assert "Nenhuma conta Google conectada" in client.get("/cadastros", headers=OWNER).text
+    # Aviso.
+    assert "Escolha a Empresa." in client.get("/cadastros", headers=OWNER).text
     # Nada gravado.
     with sessions() as s:
         # Sem pastas.
@@ -580,7 +611,7 @@ def test_retry_blocked_download(sessions, drive, store, settings):
     # Cadastra e varre.
     _add(sessions, drive)
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Confere a lista.
     with sessions() as s:
         # Linhas por nome.
@@ -632,7 +663,7 @@ def test_retry_reextracts_drive_version(sessions, drive, store, settings, monkey
     # Cadastra e varre.
     _add(sessions, drive)
     # Varre.
-    sync_drive(sessions, drive, store, settings, now=NOW)
+    sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Downloads até aqui.
     downloads = len(drive.downloads)
     # Simula um extrator melhor (por exemplo, uma biblioteca nova).
@@ -667,7 +698,7 @@ def test_failures_on_home_page(sessions, store, settings, monkeypatch):
         {"m1": {"raw": make_email(attachments=[("scan.pdf", "application/pdf", make_pdf())])}}
     )
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # As rotas usam a configuração do teste (mesma pasta de originais).
     from app import routes_failures
 
@@ -745,7 +776,7 @@ def _collect_links(sessions, store, settings, links: dict[str, str]) -> None:
         }
     )
     # Coleta.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
 
 
 # Links do Drive nos e-mails são lidos, mesmo fora das pastas; erros aparecem com o e-mail.
@@ -788,7 +819,7 @@ def test_linked_files_are_read(sessions, drive, store, settings):
         # Precisa.
         assert drive_scan_due(s, settings, NOW)
     # Rodada: pastas e links.
-    summary = sync_drive(sessions, drive, store, settings, now=NOW)
+    summary = sync_drive(sessions, drive, store, settings, now=NOW, company_id=EMPRESA)
     # Quatro links conferidos; o da pasta monitorada fica com a pasta.
     assert summary.links == 4
     # Confere.
@@ -828,7 +859,7 @@ def test_linked_files_are_read(sessions, drive, store, settings):
         # Atrasado.
         assert drive_scan_due(s, settings, later)
     # Rodada.
-    sync_drive(sessions, drive, store, settings, now=later)
+    sync_drive(sessions, drive, store, settings, now=later, company_id=EMPRESA)
     # Confere.
     with sessions() as s:
         # Duas versões da planilha.

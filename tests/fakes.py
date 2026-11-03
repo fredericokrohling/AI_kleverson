@@ -32,6 +32,9 @@ import httplib2
 # HttpError é o erro que a biblioteca do Google levanta.
 from googleapiclient.errors import HttpError
 
+# Id da Empresa que todo teste tem (criada em tests/conftest.py).
+EMPRESA = 1
+
 
 # Uma chamada preparada: imita o objeto que a biblioteca devolve antes do .execute().
 class _Call:

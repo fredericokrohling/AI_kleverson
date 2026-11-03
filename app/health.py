@@ -60,7 +60,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings
 
 # Tabelas usadas.
-from app.models import DriveFolder, HealthCheck, IngestionRun, SourceKind
+from app.models import Company, DriveFolder, HealthCheck, IngestionRun, OAuthToken, SourceKind
 
 # Tempo máximo de espera de cada teste de rede, em segundos.
 _TIMEOUT = 8
@@ -141,26 +141,47 @@ def check_database(session: Session, settings: Settings, ctx: dict) -> Result:
 
 # Coletor de e-mail: a última rodada é recente?
 def check_collector(session: Session, settings: Settings, ctx: dict) -> Result:
-    # Última rodada do Gmail.
-    run = session.scalars(
-        select(IngestionRun)
-        .where(IngestionRun.source == SourceKind.GMAIL)
-        .order_by(IngestionRun.started_at.desc())
-        .limit(1)
-    ).first()
-    # Nunca rodou.
-    if run is None:
-        return Result(False, "Nenhuma coleta registrada. O serviço coletor está no ar?")
-    # Há quanto tempo, em minutos.
-    age = (ctx["now"] - run.started_at).total_seconds() / 60
-    # Mais de 3 intervalos sem rodar: provavelmente parado.
-    if age > 3 * settings.gmail_poll_minutes:
-        return Result(False, f"Última coleta há {age:.0f} min. O serviço coletor parou?")
-    # Rodou recentemente, mas com erro.
-    if run.status == "com_erros":
-        return Result(False, f"Última coleta há {age:.0f} min, com erros (veja a página inicial).")
+    """Uma conta por Empresa: cada uma precisa ter rodado há pouco e sem erro."""
+    # Empresas com conta conectada; sem conta, vale a última rodada de qualquer uma.
+    companies = session.scalars(select(OAuthToken.company_id)).all() or [None]
+    # Problemas e situações, um texto por conta.
+    problems: list[str] = []
+    # Situações boas.
+    fine: list[str] = []
+    # Cada Empresa.
+    for company_id in companies:
+        # Última rodada do Gmail desta Empresa.
+        query = select(IngestionRun).where(IngestionRun.source == SourceKind.GMAIL)
+        # Filtra pela Empresa, quando há.
+        if company_id is not None:
+            query = query.where(IngestionRun.company_id == company_id)
+        # A mais recente.
+        run = session.scalars(query.order_by(IngestionRun.started_at.desc()).limit(1)).first()
+        # Nome da Empresa, para a mensagem.
+        company = session.get(Company, company_id) if company_id is not None else None
+        # Prefixo com a Empresa quando há mais de uma.
+        who = f"{company.name}: " if company is not None and len(companies) > 1 else ""
+        # Nunca rodou.
+        if run is None:
+            problems.append(f"{who}nenhuma coleta registrada. O serviço coletor está no ar?")
+            # Próxima.
+            continue
+        # Há quanto tempo, em minutos.
+        age = (ctx["now"] - run.started_at).total_seconds() / 60
+        # Mais de 3 intervalos sem rodar: provavelmente parado.
+        if age > 3 * settings.gmail_poll_minutes:
+            problems.append(f"{who}última coleta há {age:.0f} min. O serviço coletor parou?")
+        # Rodou recentemente, mas com erro.
+        elif run.status == "com_erros":
+            problems.append(f"{who}última coleta há {age:.0f} min, com erros.")
+        # Tudo certo.
+        else:
+            fine.append(f"{who}última coleta há {age:.0f} min ({run.status})")
+    # Algum problema.
+    if problems:
+        return Result(False, " ".join(p[0].upper() + p[1:] for p in problems))
     # Tudo certo.
-    return Result(True, f"Última coleta há {age:.0f} min ({run.status}).")
+    return Result(True, "; ".join(f[0].upper() + f[1:] for f in fine) + ".")
 
 
 # Monitor do Drive: as pastas foram varridas recentemente e sem erro?
@@ -188,22 +209,62 @@ def check_drive_sync(session: Session, settings: Settings, ctx: dict) -> Result:
 
 # Gmail: a API responde com as credenciais gravadas?
 def check_gmail(session: Session, settings: Settings, ctx: dict) -> Result:
-    # Cliente do Gmail (criado uma vez por rodada de testes).
-    gmail = ctx["google"]("gmail", "v1")
     # getProfile é a chamada mais barata: devolve a conta.
-    profile = gmail.users().getProfile(userId="me").execute()
-    # Conta conectada.
-    return Result(True, f"Conectado como {profile['emailAddress']}.")
+    return _each_account(
+        session,
+        ctx,
+        lambda company_id: (
+            ctx["google"]("gmail", "v1", company_id)
+            .users()
+            .getProfile(userId="me")
+            .execute()["emailAddress"]
+        ),
+    )
 
 
 # Drive: a API responde?
 def check_drive(session: Session, settings: Settings, ctx: dict) -> Result:
-    # Cliente do Drive.
-    drive = ctx["google"]("drive", "v3")
     # about.get com o campo user: chamada barata.
-    about = drive.about().get(fields="user(emailAddress)").execute()
-    # Conta conectada.
-    return Result(True, f"Conectado como {about['user']['emailAddress']}.")
+    return _each_account(
+        session,
+        ctx,
+        lambda company_id: (
+            ctx["google"]("drive", "v3", company_id)
+            .about()
+            .get(fields="user(emailAddress)")
+            .execute()["user"]["emailAddress"]
+        ),
+    )
+
+
+# Roda um teste do Google na conta de cada Empresa e junta os resultados.
+def _each_account(session: Session, ctx: dict, probe: Callable[[int], str]) -> Result:
+    """probe(id da Empresa) devolve o e-mail conectado, ou levanta erro."""
+    # Contas conectadas.
+    tokens = session.scalars(select(OAuthToken).order_by(OAuthToken.account_email)).all()
+    # Nenhuma.
+    if not tokens:
+        return Result(False, "Nenhuma conta Google conectada. Faça login pelo console.")
+    # Textos de cada conta e se todas responderam.
+    parts, ok = [], True
+    # Cada conta.
+    for token in tokens:
+        # Nome da Empresa.
+        company = session.get(Company, token.company_id)
+        # Empresa entre parênteses.
+        label = f" ({company.name})" if company else ""
+        # Testa esta conta; um erro aqui não esconde o resultado das outras.
+        try:
+            # E-mail que a API devolveu.
+            parts.append(f"{probe(token.company_id)}{label}: ok")
+        # Qualquer erro (token revogado, rede).
+        except Exception as exc:
+            # Marca o problema.
+            ok = False
+            # Texto do erro.
+            parts.append(f"{token.account_email}{label}: {type(exc).__name__}: {exc}"[:300])
+    # Junta.
+    return Result(ok, "Conectado: " + "; ".join(parts) + "." if ok else "; ".join(parts))
 
 
 # Claude: a chave vale e o modelo escolhido existe? (consulta gratuita, não gera texto)
@@ -308,12 +369,12 @@ CHECKS: dict[str, Callable[[Session, Settings, dict], Result]] = {
 
 
 # Fábrica de clientes do Google para os testes, com as credenciais gravadas.
-def _google_factory(session: Session, settings: Settings) -> Callable[[str, str], Any]:
-    # Credenciais lidas uma vez só, na primeira vez que um teste pedir.
-    cache: dict[str, Any] = {}
+def _google_factory(session: Session, settings: Settings) -> Callable[[str, str, int], Any]:
+    # Credenciais lidas uma vez só por Empresa, na primeira vez que um teste pedir.
+    cache: dict[int, Any] = {}
 
-    # Cria um cliente da API pedida.
-    def build_client(api: str, version: str) -> Any:
+    # Cria um cliente da API pedida, com a conta da Empresa.
+    def build_client(api: str, version: str, company_id: int) -> Any:
         # Imports locais: só carregam quando necessário.
         from googleapiclient.discovery import build
 
@@ -323,12 +384,14 @@ def _google_factory(session: Session, settings: Settings) -> Callable[[str, str]
         # Criptografia.
         from app.security import get_cipher
 
-        # Primeira vez: carrega as credenciais.
-        if "creds" not in cache:
+        # Primeira vez desta Empresa: carrega as credenciais.
+        if company_id not in cache:
             # Lê e descriptografa (renova o acesso se preciso).
-            cache["creds"] = load_credentials(session, get_cipher(), settings)
+            cache[company_id] = load_credentials(
+                session, get_cipher(), settings, company_id=company_id
+            )
         # Cliente.
-        return build(api, version, credentials=cache["creds"], cache_discovery=False)
+        return build(api, version, credentials=cache[company_id], cache_discovery=False)
 
     # Devolve a fábrica.
     return build_client
@@ -342,7 +405,7 @@ def run_checks(
     # Testes a rodar; None = todos (os testes automáticos passam versões falsas).
     checks: dict[str, Callable[[Session, Settings, dict], Result]] | None = None,
     # Fábrica de clientes do Google; None = a real.
-    google: Callable[[str, str], Any] | None = None,
+    google: Callable[[str, str, int], Any] | None = None,
     # "Agora"; os testes fixam um valor.
     now: datetime | None = None,
 ) -> list[HealthCheck]:

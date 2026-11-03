@@ -80,7 +80,8 @@ from app.project_tags import apply_rules, sync_label_tags
 log = logging.getLogger(__name__)
 
 # Número que identifica a trava da coleta do Gmail no Postgres. Qualquer número serve,
-# desde que nenhuma outra parte do sistema use o mesmo.
+# desde que nenhuma outra parte do sistema use o mesmo. A trava é por Empresa (o segundo
+# número é o id dela): as contas de duas Empresas podem ser coletadas ao mesmo tempo.
 _LOCK_KEY = 20_002
 # Quantos ids o Gmail devolve por página (500 é o máximo da API).
 _PAGE_SIZE = 500
@@ -269,6 +270,8 @@ def _ingest_message(
     store: FileStore,
     # Id da mensagem no Gmail.
     message_id: str,
+    # Empresa da conta lida: o e-mail fica nela.
+    company_id: int,
 ) -> tuple[int, int] | None:
     # Baixa o e-mail completo em formato bruto.
     response = (
@@ -298,6 +301,8 @@ def _ingest_message(
     occurred_at = datetime.fromtimestamp(int(internal_ms) / 1000, UTC) if internal_ms else None
     # Linha do bronze.
     item = BronzeItem(
+        # Empresa da conta.
+        company_id=company_id,
         # Fonte.
         source=SourceKind.GMAIL,
         # Id da mensagem no Gmail.
@@ -387,8 +392,8 @@ def _ingest_message(
         row.bronze_item_id = item.id
         # Prepara.
         session.add(row)
-    # Tags de projeto pelas regras (nome no texto, remetente da equipe). A regra das
-    # pastas do Gmail roda no fim da coleta, com as pastas atuais (sync_labels).
+    # Tags de projeto pelas regras da Empresa (nome no texto, remetente da equipe). A
+    # regra das pastas do Gmail roda no fim da coleta, com as pastas atuais (sync_labels).
     apply_rules(session, item)
     # Quantos arquivos e quantos ficaram sem texto (links não contam como arquivo).
     files = [r for r in rows if r.origin == "anexo"]
@@ -408,12 +413,14 @@ def collect_gmail(
     settings: Settings,
     # Daqui em diante, argumentos só por nome.
     *,
+    # Empresa dona da conta (o cliente gmail precisa ser o da conta dessa Empresa).
+    company_id: int,
     # Início da janela pedido à mão (--desde); None = calcular sozinho.
     since: datetime | None = None,
     # "Agora"; os testes fixam um valor para não depender do relógio.
     now: datetime | None = None,
 ) -> RunSummary:
-    """Uma rodada de coleta. gmail é o cliente da API do Gmail."""
+    """Uma rodada de coleta de uma conta. gmail é o cliente da API do Gmail dessa conta."""
     # Momento de referência da rodada.
     now = now or datetime.now(UTC)
     # Resumo que será devolvido.
@@ -422,7 +429,10 @@ def collect_gmail(
     # esta sessão fica aberta até o fim da rodada.
     with sessions() as lock_session:
         # pg_try_advisory_lock devolve True se conseguiu a trava, False se alguém a tem.
-        if not lock_session.scalar(text("SELECT pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY}):
+        # Dois números: a trava do Gmail e a Empresa.
+        lock = {"k": _LOCK_KEY, "c": company_id}
+        # Tenta.
+        if not lock_session.scalar(text("SELECT pg_try_advisory_lock(:k, :c)"), lock):
             # Outra coleta rodando (ex.: o serviço contínuo e um comando manual).
             summary.skipped = True
             # Devolve sem fazer nada.
@@ -430,13 +440,13 @@ def collect_gmail(
         # try/finally: a trava é solta mesmo se algo der errado.
         try:
             # Faz o trabalho.
-            _run(sessions, gmail, store, settings, since, now, summary)
+            _run(sessions, gmail, store, settings, since, now, summary, company_id)
             # Pastas do Gmail ligadas a tags: acerta as tags dos e-mails.
-            sync_labels(sessions, gmail)
+            sync_labels(sessions, gmail, company_id)
         # Sempre executa.
         finally:
             # Solta a trava.
-            lock_session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
+            lock_session.execute(text("SELECT pg_advisory_unlock(:k, :c)"), lock)
             # Confirma (fecha a transação da sessão da trava).
             lock_session.commit()
     # Devolve o resumo.
@@ -444,17 +454,24 @@ def collect_gmail(
 
 
 # Confere as pastas do Gmail ligadas a tags (regra "pasta do Gmail" dos projetos).
-def sync_labels(sessions: sessionmaker[Session], gmail) -> None:
+def sync_labels(sessions: sessionmaker[Session], gmail, company_id: int) -> None:
     # Uma sessão só para isso.
     with sessions() as session:
         # Tenta: uma falha aqui não pode estragar a coleta, que já foi gravada.
         try:
             # Coloca e tira tags conforme as pastas atuais.
-            added, removed = sync_label_tags(session, gmail)
+            added, removed = sync_label_tags(session, gmail, company_id)
             # Registra no diário só se algo mudou.
             if added or removed:
                 # Ação com as contagens.
-                audit(session, "sistema", "tags.pastas_gmail", colocadas=added, tiradas=removed)
+                audit(
+                    session,
+                    "sistema",
+                    "tags.pastas_gmail",
+                    company_id=company_id,
+                    colocadas=added,
+                    tiradas=removed,
+                )
             # Grava.
             session.commit()
         # Qualquer erro (rede, pasta apagada no Gmail).
@@ -466,7 +483,7 @@ def sync_labels(sessions: sessionmaker[Session], gmail) -> None:
 
 
 # O trabalho da rodada, já com a trava pega.
-def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> None:
+def _run(sessions, gmail, store, settings, since, now, summary: RunSummary, company_id) -> None:
     # Qual conta está conectada (getProfile é uma chamada barata).
     account = gmail.users().getProfile(userId="me").execute(num_retries=3)["emailAddress"]
     # Sessão principal da rodada.
@@ -475,7 +492,11 @@ def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> N
         start = since or window_start_for(session, settings, account, now)
         # Registra a rodada como "em andamento".
         run = IngestionRun(
-            source=SourceKind.GMAIL, account_email=account, window_start=start, window_end=now
+            source=SourceKind.GMAIL,
+            account_email=account,
+            company_id=company_id,
+            window_start=start,
+            window_end=now,
         )
         # Prepara.
         session.add(run)
@@ -502,6 +523,7 @@ def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> N
                 known = set(
                     session.scalars(
                         select(BronzeItem.external_id).where(
+                            BronzeItem.company_id == company_id,
                             BronzeItem.source == SourceKind.GMAIL,
                             BronzeItem.external_id.in_(ids),
                         )
@@ -512,7 +534,7 @@ def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> N
                     # Cada mensagem é independente.
                     try:
                         # Grava a mensagem.
-                        result = _ingest_message(session, gmail, store, message_id)
+                        result = _ingest_message(session, gmail, store, message_id, company_id)
                         # Confirma esta mensagem (o que já foi gravado não se perde).
                         session.commit()
                     # Qualquer erro nesta mensagem.
@@ -566,6 +588,7 @@ def _run(sessions, gmail, store, settings, since, now, summary: RunSummary) -> N
                 "sistema",
                 "gmail.coleta",
                 target=account,
+                company_id=company_id,
                 rodada=run.id,
                 novas=summary.messages_new,
                 arquivos=summary.attachments_saved,
@@ -694,8 +717,8 @@ def reextract_attachments(sessions: sessionmaker[Session], store: FileStore) -> 
 
 
 # Conveniência para a linha de comando: monta tudo a partir da configuração.
-def run_from_settings(settings: Settings, since: datetime | None = None) -> RunSummary:
-    """Carrega as credenciais do banco, cria os clientes do Google e roda uma coleta."""
+def run_from_settings(settings: Settings, since: datetime | None = None) -> list[RunSummary]:
+    """Uma coleta por conta conectada (uma por Empresa), cada uma com o cliente dela."""
     # Imports locais: só carregam quando a coleta de verdade roda (os testes usam falsos).
     from googleapiclient.discovery import build
 
@@ -705,45 +728,83 @@ def run_from_settings(settings: Settings, since: datetime | None = None) -> RunS
     # Leitura das credenciais do Google gravadas no banco.
     from app.google_auth import load_credentials
 
+    # Tabela das contas.
+    from app.models import OAuthToken
+
     # Criptografia dos tokens.
     from app.security import get_cipher
 
     # Fábrica de sessões.
     sessions = get_sessionmaker()
-    # Credenciais válidas (renovadas se preciso).
+    # Empresas com conta Google conectada.
     with sessions() as session:
-        # Lê e descriptografa.
-        creds = load_credentials(session, get_cipher(), settings)
-    # Cliente do Gmail.
-    gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    # Roda a coleta.
-    return collect_gmail(sessions, gmail, FileStore(settings.data_dir), settings, since=since)
+        # Uma Empresa por conta.
+        companies = session.scalars(
+            select(OAuthToken.company_id).order_by(OAuthToken.company_id)
+        ).all()
+    # Nenhuma conta: o mesmo erro de antes, com o que fazer.
+    if not companies:
+        raise RuntimeError("Nenhuma conta Google conectada. Faça login pelo console.")
+    # Resumos, um por conta.
+    summaries: list[RunSummary] = []
+    # Cada Empresa.
+    for company_id in companies:
+        # Credenciais válidas da conta desta Empresa (renovadas se preciso).
+        with sessions() as session:
+            # Lê e descriptografa.
+            creds = load_credentials(session, get_cipher(), settings, company_id=company_id)
+        # Cliente do Gmail desta conta.
+        gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        # Roda a coleta desta conta.
+        summaries.append(
+            collect_gmail(
+                sessions,
+                gmail,
+                FileStore(settings.data_dir),
+                settings,
+                company_id=company_id,
+                since=since,
+            )
+        )
+    # Devolve todos.
+    return summaries
 
 
 # Dicionário usado pelo console: últimas rodadas e totais.
-def collection_overview(session: Session, limit: int = 5) -> dict[str, Any]:
-    """Resumo para a página inicial: últimas rodadas, total de e-mails e de arquivos."""
+def collection_overview(
+    session: Session, limit: int = 5, company_id: int | None = None
+) -> dict[str, Any]:
+    """Resumo da página Processamento: últimas rodadas, total de e-mails e de arquivos.
+
+    company_id: só uma Empresa; None = todas (TODOS)."""
+    # Condições de Empresa (vazias quando é TODOS).
+    of_run = [IngestionRun.company_id == company_id] if company_id is not None else []
+    # A mesma condição para os itens do bronze.
+    of_item = [BronzeItem.company_id == company_id] if company_id is not None else []
     # Últimas rodadas do Gmail, mais recentes primeiro.
     runs = session.scalars(
         select(IngestionRun)
-        .where(IngestionRun.source == SourceKind.GMAIL)
+        .where(IngestionRun.source == SourceKind.GMAIL, *of_run)
         .order_by(IngestionRun.started_at.desc())
         .limit(limit)
     ).all()
     # Total de e-mails no bronze.
     emails = session.scalar(
-        select(func.count()).select_from(BronzeItem).where(BronzeItem.source == SourceKind.GMAIL)
+        select(func.count())
+        .select_from(BronzeItem)
+        .where(BronzeItem.source == SourceKind.GMAIL, *of_item)
     )
-    # Total de arquivos anexados (links não contam: não são arquivos do e-mail).
-    files = session.scalar(
-        select(func.count()).select_from(Attachment).where(Attachment.origin == "anexo")
-    )
-    # Anexos sem texto.
-    files_without_text = session.scalar(
+    # Anexos com o e-mail, para filtrar pela Empresa dele.
+    attachments = (
         select(func.count())
         .select_from(Attachment)
-        .where(Attachment.origin == "anexo", Attachment.extraction_error.is_not(None))
+        .join(BronzeItem, BronzeItem.id == Attachment.bronze_item_id)
+        .where(Attachment.origin == "anexo", *of_item)
     )
+    # Total de arquivos anexados (links não contam: não são arquivos do e-mail).
+    files = session.scalar(attachments)
+    # Anexos sem texto.
+    files_without_text = session.scalar(attachments.where(Attachment.extraction_error.is_not(None)))
     # Junta tudo.
     return {
         "runs": runs,

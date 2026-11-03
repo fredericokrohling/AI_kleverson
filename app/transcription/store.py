@@ -187,14 +187,27 @@ def segments_by_channel(
 # Fecha a reunião: junta os trechos num item do bronze.
 def finalize(
     session: Session, session_id: str, *, actor: str, title: str | None, meeting_url: str | None
-) -> BronzeItem:
+) -> BronzeItem | None:
     """Cria (ou atualiza) o item do bronze desta reunião. Pode ser chamado de novo sem duplicar.
 
     Chamado de novo quando você muda quem é cada voz depois de salvar: o texto e as falas
     são refeitos com os nomes novos.
+
+    Reunião sem Empresa: fica encerrada e pendente (devolve None). Os trechos continuam
+    guardados; escolher a Empresa no Início chama esta função de novo e aí ela é salva.
     """
     # A reunião ao vivo (criada aqui se a captura for de antes desta versão).
     meeting, _ = live.ensure_meeting(session, session_id, title, meeting_url)
+    # Sem Empresa: não dá para gravar no bronze (a Empresa é obrigatória lá).
+    if meeting.company_id is None:
+        # Marca como encerrada (o Início mostra "escolha a Empresa para salvar").
+        meeting.finished_at = meeting.finished_at or live.utc_now()
+        # Diário.
+        audit(session, actor, "transcricao_sem_empresa", target=session_id)
+        # Grava.
+        session.commit()
+        # Nada salvo no bronze.
+        return None
     # Título e endereço: os informados agora, ou os guardados na reunião.
     title, meeting_url = meeting.title, meeting.meeting_url
     # Trechos da reunião.
@@ -212,7 +225,11 @@ def finalize(
     # Primeira finalização: cria o item.
     if item is None:
         # O id da reunião é o id externo; a regra única impede duplicar.
-        item = BronzeItem(source=SourceKind.MEET_TRANSCRIPT, external_id=session_id)
+        item = BronzeItem(
+            company_id=meeting.company_id,
+            source=SourceKind.MEET_TRANSCRIPT,
+            external_id=session_id,
+        )
         # Prepara a inserção.
         session.add(item)
     # Título informado ou um padrão.
@@ -266,7 +283,14 @@ def finalize(
     # Tags pelas regras (nome do projeto no título).
     apply_rules(session, item)
     # Registra a finalização no log de auditoria.
-    audit(session, actor, "transcricao_finalizada", target=session_id, bronze_id=item.id)
+    audit(
+        session,
+        actor,
+        "transcricao_finalizada",
+        target=session_id,
+        company_id=item.company_id,
+        bronze_id=item.id,
+    )
     # Confirma tudo.
     session.commit()
     # Devolve o item.

@@ -14,6 +14,9 @@ Como reconhece, nesta ordem (só aceita quando a resposta é uma pessoa só):
 
 Nome que bate com duas pessoas fica sem ligação: errar quem falou é pior que não saber.
 
+Só valem as pessoas da Empresa da transcrição: a "Ana" de um cliente nunca é reconhecida
+numa reunião de outro (pessoas não são compartilhadas entre Empresas).
+
 Na transcrição ao vivo, o serviço só separa vozes ("Falante 2"). Quem diz quem é cada voz
 é você, no Início (ver app/transcription/live.py): a fala aponta para o participante da
 reunião e, se ele tiver o e-mail de uma pessoa cadastrada, para a pessoa também.
@@ -38,7 +41,14 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 # Tabelas.
-from app.models import BronzeItem, MeetingParticipant, SourceKind, Stakeholder, Utterance
+from app.models import (
+    BronzeItem,
+    LiveMeeting,
+    MeetingParticipant,
+    SourceKind,
+    Stakeholder,
+    Utterance,
+)
 
 # Marcas que o Teams e o Meet põem depois do nome ("Ana Souza (Convidado)").
 _SUFFIX = re.compile(r"\s*\((convidad[oa]|guest|external|externo|externa|unverified)\)\s*$", re.I)
@@ -76,18 +86,20 @@ def normalize(name: str | None) -> str:
     return " ".join(plain.lower().split())
 
 
-# Índice das pessoas cadastradas para reconhecer nomes rápido.
+# Índice das pessoas cadastradas de uma Empresa, para reconhecer nomes rápido.
 class PeopleIndex:
-    """Monta, uma vez, os dicionários nome → pessoas e e-mail → pessoa."""
+    """Monta, uma vez, os dicionários nome → pessoas e e-mail → pessoa (de uma Empresa)."""
 
-    # Lê as pessoas do banco.
-    def __init__(self, session: Session) -> None:
+    # Lê as pessoas da Empresa no banco.
+    def __init__(self, session: Session, company_id: int) -> None:
         # Nome normalizado → ids das pessoas com esse nome (pode haver mais de uma).
         self.by_name: dict[str, set[int]] = {}
         # E-mail em minúsculas → id da pessoa.
         self.by_email: dict[str, int] = {}
-        # Cada pessoa cadastrada.
-        for person in session.scalars(select(Stakeholder)):
+        # Cada pessoa cadastrada nesta Empresa (as das outras não contam).
+        for person in session.scalars(
+            select(Stakeholder).where(Stakeholder.company_id == company_id)
+        ):
             # Nome e outros nomes.
             for name in [person.name, *(person.aliases or [])]:
                 # Forma comparável.
@@ -145,8 +157,8 @@ def attendees_of(item: BronzeItem) -> dict[str, str]:
 def save_utterances(session: Session, item: BronzeItem, spoken: Iterable[Spoken]) -> int:
     # Apaga as falas antigas desta transcrição (refazer não duplica).
     session.execute(delete(Utterance).where(Utterance.bronze_item_id == item.id))
-    # Pessoas cadastradas.
-    people = PeopleIndex(session)
+    # Pessoas cadastradas na Empresa da transcrição.
+    people = PeopleIndex(session, item.company_id)
     # Participantes do convite.
     attendees = attendees_of(item)
     # Contador.
@@ -233,21 +245,49 @@ def backfill_utterances(session: Session) -> int:
     return done
 
 
+# Índices de pessoas por Empresa, montados só quando a Empresa aparece.
+class _Indexes(dict):
+    # Guarda a sessão para montar os índices.
+    def __init__(self, session: Session) -> None:
+        # Dicionário vazio.
+        super().__init__()
+        # Sessão.
+        self.session = session
+
+    # Chamado pelo dict quando a Empresa ainda não tem índice.
+    def __missing__(self, company_id: int) -> PeopleIndex:
+        # Monta e guarda.
+        self[company_id] = PeopleIndex(self.session, company_id)
+        # Devolve.
+        return self[company_id]
+
+
 # Liga à Pessoa os participantes de reunião sem ligação que têm o e-mail dela.
-def link_participants_by_email(session: Session) -> int:
-    """Devolve quantos participantes foram ligados. As falas deles seguem junto."""
-    # Pessoas por e-mail.
-    people = PeopleIndex(session)
+def link_participants_by_email(session: Session, company_id: int | None = None) -> int:
+    """Devolve quantos participantes foram ligados. As falas deles seguem junto.
+
+    Só liga dentro da Empresa da reunião; reunião sem Empresa fica sem ligação."""
+    # Pessoas por e-mail, por Empresa.
+    indexes = _Indexes(session)
     # Contador.
     linked = 0
-    # Participantes com e-mail e sem pessoa.
-    for participant in session.scalars(
-        select(MeetingParticipant).where(
-            MeetingParticipant.stakeholder_id.is_(None), MeetingParticipant.email.is_not(None)
+    # Participantes com e-mail e sem pessoa, de reuniões que já têm Empresa.
+    query = (
+        select(MeetingParticipant, LiveMeeting.company_id)
+        .join(LiveMeeting, LiveMeeting.id == MeetingParticipant.meeting_id)
+        .where(
+            MeetingParticipant.stakeholder_id.is_(None),
+            MeetingParticipant.email.is_not(None),
+            LiveMeeting.company_id.is_not(None),
         )
-    ):
-        # Pessoa com esse e-mail.
-        person = people.by_email.get(participant.email)
+    )
+    # Só uma Empresa, se pedido.
+    if company_id is not None:
+        query = query.where(LiveMeeting.company_id == company_id)
+    # Cada participante.
+    for participant, meeting_company in session.execute(query).all():
+        # Pessoa com esse e-mail na Empresa da reunião.
+        person = indexes[meeting_company].by_email.get(participant.email)
         # Achou.
         if person is not None:
             # Liga o participante.
@@ -265,14 +305,14 @@ def link_participants_by_email(session: Session) -> int:
 
 
 # Reconhece de novo as falas sem pessoa (depois de cadastrar alguém ou um apelido).
-def relink_utterances(session: Session) -> int:
-    """Devolve quantas falas passaram a ter pessoa."""
+def relink_utterances(session: Session, company_id: int | None = None) -> int:
+    """Devolve quantas falas passaram a ter pessoa. company_id: só uma Empresa."""
     # Primeiro os participantes de reuniões ao vivo com o e-mail de alguém cadastrado.
-    link_participants_by_email(session)
-    # Pessoas cadastradas.
-    people = PeopleIndex(session)
+    link_participants_by_email(session, company_id)
+    # Pessoas cadastradas, por Empresa.
+    indexes = _Indexes(session)
     # Falas sem pessoa, com o item (para os participantes do convite).
-    rows = session.execute(
+    query = (
         # Fala e transcrição...
         select(Utterance, BronzeItem)
         # ... ligadas pelo id...
@@ -284,7 +324,12 @@ def relink_utterances(session: Session) -> int:
             Utterance.speaker.is_not(None),
             Utterance.participant_id.is_(None),
         )
-    ).all()
+    )
+    # Só uma Empresa, se pedido.
+    if company_id is not None:
+        query = query.where(BronzeItem.company_id == company_id)
+    # Executa.
+    rows = session.execute(query).all()
     # Participantes por item (calcula uma vez por transcrição).
     cache: dict[int, dict[str, str]] = {}
     # Contador.
@@ -293,8 +338,8 @@ def relink_utterances(session: Session) -> int:
     for utterance, item in rows:
         # Participantes do convite desta transcrição.
         attendees = cache.setdefault(item.id, attendees_of(item))
-        # Tenta reconhecer.
-        person = people.match(utterance.speaker, attendees)
+        # Tenta reconhecer entre as pessoas da Empresa da transcrição.
+        person = indexes[item.company_id].match(utterance.speaker, attendees)
         # Reconheceu.
         if person is not None:
             # Liga.

@@ -31,6 +31,8 @@ from app.models import (
     LiveMeeting,
     MeetingParticipant,
     MeetingSpeaker,
+    OAuthToken,
+    SourceKind,
     TranscriptSegment,
     Utterance,
 )
@@ -39,13 +41,14 @@ from app.models import (
 from app.projects import save_person
 
 # Módulos trocados nos testes.
+from app.transcription import calendar as calendar_module
 from app.transcription import live, routes, routes_live
 
 # Formato de trecho do serviço de transcrição.
 from app.transcription.providers import Segment
 
 # Agenda falsa.
-from tests.fakes import FakeCalendar
+from tests.fakes import EMPRESA, FakeCalendar
 
 # Cabeçalho do dono.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
@@ -231,8 +234,23 @@ def test_home_areas_and_visibility(sessions):
     assert '<script src="/static/ao-vivo.js" defer></script>' in page
     # Agora.
     now = datetime.now(UTC)
-    # Três reuniões: no ar, salva há 10 min, salva há 2 h; e uma abandonada há 5 h.
+    # Reuniões: no ar, salva há 10 min, salva há 2 h, encerrada sem Empresa há 2 h (fica
+    # esperando a escolha) e uma abandonada há 5 h.
     with sessions() as s:
+        # Transcrições salvas das duas que já foram para o banco.
+        salvas = [
+            BronzeItem(
+                company_id=EMPRESA,
+                source=SourceKind.MEET_TRANSCRIPT,
+                external_id=f"reuniao:{n}",
+                content_sha256=n,
+            )
+            for n in ("a", "b")
+        ]
+        # Prepara.
+        s.add_all(salvas)
+        # Gera os ids.
+        s.flush()
         # No ar.
         s.add(LiveMeeting(session_id="no-ar-0001", title="No ar", last_activity_at=now))
         # Salva há pouco.
@@ -241,12 +259,24 @@ def test_home_areas_and_visibility(sessions):
                 session_id="salva-0001",
                 title="Salva agora",
                 finished_at=now - timedelta(minutes=10),
+                company_id=EMPRESA,
+                bronze_item_id=salvas[0].id,
             )
         )
         # Salva há muito.
         s.add(
             LiveMeeting(
-                session_id="salva-0002", title="Salva antes", finished_at=now - timedelta(hours=2)
+                session_id="salva-0002",
+                title="Salva antes",
+                finished_at=now - timedelta(hours=2),
+                company_id=EMPRESA,
+                bronze_item_id=salvas[1].id,
+            )
+        )
+        # Encerrada sem Empresa: não foi para o banco; continua no Início.
+        s.add(
+            LiveMeeting(
+                session_id="pendente-01", title="Sem Empresa", finished_at=now - timedelta(hours=2)
             )
         )
         # Abandonada.
@@ -263,10 +293,10 @@ def test_home_areas_and_visibility(sessions):
         visible = [m.title for m in live.visible_meetings(s)]
         # Situações.
         statuses = {m.title: live.status(m) for m in live.visible_meetings(s)}
-    # Só as duas recentes.
-    assert sorted(visible) == ["No ar", "Salva agora"]
+    # As duas recentes e a que espera a Empresa.
+    assert sorted(visible) == ["No ar", "Salva agora", "Sem Empresa"]
     # Situação de cada uma.
-    assert statuses == {"No ar": "ao_vivo", "Salva agora": "salva"}
+    assert statuses == {"No ar": "ao_vivo", "Salva agora": "salva", "Sem Empresa": "pendente"}
 
 
 # --- Participantes e falantes -------------------------------------------------------
@@ -276,6 +306,8 @@ def test_home_areas_and_visibility(sessions):
 def _reuniao(ao_vivo, sessions) -> int:
     # Começa.
     client.post(f"/transcricoes/{REUNIAO_A}/iniciar", json={"titulo": "Status"}, headers=OWNER)
+    # Sem agenda, a Empresa não foi descoberta: você escolhe no Início.
+    client.post(f"/ao-vivo/{REUNIAO_A}/empresa", data={"empresa": EMPRESA}, headers=SAME)
     # O outro lado fala.
     _falar(REUNIAO_A, "outros", "o marco atrasou")
     # Você responde.
@@ -292,7 +324,9 @@ def test_participants_unique_name_and_email_key(ao_vivo, sessions):
     # Uma pessoa cadastrada.
     with sessions() as s:
         # Márcia, com e-mail.
-        marcia = save_person(s, None, name="Márcia Lopes", email="marcia@cliente.com").id
+        marcia = save_person(
+            s, None, name="Márcia Lopes", email="marcia@cliente.com", company_id=EMPRESA
+        ).id
         # Grava.
         s.commit()
     # Endereço do bloco.
@@ -318,7 +352,9 @@ def test_participants_unique_name_and_email_key(ao_vivo, sessions):
     # Um participante escrito à mão com o e-mail de uma Pessoa liga à Pessoa.
     with sessions() as s:
         # Beto cadastrado depois.
-        beto = save_person(s, None, name="Roberto Lima", email="beto@cliente.com").id
+        beto = save_person(
+            s, None, name="Roberto Lima", email="beto@cliente.com", company_id=EMPRESA
+        ).id
         # Grava.
         s.commit()
     # Escrito à mão, com o e-mail dele.
@@ -350,7 +386,9 @@ def test_assign_speakers_and_finalize(ao_vivo, sessions):
     # Uma Pessoa e um participante sem cadastro.
     with sessions() as s:
         # Márcia.
-        marcia = save_person(s, None, name="Márcia Lopes", email="marcia@cliente.com").id
+        marcia = save_person(
+            s, None, name="Márcia Lopes", email="marcia@cliente.com", company_id=EMPRESA
+        ).id
         # Grava.
         s.commit()
     # Márcia e você (Natália) na reunião.
@@ -454,7 +492,7 @@ def test_person_created_later_links_by_email(ao_vivo, sessions):
     # Cadastra a Carla em Pessoas, com o mesmo e-mail.
     client.post(
         "/cadastros/pessoas",
-        data={"nome": "Carla Dias", "email": "carla@cliente.com"},
+        data={"nome": "Carla Dias", "email": "carla@cliente.com", "empresa": EMPRESA},
         headers=SAME,
     )
     # Confere.
@@ -469,16 +507,8 @@ def test_person_created_later_links_by_email(ao_vivo, sessions):
 
 # "Trazer convidados da agenda": acha o evento pelo endereço do Meet.
 def test_invitees_from_calendar(ao_vivo, sessions, monkeypatch):
-    # Começa com o endereço do Meet.
-    client.post(
-        f"/transcricoes/{REUNIAO_A}/iniciar",
-        json={"titulo": "Status", "url_reuniao": "https://meet.google.com/abc-defg-hij?authuser=0"},
-        headers=OWNER,
-    )
-    # Início da reunião, para o evento cair no mesmo dia.
-    with sessions() as s:
-        # Começo.
-        start = live.get_meeting(s, REUNIAO_A).started_at
+    # A reunião começa agora (o evento da agenda é de hoje).
+    start = datetime.now(UTC)
     # Agenda com o evento daquele endereço.
     calendar = FakeCalendar(
         [
@@ -496,8 +526,32 @@ def test_invitees_from_calendar(ao_vivo, sessions, monkeypatch):
             }
         ]
     )
-    # A rota usa a agenda falsa.
-    monkeypatch.setattr(routes_live, "calendar_client", lambda db, settings: calendar)
+    # A rota de convidados e a descoberta da Empresa usam a agenda falsa.
+    monkeypatch.setattr(routes_live, "calendar_client", lambda db, settings, *_a: calendar)
+    # A descoberta importa a função na hora; troca no módulo da agenda.
+    monkeypatch.setattr(calendar_module, "calendar_client", lambda db, settings, *_a: calendar)
+    # A Empresa tem conta Google (só essas agendas são consultadas).
+    with sessions() as s:
+        # Conta.
+        s.add(
+            OAuthToken(
+                company_id=EMPRESA,
+                provider="google",
+                account_email="dona@empresa.com",
+                scopes=[],
+                refresh_token_enc=b"x",
+            )
+        )
+        # Grava.
+        s.commit()
+    # Começa com o endereço do Meet.
+    response = client.post(
+        f"/transcricoes/{REUNIAO_A}/iniciar",
+        json={"titulo": "Status", "url_reuniao": "https://meet.google.com/abc-defg-hij?authuser=0"},
+        headers=OWNER,
+    )
+    # A Empresa veio da agenda: o endereço do Meet está num evento dela.
+    assert response.json()["empresa"] == "Empresa Teste"
     # Pede os convidados.
     page = client.post(f"/ao-vivo/{REUNIAO_A}/convidados", headers=SAME).text
     # Dois convidados (a sala fica de fora).

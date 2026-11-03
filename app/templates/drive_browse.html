@@ -23,7 +23,7 @@
   {% endfor %}
 {% endmacro %}
 {% block content %}
-<p class="muted pequeno"><a href="/cadastros#drive">Pastas do Drive</a>
+<p class="muted pequeno">{{ nomes_empresa.get(item.company_id, "") }} · <a href="/cadastros?empresa={{ item.company_id }}#drive">Pastas do Drive</a>
   {% for t in trail %} / {% if not loop.last %}<a href="/cadastros/drive/itens/{{ t.id }}">{{ t.name }}</a>{% else %}<strong>{{ t.name }}</strong>{% endif %}{% endfor %}
 </p>
 <datalist id="sugestoes">{% for t in all_tags %}<option value="{{ t.name }}">{% endfor %}</datalist>

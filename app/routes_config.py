@@ -1,6 +1,8 @@
 """Página Configurações (ícone de engrenagem).
 
-Seções: Contas conectadas, Claude (modelo, esforço, gasto, teste) e Transcrição (idioma).
+Seções: Contas conectadas (uma conta Google por Empresa), Claude (modelo, esforço, gasto,
+teste; o mesmo para todas as Empresas) e Transcrição (idioma padrão geral e o de cada
+Empresa, porque um cliente pode ser do Brasil e outro de fora).
 As pastas do Drive monitoradas foram para Cadastros (pedido da dona em 03/11/2026; ver
 app/routes_drive.py), junto com projetos, pessoas e tags.
 
@@ -23,6 +25,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Consultas ao banco.
 from sqlalchemy import select
 
+# Empresas: lista e troca do idioma.
+from app.companies import list_companies, update_company
+
 # Leitura da configuração.
 from app.config import get_settings
 
@@ -30,7 +35,7 @@ from app.config import get_settings
 from app.llm import month_spend_usd
 
 # Tabela consultada.
-from app.models import OAuthToken
+from app.models import Company, OAuthToken
 
 # Opções e leitura/gravação das configurações do console.
 from app.runtime_settings import (
@@ -65,8 +70,12 @@ def _back(url: str = "/config") -> RedirectResponse:
 def config_page(request: Request, owner: Owner, db: DB):
     # Configuração do .env.
     settings = get_settings()
-    # Contas Google conectadas.
+    # Contas Google conectadas, na ordem das Empresas.
     accounts = db.scalars(select(OAuthToken).order_by(OAuthToken.account_email)).all()
+    # Empresas (para o combo de conectar e a tabela de idiomas).
+    companies = list_companies(db)
+    # Empresas que já têm conta (o combo de conectar mostra as outras primeiro).
+    with_account = {a.company_id for a in accounts}
     # Monta a página.
     return templates.TemplateResponse(
         request,
@@ -80,6 +89,10 @@ def config_page(request: Request, owner: Owner, db: DB):
             "flash": request.session.pop("flash", None),
             # Contas.
             "accounts": accounts,
+            # Empresas.
+            "companies": companies,
+            # Ids das Empresas que já têm conta.
+            "with_account": with_account,
             # Valores em vigor.
             "current": current(db, settings),
             # Opções de modelo, esforço e idioma.
@@ -138,6 +151,34 @@ def save_transcription(request: Request, owner: Owner, db: DB, idioma: Annotated
         # Aviso.
         _flash(request, "Idioma salvo. Vale a partir da próxima transcrição iniciada.")
     # Valor fora da lista.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Aviso de erro.
+        _flash(request, str(exc), error=True)
+    # Volta para a seção.
+    return _back("/config#transcricao")
+
+
+# Salva o idioma padrão das reuniões de uma Empresa ("" volta para o padrão geral).
+@router.post("/config/transcricao/{company_id}", dependencies=[SameOrigin])
+def save_company_language(
+    request: Request, owner: Owner, db: DB, company_id: int, idioma: Annotated[str, Form()] = ""
+):
+    # Tenta gravar.
+    try:
+        # Empresa (para manter o nome como está).
+        company = db.get(Company, company_id)
+        # Não existe.
+        if company is None:
+            raise ValueError("Empresa não encontrada. Recarregue a página.")
+        # Só o idioma muda.
+        update_company(db, company.id, company.name, idioma)
+        # Confirma.
+        db.commit()
+        # Aviso.
+        _flash(request, f"Idioma de {company.name} salvo. Vale na próxima reunião dessa Empresa.")
+    # Valor fora da lista ou Empresa inexistente.
     except ValueError as exc:
         # Desfaz.
         db.rollback()

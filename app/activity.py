@@ -51,6 +51,13 @@ class ActivityPage:
     total: int
     # Eventos da página, em ordem cronológica.
     rows: list[AuditLog]
+    # Empresa do filtro (None = todas).
+    company_id: int | None = None
+
+    # Pedaço do endereço que mantém o filtro de Empresa nos links ("" sem filtro).
+    @property
+    def company_query(self) -> str:
+        return f"&empresa={self.company_id}" if self.company_id is not None else ""
 
     # True quando o dia mostrado é hoje.
     @property
@@ -81,8 +88,10 @@ def activity_page(
     day: date | None = None,
     page: int | None = None,
     now: datetime | None = None,
+    company_id: int | None = None,
 ) -> ActivityPage:
-    """Sem dia: hoje, na última página. Com dia: aquele dia, na primeira página."""
+    """Sem dia: hoje, na última página. Com dia: aquele dia, na primeira página.
+    company_id: só os eventos de uma Empresa (None = todos, inclusive os do sistema)."""
     # Fuso do console.
     tz = ZoneInfo(timezone)
     # Hoje nesse fuso.
@@ -94,7 +103,10 @@ def activity_page(
     # Início do dia seguinte.
     end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
     # Filtro do dia.
-    in_day = (AuditLog.created_at >= start, AuditLog.created_at < end)
+    in_day = [AuditLog.created_at >= start, AuditLog.created_at < end]
+    # Só uma Empresa, se pedido.
+    if company_id is not None:
+        in_day.append(AuditLog.company_id == company_id)
     # Quantos eventos no dia.
     total = session.scalar(select(func.count()).select_from(AuditLog).where(*in_day)) or 0
     # Páginas (pelo menos uma, mesmo vazia).
@@ -114,4 +126,4 @@ def activity_page(
         .limit(PAGE_SIZE)
     ).all()
     # Devolve.
-    return ActivityPage(day, today, page, pages, total, list(rows))
+    return ActivityPage(day, today, page, pages, total, list(rows), company_id)

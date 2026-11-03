@@ -46,6 +46,8 @@ from app.security import require_owner
 # e a marca da atualização automática (app/updates.py).
 def _menu_state(request: Request) -> dict[str, object]:
     # Imports locais: evitam importação circular (health usa modelos que usam este módulo).
+    # Lista das Empresas (para os combos de Empresa de todas as páginas).
+    from app.companies import list_companies
     from app.db import get_sessionmaker
 
     # Teste de "algum problema agora".
@@ -60,19 +62,31 @@ def _menu_state(request: Request) -> dict[str, object]:
         with get_sessionmaker()() as session:
             # Configuração.
             settings = get_settings()
-            # Vermelho se algum serviço falhou ou se os testes pararam; marca atual.
+            # Empresas, em ordem alfabética.
+            companies = list_companies(session)
+            # Vermelho se algum serviço falhou ou se os testes pararam; marca atual; e as
+            # Empresas como (id, nome), para os combos, e id → nome, para as listas.
             return {
                 "saude_alerta": has_problem(session, settings),
                 "novidades_marca": stamp(session, settings),
                 "novidades_segundos": REFRESH_SECONDS,
+                "empresas_todas": [(c.id, c.name) for c in companies],
+                "nomes_empresa": {c.id: c.name for c in companies},
             }
     # Banco fora do ar: isso já é um problema de saúde; marca vazia (a página não atualiza).
     except Exception:
-        return {"saude_alerta": True, "novidades_marca": "", "novidades_segundos": REFRESH_SECONDS}
+        return {
+            "saude_alerta": True,
+            "novidades_marca": "",
+            "novidades_segundos": REFRESH_SECONDS,
+            "empresas_todas": [],
+            "nomes_empresa": {},
+        }
 
 
 # Onde ficam os modelos HTML: pasta templates ao lado deste arquivo. context_processors:
-# funções que acrescentam dados a toda página.
+# funções que acrescentam dados a toda página. Atenção: o que elas devolvem substitui o
+# valor de mesmo nome que a rota passar; por isso os nomes acima são exclusivos.
 templates = Jinja2Templates(
     directory=Path(__file__).parent / "templates", context_processors=[_menu_state]
 )

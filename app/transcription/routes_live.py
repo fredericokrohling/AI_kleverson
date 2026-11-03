@@ -2,6 +2,9 @@
 
 - GET /ao-vivo/eventos: canal SSE que o Início mantém aberto (ver app/transcription/live.py);
 - GET /ao-vivo: as áreas das reuniões, redesenhadas quando uma reunião começa ou é salva;
+- POST /ao-vivo/{sessao}/empresa: a Empresa da reunião (quando a agenda não disse, ou
+  para corrigir). Sem Empresa a reunião aparece ao vivo, mas só é salva no banco depois
+  que você escolhe: dado sem Empresa não entra (premissa 1 da separação por Empresa);
 - /ao-vivo/{sessao}/participantes, /falantes e /convidados: quem participa e quem é
   cada voz. Respondem com o bloco de participantes redesenhado (HTMX troca só ele) e
   avisam o Início para trocar "Falante 2" pelo nome em todas as falas da reunião.
@@ -27,6 +30,9 @@ from googleapiclient.errors import HttpError
 
 # Consultas.
 from sqlalchemy import func, select
+
+# Empresa escolhida e a troca de Empresa da reunião.
+from app.companies import parse_company, set_meeting_company
 
 # Configuração.
 from app.config import get_settings
@@ -69,10 +75,16 @@ def meeting_view(db, meeting: LiveMeeting) -> dict:
     }
 
 
-# Contexto das áreas do Início (usado aqui e no main.py).
-def live_context(db) -> dict:
+# Contexto das áreas do Início (usado aqui e no main.py). erros: id da captura → aviso
+# mostrado na área daquela reunião (ex.: Empresa inválida).
+def live_context(db, erros: dict[str, str] | None = None) -> dict:
     # Reuniões visíveis, cada uma com seus dados.
-    return {"ao_vivo": [meeting_view(db, m) for m in live.visible_meetings(db)]}
+    return {
+        # Áreas.
+        "ao_vivo": [meeting_view(db, m) for m in live.visible_meetings(db)],
+        # Avisos por reunião.
+        "erros_vivo": erros or {},
+    }
 
 
 # Dados do bloco de participantes de uma reunião.
@@ -91,8 +103,15 @@ def participants_context(
         "falantes": speakers,
         # "canal|rótulo" de cada falante, para o navegador saber quais já conhece.
         "chaves": [live.speaker_key(s.channel, s.label) for s in speakers],
-        # Pessoas cadastradas, para escolher na lista.
-        "pessoas": db.scalars(select(Stakeholder).order_by(func.lower(Stakeholder.name))).all(),
+        # Pessoas da Empresa da reunião, para escolher na lista (sem Empresa, nenhuma:
+        # Pessoas de um cliente não aparecem na reunião de outro).
+        "pessoas": db.scalars(
+            select(Stakeholder)
+            .where(Stakeholder.company_id == meeting.company_id)
+            .order_by(func.lower(Stakeholder.name))
+        ).all()
+        if meeting.company_id is not None
+        else [],
         # Mensagem de erro (nome repetido etc.).
         "erro": erro,
         # Mensagem de sucesso.
@@ -113,8 +132,9 @@ def _meeting(db, sessao: str) -> LiveMeeting:
 
 # Depois de mudar participantes ou falantes: grava, refaz a transcrição salva e avisa.
 def _changed(db, meeting: LiveMeeting, owner: str) -> None:
-    # Reunião já salva: refaz texto e falas com os nomes novos.
-    if meeting.finished_at is not None:
+    # Reunião já salva: refaz texto e falas com os nomes novos (pendente de Empresa
+    # ainda não tem o que refazer; salva quando a Empresa for escolhida).
+    if meeting.finished_at is not None and meeting.company_id is not None:
         # Mesmo título e endereço (a função usa os guardados na reunião).
         store.finalize(db, meeting.session_id, actor=owner, title=None, meeting_url=None)
     # Grava.
@@ -180,6 +200,34 @@ async def events(request: Request, owner: Owner) -> StreamingResponse:
 def live_section(request: Request, owner: Owner, db: DB):
     # Só o pedaço do modelo.
     return templates.TemplateResponse(request, "_ao_vivo.html", live_context(db))
+
+
+# Escolhe ou corrige a Empresa de uma reunião (combo na área dela). Devolve a seção
+# inteira, porque a situação muda (pendente vira salva) e as outras abas recarregam.
+@router.post("/ao-vivo/{sessao}/empresa", response_class=HTMLResponse, dependencies=[SameOrigin])
+def choose_company(request: Request, owner: Owner, db: DB, sessao: str, empresa: Text = ""):
+    # A reunião.
+    meeting = _meeting(db, sessao)
+    # Avisos por reunião.
+    erros: dict[str, str] = {}
+    # Tenta.
+    try:
+        # Empresa escolhida.
+        company = parse_company(db, empresa)
+        # Troca (e salva, se a reunião já acabou).
+        set_meeting_company(db, meeting, company, owner)
+        # Grava.
+        db.commit()
+    # Sem Empresa, inexistente ou já existe uma transcrição igual na outra Empresa.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Aviso na área da reunião.
+        erros[sessao] = str(exc)
+    # Outras abas abertas redesenham as áreas.
+    live.hub.publish({"tipo": "reunioes"})
+    # Seção redesenhada.
+    return templates.TemplateResponse(request, "_ao_vivo.html", live_context(db, erros))
 
 
 # Bloco de participantes de uma reunião (o Início pede quando aparece um falante novo).
@@ -289,14 +337,24 @@ def add_invitees(request: Request, owner: Owner, db: DB, sessao: str):
         return _block(
             request, db, meeting, erro="A extensão não informou o endereço do Meet desta reunião."
         )
+    # Sem Empresa, não se sabe de qual agenda ler.
+    if meeting.company_id is None:
+        return _block(
+            request,
+            db,
+            meeting,
+            erro="Escolha antes a Empresa da reunião (a agenda é da conta dela).",
+        )
     # Configuração.
     settings = get_settings()
     # Tenta ler a agenda do dia em que a reunião começou.
     try:
         # Dia no fuso do console.
         day = meeting.started_at.astimezone(_zone(settings)).date()
-        # Reuniões do dia.
-        events = events_on(calendar_client(db, settings), day, settings.console_timezone)
+        # Reuniões do dia, na agenda da conta da Empresa da reunião.
+        events = events_on(
+            calendar_client(db, settings, meeting.company_id), day, settings.console_timezone
+        )
     # Sem conta Google.
     except RuntimeError as exc:
         return _block(request, db, meeting, erro=str(exc))

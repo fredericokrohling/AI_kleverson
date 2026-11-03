@@ -1,9 +1,12 @@
-"""Página "Importar transcrição": escolhe o dia, a reunião da agenda e o arquivo.
+"""Página Reuniões: dois calendários do dia (um por Empresa) e a importação de transcrição.
 
 Fluxo da página:
-1. o calendário de data começa em hoje; trocar a data recarrega só a lista de reuniões
-   (HTMX), lida da sua agenda do Google;
-2. você escolhe a reunião (ou "Não está na agenda", digitando o título) e o arquivo;
+1. a data começa em hoje. Os dois calendários lado a lado mostram o dia na agenda da
+   conta de cada Empresa (combo no topo de cada um; o segundo é roxo com reuniões
+   laranja, para não confundir). Trocar a data ou uma Empresa redesenha só os
+   calendários e a lista de reuniões (HTMX busca esta mesma página e recorta os pedaços);
+2. no formulário você escolhe a Empresa (obrigatória: a transcrição é dela), a reunião
+   da agenda dessa Empresa (ou "Não está na agenda", digitando o título) e o arquivo;
 3. se a reunião tem a transcrição do Meet anexada, o arquivo é opcional: o sistema baixa
    a transcrição do Drive;
 4. o resultado aparece no topo da página: carregada, já existente, ou o motivo da falha.
@@ -19,6 +22,9 @@ from datetime import date, datetime
 # Annotated junta um tipo com informação extra (aqui, campos de formulário).
 from typing import Annotated
 
+# Monta o "?a=1&b=2" do endereço.
+from urllib.parse import urlencode
+
 # Fusos horários pelo nome.
 from zoneinfo import ZoneInfo
 
@@ -33,6 +39,9 @@ from googleapiclient.errors import HttpError
 
 # Consultas.
 from sqlalchemy import select
+
+# Empresas: lista, conta de cada uma e a escolhida no combo.
+from app.companies import accounts_by_company, filter_id, list_companies, parse_company
 
 # Configuração.
 from app.config import get_settings
@@ -94,17 +103,21 @@ def _day(value: str | None) -> date:
         return _today()
 
 
-# Reuniões do dia para a lista, com a mensagem de erro se a agenda não puder ser lida.
-def _meetings(db, day: date) -> tuple[list, str | None]:
+# Reuniões do dia na agenda de uma Empresa, com a mensagem de erro se ela não puder ser
+# lida. Sem Empresa, nenhuma (e nenhum erro: só falta escolher).
+def _meetings(db, day: date, company_id: int | None) -> tuple[list, str | None]:
+    # Sem Empresa.
+    if company_id is None:
+        return [], None
     # Configuração.
     settings = get_settings()
     # Tenta ler a agenda.
     try:
-        # Cliente da agenda.
-        calendar = calendar_client(db, settings)
+        # Cliente da agenda da conta da Empresa.
+        calendar = calendar_client(db, settings, company_id)
         # Reuniões do dia.
         return events_on(calendar, day, settings.console_timezone), None
-    # Sem conta Google conectada.
+    # Sem conta Google conectada nessa Empresa.
     except RuntimeError as exc:
         return [], str(exc)
     # A API recusou (sem permissão, fora do ar).
@@ -113,24 +126,83 @@ def _meetings(db, day: date) -> tuple[list, str | None]:
         return [], f"A agenda recusou o pedido ({_google_error(exc)})."
 
 
-# O dia de calendário: reuniões posicionadas e quais já têm transcrição.
-def _agenda(db, day: date, meetings: list):
-    # Transcrições já ligadas às reuniões do dia.
-    linked = linked_transcripts(db, [m.id for m in meetings])
-    # Monta a grade no fuso do console.
-    return build_day(meetings, linked, day, get_settings().console_timezone)
+# Empresas dos dois calendários: as pedidas ou, na primeira visita, as duas primeiras
+# (as que têm conta Google vêm antes).
+def _calendar_companies(db, e1: str | None, e2: str | None) -> tuple[int | None, int | None]:
+    # Ids existentes, em ordem alfabética.
+    ids = [c.id for c in list_companies(db)]
+    # Com conta.
+    accounts = accounts_by_company(db)
+    # Com conta primeiro.
+    ordered = [i for i in ids if i in accounts] + [i for i in ids if i not in accounts]
+    # Primeiro calendário.
+    first = filter_id(e1) if filter_id(e1) in ids else (ordered[0] if ordered else None)
+    # Segundo: o pedido, ou a próxima Empresa diferente da primeira.
+    second = (
+        filter_id(e2) if filter_id(e2) in ids else next((i for i in ordered if i != first), None)
+    )
+    # Os dois.
+    return first, second
 
 
-# A página. evento (opcional) já deixa a reunião escolhida: é o que acontece quando você
-# clica numa reunião sem transcrição no calendário da página inicial.
+# Os dois calendários do dia, com as mesmas horas (para ficarem alinhados lado a lado).
+def _calendars(db, day: date, companies: tuple[int | None, int | None]) -> list[dict]:
+    # Fuso do console.
+    zone = get_settings().console_timezone
+    # Dados de cada calendário.
+    result = []
+    # Cada Empresa.
+    for company_id in companies:
+        # Reuniões e erro.
+        events, error = _meetings(db, day, company_id)
+        # Transcrições desta Empresa já ligadas às reuniões.
+        linked = linked_transcripts(db, [e.id for e in events], company_id) if company_id else {}
+        # Guarda (o dia é montado abaixo, depois de saber as horas dos dois).
+        result.append({"empresa": company_id, "eventos": events, "erro": error, "ligadas": linked})
+    # Primeira montagem: horas de cada um.
+    first = [build_day(c["eventos"], c["ligadas"], day, zone) for c in result]
+    # Horas que cobrem os dois.
+    hours = (min(a.start_hour for a in first), max(a.end_hour for a in first))
+    # Monta de novo com as mesmas horas.
+    for c in result:
+        # Dia desenhado.
+        c["agenda"] = build_day(c["eventos"], c["ligadas"], day, zone, hours=hours)
+    # Os dois.
+    return result
+
+
+# A página. Também atende o HTMX (trocar data ou Empresa): ele busca esta página e
+# recorta só os calendários e a lista de reuniões (hx-select).
 @router.get("/transcricoes/importar", response_class=HTMLResponse)
 def import_page(
-    request: Request, owner: Owner, db: DB, data: str | None = None, evento: str | None = None
+    request: Request,
+    owner: Owner,
+    db: DB,
+    # Dia mostrado.
+    data: str | None = None,
+    # Reunião já escolhida (clique no calendário).
+    evento: str | None = None,
+    # Empresa do formulário de importação.
+    empresa: str | None = None,
+    # Empresas do primeiro e do segundo calendário.
+    e1: str | None = None,
+    e2: str | None = None,
 ):
     # Dia mostrado.
     day = _day(data)
-    # Reuniões desse dia.
-    meetings, calendar_error = _meetings(db, day)
+    # Empresas dos calendários.
+    companies = _calendar_companies(db, e1, e2)
+    # Os dois calendários.
+    calendars = _calendars(db, day, companies)
+    # Empresa do formulário (só se existir).
+    form_company = filter_id(empresa) if filter_id(empresa) in dict(_names(db)) else None
+    # Reuniões da Empresa do formulário: aproveita a leitura de um calendário, se for a
+    # mesma Empresa (uma consulta à agenda a menos).
+    same = next((c for c in calendars if c["empresa"] == form_company), None)
+    # Lista e erro.
+    meetings, calendar_error = (
+        (same["eventos"], same["erro"]) if same else _meetings(db, day, form_company)
+    )
     # Últimas transcrições (importadas e da extensão), mais recentes primeiro.
     recent = db.scalars(
         # Itens do bronze...
@@ -159,10 +231,12 @@ def import_page(
             "dia": day,
             # Hoje (limite do calendário: transcrição do futuro não existe).
             "hoje": _today(),
-            # Reuniões do dia.
+            # Os dois calendários.
+            "calendarios": calendars,
+            # Empresa do formulário.
+            "empresa_form": form_company,
+            # Reuniões da Empresa do formulário.
             "reunioes": meetings,
-            # O mesmo dia desenhado como calendário.
-            "agenda": _agenda(db, day, meetings),
             # Reunião já escolhida na lista (vinda de um clique no calendário).
             "escolhido": evento,
             # Motivo, se a agenda não pôde ser lida.
@@ -177,41 +251,28 @@ def import_page(
     )
 
 
-# Só a lista de reuniões, para o HTMX trocar quando a data muda.
-@router.get("/transcricoes/importar/reunioes", response_class=HTMLResponse)
-def meetings_list(request: Request, owner: Owner, db: DB, data: str | None = None):
-    # Dia pedido.
-    day = _day(data)
-    # Reuniões do dia.
-    meetings, calendar_error = _meetings(db, day)
-    # Devolve o pedaço da página.
-    return templates.TemplateResponse(
-        # A requisição.
-        request,
-        # Modelo da lista.
-        "_reunioes.html",
-        {
-            # Reuniões do dia.
-            "reunioes": meetings,
-            # Motivo, se a agenda não pôde ser lida.
-            "erro_agenda": calendar_error,
-            # Valor da opção "fora da agenda".
-            "fora": OUTSIDE_CALENDAR,
-            # O calendário do novo dia vai junto e o HTMX troca o da página também
-            # ("out of band": um pedaço da resposta que vai para outro lugar da página).
-            "agenda": _agenda(db, day, meetings),
-            # Liga a troca "out of band" no modelo.
-            "agenda_oob": True,
-        },
-    )
+# (id, nome) das Empresas.
+def _names(db) -> list[tuple[int, str]]:
+    # Na ordem alfabética.
+    return [(c.id, c.name) for c in list_companies(db)]
 
 
-# Guarda o aviso do resultado e volta para a página, no mesmo dia.
-def _back(request: Request, day: date, text: str, error: bool = False, link: str | None = None):
+# Guarda o aviso do resultado e volta para a página, no mesmo dia e com as mesmas
+# Empresas nos calendários e no formulário.
+def _back(
+    request: Request,
+    day: date,
+    text: str,
+    error: bool = False,
+    link: str | None = None,
+    keep: dict[str, str] | None = None,
+):
     # Aviso para o topo da página.
     request.session["flash"] = {"texto": text, "erro": error, "link": link}
+    # Parâmetros do endereço: o dia e as Empresas escolhidas.
+    params = {"data": day.isoformat(), **{k: v for k, v in (keep or {}).items() if v}}
     # 303: depois de um POST, o navegador abre a página com GET (F5 não reenvia o arquivo).
-    return RedirectResponse(f"/transcricoes/importar?data={day.isoformat()}", status_code=303)
+    return RedirectResponse(f"/transcricoes/importar?{urlencode(params)}", status_code=303)
 
 
 # Recebe o formulário.
@@ -228,14 +289,28 @@ def import_submit(
     titulo: Annotated[str, Form()] = "",
     # Arquivo (opcional quando o evento tem a transcrição do Meet anexada).
     arquivo: Annotated[UploadFile | None, File()] = None,
+    # Empresa da transcrição (combo obrigatório).
+    empresa: Annotated[str, Form()] = "",
+    # Empresas dos calendários (para voltar com eles como estavam).
+    e1: Annotated[str, Form()] = "",
+    e2: Annotated[str, Form()] = "",
 ):
     # Dia.
     day = _day(data)
     # Configuração.
     settings = get_settings()
+    # O que a página volta mostrando.
+    keep = {"empresa": empresa, "e1": e1, "e2": e2}
+    # Tenta a Empresa.
+    try:
+        # Sem ela, não importa (a transcrição seria de ninguém).
+        company = parse_company(db, empresa)
+    # Não escolheu ou não existe.
+    except ValueError as exc:
+        return _back(request, day, str(exc), error=True, keep=keep)
     # Nada escolhido na lista.
     if not evento:
-        return _back(request, day, "Escolha a reunião na lista.", error=True)
+        return _back(request, day, "Escolha a reunião na lista.", error=True, keep=keep)
     # Tenta importar.
     try:
         # Reunião da agenda, lida de novo (None = fora da agenda).
@@ -243,7 +318,7 @@ def import_submit(
         # Escolheu uma reunião da agenda.
         if evento != OUTSIDE_CALENDAR:
             # Lê o evento.
-            event = get_event(calendar_client(db, settings), evento)
+            event = get_event(calendar_client(db, settings, company.id), evento)
             # Apagado da agenda entre abrir a página e enviar.
             if event is None:
                 raise ImportFailure("Essa reunião não está mais na agenda. Atualize a página.")
@@ -257,7 +332,7 @@ def import_submit(
         if not content and event is not None and event.transcripts:
             # Primeira transcrição anexada.
             content, filename = fetch_meet_transcript(
-                drive_client(db, settings), event.transcripts[0]
+                drive_client(db, settings, company.id), event.transcripts[0]
             )
             # Veio do Meet.
             platform = "meet"
@@ -284,6 +359,8 @@ def import_submit(
             day=day,
             # Fuso do console.
             timezone=settings.console_timezone,
+            # Empresa.
+            company_id=company.id,
             # Plataforma, quando veio do Meet.
             platform=platform,
         )
@@ -292,19 +369,25 @@ def import_submit(
         # Desfaz qualquer gravação pela metade.
         db.rollback()
         # Mostra o motivo.
-        return _back(request, day, str(exc), error=True)
+        return _back(request, day, str(exc), error=True, keep=keep)
     # Sem conta Google conectada.
     except RuntimeError as exc:
         # Desfaz.
         db.rollback()
         # Mostra o motivo.
-        return _back(request, day, str(exc), error=True)
+        return _back(request, day, str(exc), error=True, keep=keep)
     # A agenda ou o Drive recusaram.
     except HttpError as exc:
         # Desfaz.
         db.rollback()
         # Código e motivo.
-        return _back(request, day, f"O Google recusou o pedido ({_google_error(exc)}).", error=True)
+        return _back(
+            request,
+            day,
+            f"O Google recusou o pedido ({_google_error(exc)}).",
+            error=True,
+            keep=keep,
+        )
     # Link para o conteúdo gravado.
     link = f"/conteudo/{result.item_id}"
     # Já existia.
@@ -315,6 +398,7 @@ def import_submit(
             f"Essa transcrição já tinha sido importada (reunião “{result.title}”). "
             "Nada foi duplicado.",
             link=link,
+            keep=keep,
         )
     # Resumo do que foi lido.
     t = result.transcript
@@ -330,5 +414,9 @@ def import_submit(
         detail = f"{len(t.text)} caracteres"
     # Sucesso.
     return _back(
-        request, day, f"Transcrição carregada com sucesso: “{result.title}”, {detail}.", link=link
+        request,
+        day,
+        f"Transcrição carregada com sucesso em {company.name}: “{result.title}”, {detail}.",
+        link=link,
+        keep=keep,
     )

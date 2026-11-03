@@ -38,6 +38,9 @@ from sqlalchemy import func, or_, select
 # Seção Processamento (diário de ações por dia).
 from app.activity import activity_page, parse_day
 
+# Empresas: filtro da página e correção da Empresa de uma transcrição.
+from app.companies import filter_id, move_item, parse_company
+
 # Configuração (fuso do console).
 from app.config import get_settings
 
@@ -48,13 +51,14 @@ from app.ingestion.gmail import collection_overview
 from app.models import (
     Attachment,
     BronzeItem,
+    Company,
     DriveFolder,
     DriveItem,
+    LiveMeeting,
     Project,
     ProjectStakeholder,
     SourceKind,
     Stakeholder,
-    Tag,
     Utterance,
 )
 
@@ -68,8 +72,11 @@ from app.project_tags import (
     tags_of,
 )
 
-# Acha ou cria uma tag pelo nome.
-from app.tags import find_or_create_tag
+# Acha ou cria uma tag pelo nome; lista as tags de uma Empresa.
+from app.tags import find_or_create_tag, list_tags
+
+# Transmissão ao Início (avisa que uma reunião mudou).
+from app.transcription import live
 
 # Peças comuns: dono, banco e modelos HTML.
 from app.web import DB, Owner, SameOrigin, templates
@@ -91,10 +98,14 @@ SOURCE_LABELS = {
 }
 
 
-# Os quatro números do topo da página.
-def _summary(db) -> dict:
+# Os quatro números do topo da página, de uma Empresa (ou de todas, com None).
+def _summary(db, company_id: int | None = None) -> dict:
     # Totais do bronze (e-mails, anexos, anexos sem texto) e as últimas rodadas da coleta.
-    coleta = collection_overview(db)
+    coleta = collection_overview(db, company_id=company_id)
+    # Filtros de Empresa de cada tabela (vazios quando são todas).
+    of_folder = [DriveFolder.company_id == company_id] if company_id is not None else []
+    of_drive = [DriveItem.company_id == company_id] if company_id is not None else []
+    of_item = [BronzeItem.company_id == company_id] if company_id is not None else []
     # Monta o resumo.
     return {
         # Rodadas e totais da coleta de e-mail.
@@ -106,7 +117,7 @@ def _summary(db) -> dict:
             # ... da tabela de pastas monitoradas...
             .select_from(DriveFolder)
             # ... que estão ligadas.
-            .where(DriveFolder.active.is_(True))
+            .where(DriveFolder.active.is_(True), *of_folder)
         ),
         # Arquivos (não pastas) ainda presentes nas pastas monitoradas.
         "files": db.scalar(
@@ -119,6 +130,7 @@ def _summary(db) -> dict:
                 DriveItem.is_folder.is_(False),
                 DriveItem.removed.is_(False),
                 DriveItem.folder_id.is_not(None),
+                *of_drive,
             )
         ),
         # Arquivos que chegaram por link num e-mail (fora das pastas).
@@ -128,7 +140,7 @@ def _summary(db) -> dict:
             # ... do espelho do Drive...
             .select_from(DriveItem)
             # ... que são arquivos e não estão em pasta monitorada.
-            .where(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None))
+            .where(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None), *of_drive)
         ),
         # Versões de arquivos do Drive gravadas no bronze.
         "versions": db.scalar(
@@ -137,7 +149,7 @@ def _summary(db) -> dict:
             # ... do bronze...
             .select_from(BronzeItem)
             # ... que vieram do Drive.
-            .where(BronzeItem.source == SourceKind.DRIVE)
+            .where(BronzeItem.source == SourceKind.DRIVE, *of_item)
         ),
         # Transcrições de reunião (importadas e da extensão).
         "transcripts": db.scalar(
@@ -146,7 +158,7 @@ def _summary(db) -> dict:
             # ... do bronze...
             .select_from(BronzeItem)
             # ... de transcrição de reunião.
-            .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT)
+            .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT, *of_item)
         ),
     }
 
@@ -231,9 +243,13 @@ def content_list(
     data: str | None = None,
     # Página do diário.
     pagina: int | None = None,
+    # Empresa mostrada (vazia = todas).
+    empresa: Annotated[str | None, Query(max_length=20)] = None,
 ):
     # Fuso do console.
     timezone = get_settings().console_timezone
+    # Empresa do filtro (None = TODOS).
+    company_id = filter_id(empresa)
     # Dia escolhido (None = todas as datas).
     day = _content_day(dia)
     # Hoje.
@@ -254,6 +270,9 @@ def content_list(
     # Todas as datas: só os mais recentes.
     else:
         query = query.limit(_LIMIT)
+    # Só a Empresa escolhida.
+    if company_id is not None:
+        query = query.where(BronzeItem.company_id == company_id)
     # Filtro de fonte, se for uma fonte conhecida.
     if fonte in {s.value for s in SourceKind}:
         # Só essa fonte.
@@ -294,8 +313,10 @@ def content_list(
         "limit": _LIMIT,
         # Nome de cada fonte.
         "labels": SOURCE_LABELS,
-        # Tags para o filtro.
-        "tags": db.scalars(select(Tag).order_by(func.lower(Tag.name))).all(),
+        # Tags para o filtro (só as da Empresa escolhida, ou todas).
+        "tags": [t for t, _ in list_tags(db, company_id)],
+        # Empresa do filtro (None = todas).
+        "empresa": company_id,
         # Tags de cada item da lista.
         "item_tags": tag_names(db, [i.id for i in items]),
         # Motivo do erro de processamento de cada item com erro (linha roxa).
@@ -314,9 +335,9 @@ def content_list(
             # Item do menu destacado.
             "menu": "processamento",
             # Os quatro números e a coleta de e-mail.
-            "resumo": _summary(db),
+            "resumo": _summary(db, company_id),
             # Diário de ações do dia (hoje, por padrão).
-            "p": activity_page(db, timezone, parse_day(data), pagina),
+            "p": activity_page(db, timezone, parse_day(data), pagina, company_id=company_id),
             # A tabela do Conteúdo coletado.
             **content,
         },
@@ -341,7 +362,11 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
     linked = (
         {
             d.drive_id: d
-            for d in db.scalars(select(DriveItem).where(DriveItem.drive_id.in_(linked_ids)))
+            for d in db.scalars(
+                select(DriveItem).where(
+                    DriveItem.company_id == item.company_id, DriveItem.drive_id.in_(linked_ids)
+                )
+            )
         }
         if linked_ids
         else {}
@@ -350,7 +375,11 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
     versions = (
         db.scalars(
             select(BronzeItem)
-            .where(BronzeItem.source == SourceKind.DRIVE, BronzeItem.thread_id == item.thread_id)
+            .where(
+                BronzeItem.company_id == item.company_id,
+                BronzeItem.source == SourceKind.DRIVE,
+                BronzeItem.thread_id == item.thread_id,
+            )
             .order_by(BronzeItem.occurred_at.desc().nulls_last(), BronzeItem.id.desc())
         ).all()
         if item.source == SourceKind.DRIVE
@@ -381,8 +410,8 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
         select(ProjectStakeholder.stakeholder_id, Project.name)
         # ... ligados pelo projeto...
         .join(Project, Project.id == ProjectStakeholder.project_id)
-        # ... só onde ela é liderança...
-        .where(ProjectStakeholder.is_leader.is_(True))
+        # ... só onde ela é liderança, nos projetos da Empresa do item...
+        .where(ProjectStakeholder.is_leader.is_(True), Project.company_id == item.company_id)
         # ... em ordem de nome.
         .order_by(Project.name)
     ):
@@ -414,6 +443,12 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
             "speakers": speakers,
             # Lideranças de projeto.
             "project_leaders": project_leaders,
+            # Empresa do item.
+            "company": db.get(Company, item.company_id),
+            # Reunião ao vivo que gerou a transcrição (a correção a move junto).
+            "meeting": db.scalars(
+                select(LiveMeeting).where(LiveMeeting.bronze_item_id == item.id)
+            ).first(),
         },
     )
 
@@ -429,7 +464,7 @@ def add_tag(request: Request, owner: Owner, db: DB, item_id: int, nome: Annotate
     # Tenta.
     try:
         # Acha ou cria a tag e coloca.
-        add_manual(db, item.id, find_or_create_tag(db, nome))
+        add_manual(db, item.id, find_or_create_tag(db, item.company_id, nome))
         # Grava.
         db.commit()
     # Nome inválido.
@@ -454,5 +489,48 @@ def drop_tag(request: Request, owner: Owner, db: DB, item_id: int, tag_id: int):
     remove_manual(db, item.id, tag_id)
     # Grava.
     db.commit()
+    # Volta para o item.
+    return RedirectResponse(f"/conteudo/{item.id}", status_code=303)
+
+
+# Corrige a Empresa de uma transcrição (atribuída errado na importação ou na reunião).
+# Refaz as camadas que dependem da Empresa: tags, classificação, fatos e pessoas das falas.
+@router.post("/conteudo/{item_id}/empresa", dependencies=[SameOrigin])
+def change_company(
+    request: Request, owner: Owner, db: DB, item_id: int, empresa: Annotated[str, Form()] = ""
+):
+    # O item.
+    item = db.get(BronzeItem, item_id)
+    # Não existe.
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item não encontrado.")
+    # Tenta.
+    try:
+        # Empresa nova.
+        company = parse_company(db, empresa)
+        # Já é esta: nada a fazer.
+        if company.id == item.company_id:
+            raise ValueError(f"A transcrição já é da Empresa {company.name}.")
+        # Move e refaz as camadas.
+        added = move_item(db, item, company, owner)
+        # Grava (as regras do banco conferem que nada ficou ligado à Empresa antiga).
+        db.commit()
+    # Sem Empresa, não é transcrição ou já existe igual na outra.
+    except ValueError as exc:
+        # Desfaz.
+        db.rollback()
+        # Aviso.
+        request.session["flash"] = {"texto": str(exc), "erro": True}
+        # Volta.
+        return RedirectResponse(f"/conteudo/{item.id}", status_code=303)
+    # O Início redesenha as reuniões (a área da reunião mostra a Empresa nova).
+    live.hub.publish({"tipo": "reunioes"})
+    # Aviso.
+    request.session["flash"] = {
+        "texto": f"Transcrição movida para {company.name}. Tags refeitas pelas regras de lá "
+        f"({added} tag(s)); fatos e classificação serão extraídos de novo; as falas foram "
+        "ligadas às Pessoas dessa Empresa.",
+        "erro": False,
+    }
     # Volta para o item.
     return RedirectResponse(f"/conteudo/{item.id}", status_code=303)

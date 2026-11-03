@@ -55,6 +55,19 @@ def _schema():
 # Roda em volta de cada teste, automaticamente.
 @pytest.fixture(autouse=True)
 def _clean_tables():
+    # Todo dado pertence a uma Empresa (o banco recusa sem): cada teste começa com a
+    # Empresa 1 ("Empresa Teste", tests/fakes.py: EMPRESA). No primeiro teste ela é a
+    # "Teste aplicacao" criada pela migração; o nome é acertado aqui.
+    with get_engine().begin() as conn:
+        # Cria ou renomeia.
+        conn.execute(
+            text(
+                "INSERT INTO companies (id, name) VALUES (1, 'Empresa Teste') "
+                "ON CONFLICT (id) DO UPDATE SET name = 'Empresa Teste'"
+            )
+        )
+        # O contador de ids continua depois dela (a próxima Empresa criada é a 2).
+        conn.execute(text("SELECT setval(pg_get_serial_sequence('companies', 'id'), 1)"))
     # yield: aqui o teste roda; o código abaixo é a limpeza depois dele.
     yield
     # Lista de todas as tabelas separadas por vírgula.

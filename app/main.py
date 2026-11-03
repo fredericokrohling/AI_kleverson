@@ -34,6 +34,9 @@ from app import google_auth
 # Seção Processamento (diário de ações por dia).
 from app.activity import activity_page, parse_day
 
+# Empresas: a escolhida nos formulários e a conta de cada uma.
+from app.companies import accounts_by_company, filter_id, list_companies, parse_company
+
 # Leitura da configuração.
 from app.config import get_settings
 
@@ -51,6 +54,9 @@ from app.llm import BudgetExceededError, LLMClient
 
 # Tabelas consultadas na página inicial.
 from app.models import BronzeItem, OAuthToken, SourceKind
+
+# Projetos de cada item (para mostrar ao lado da Empresa).
+from app.project_tags import project_names
 
 # Rotas da página Configurações.
 from app.routes_config import router as config_router
@@ -143,10 +149,21 @@ def health() -> dict[str, str]:
 # Só a seção Processamento, para o HTMX trocar de dia ou de página sem recarregar tudo.
 @app.get("/processamento", response_class=HTMLResponse)
 def processing(
-    request: Request, owner: Owner, db: DB, data: str | None = None, pagina: int | None = None
+    request: Request,
+    owner: Owner,
+    db: DB,
+    data: str | None = None,
+    pagina: int | None = None,
+    empresa: str | None = None,
 ):
-    # Eventos do dia e da página pedidos.
-    activity = activity_page(db, get_settings().console_timezone, parse_day(data), pagina)
+    # Eventos do dia e da página pedidos (só da Empresa do filtro, se houver).
+    activity = activity_page(
+        db,
+        get_settings().console_timezone,
+        parse_day(data),
+        pagina,
+        company_id=filter_id(empresa),
+    )
     # Devolve só o pedaço da página.
     return templates.TemplateResponse(request, "_processamento.html", {"p": activity})
 
@@ -169,6 +186,10 @@ def index(request: Request, owner: Owner, db: DB):
         # ... só 5.
         .limit(5)
     ).all()
+    # Empresas sem conta Google conectada (a página avisa).
+    with_account = accounts_by_company(db)
+    # Arquivos sem texto.
+    failures = list_failures(db)
     # Preenche o modelo index.html com os dados abaixo.
     return templates.TemplateResponse(
         # A requisição (o Jinja2 precisa dela para montar links).
@@ -186,10 +207,14 @@ def index(request: Request, owner: Owner, db: DB):
             "flash": request.session.pop("flash", None),
             # Contas conectadas.
             "accounts": accounts,
-            # Arquivos sem texto (anexos e Drive), com código e motivo.
-            "failures": list_failures(db),
+            # Empresas que ainda não têm conta.
+            "sem_conta": [c for c in list_companies(db) if c.id not in with_account],
+            # Arquivos sem texto (anexos e Drive), com código, motivo, Empresa e projetos.
+            "failures": failures,
             # Últimas transcrições de reunião.
             "reunioes": meetings,
+            # Projetos de cada transcrição (pelas tags de projeto).
+            "projetos_item": project_names(db, [r.id for r in meetings]),
             # Já houve algum teste automático de saúde?
             "saude_testada": last_run_at(db) is not None,
             # Reuniões ao vivo (ou salvas há pouco), cada uma com suas falas; o "**" junta
@@ -199,9 +224,21 @@ def index(request: Request, owner: Owner, db: DB):
     )
 
 
-# Botão "Conectar Google": inicia o login.
+# Botão "Conectar conta Google" (Configurações): inicia o login da conta de uma Empresa.
 @app.get("/auth/google/login")
-def google_login(request: Request, owner: Owner):
+def google_login(request: Request, owner: Owner, db: DB, empresa: str | None = None):
+    # A conta é sempre de uma Empresa: sem ela escolhida, não começa.
+    try:
+        # Empresa do combo.
+        company = parse_company(db, empresa)
+    # Não escolheu ou não existe.
+    except ValueError as exc:
+        # Aviso no topo de Configurações.
+        request.session["flash"] = {"texto": str(exc), "erro": True}
+        # Volta.
+        return RedirectResponse("/config#contas", status_code=303)
+    # Guarda a Empresa para a volta do Google (o Google não a conhece).
+    request.session["oauth_company"] = company.id
     # Gera o endereço do Google e os valores de segurança.
     url, state, verifier = google_auth.start_login(settings)
     # Guarda o state no cookie de sessão para conferir na volta.
@@ -219,8 +256,10 @@ def google_callback(request: Request, owner: Owner, db: DB):
     state = request.session.pop("oauth_state", None)
     # Mesmo para o verifier.
     verifier = request.session.pop("oauth_verifier", None)
+    # Mesmo para a Empresa escolhida no início.
+    company_id = request.session.pop("oauth_company", None)
     # O state que voltou na URL tem que ser igual ao guardado; senão é login forjado.
-    if not state or request.query_params.get("state") != state:
+    if not state or not company_id or request.query_params.get("state") != state:
         # 400 = requisição inválida.
         raise HTTPException(status_code=400, detail="Login expirado ou inválido. Tente de novo.")
     # ":=" (operador morsa) atribui e testa ao mesmo tempo: se veio "error" na URL...
@@ -244,11 +283,19 @@ def google_callback(request: Request, owner: Owner, db: DB):
             # Valores de segurança guardados no início.
             state=state,
             code_verifier=verifier,
+            # Empresa dona da conta.
+            company_id=company_id,
         )
     # Se alguma permissão foi desmarcada, mostra quais.
     except google_auth.MissingScopesError as exc:
         # Converte em erro HTTP 400 com a mensagem explicativa.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Conta já ligada a outra Empresa, ou a Empresa já tem outra conta.
+    except google_auth.AccountCompanyError as exc:
+        # Aviso no topo de Configurações (nada foi gravado).
+        request.session["flash"] = {"texto": str(exc), "erro": True}
+        # Volta.
+        return RedirectResponse("/config#contas", status_code=303)
     # Volta para as Configurações. 303 faz o navegador usar GET no novo endereço.
     return RedirectResponse("/config#contas", status_code=303)
 
