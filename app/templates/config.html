@@ -18,9 +18,9 @@
   {{ m.titulo("Contas conectadas", "Uma conta Google por Empresa, com acesso de leitura ao Gmail, ao Drive e à Agenda. Nada é enviado nem alterado nelas. Os e-mails, arquivos e eventos de cada conta ficam na Empresa dela. Para renovar o acesso, conecte de novo a mesma conta na mesma Empresa.") }}
   {% if accounts %}
     <div class="tabela"><table>
-      <tr><th>Empresa</th><th>Conta</th><th>Atualizado em</th></tr>
+      <tr><th>Empresa</th><th>Conta</th></tr>
       {% for a in accounts %}
-        <tr><td>{{ nomes_empresa.get(a.company_id, "") }}</td><td>{{ a.account_email }}</td><td>{{ a.updated_at | local("%d/%m/%Y %H:%M") }}</td></tr>
+        <tr><td>{{ nomes_empresa.get(a.company_id, "") }}</td><td>{{ a.account_email }}</td></tr>
       {% endfor %}
     </table></div>
   {% else %}
@@ -81,25 +81,20 @@
     <button type="submit">Salvar</button>
   </form>
   {% if companies %}
-    <div class="tabela" style="margin-top: 12px"><table>
-      <tr><th>Empresa</th><th>Idioma das reuniões</th></tr>
-      {% for c in companies %}
-        <tr>
-          <td>{{ c.name }}</td>
-          <td>
-            <form class="linha" style="margin:0" method="post" action="/config/transcricao/{{ c.id }}">
-              <select name="idioma" aria-label="Idioma de {{ c.name }}">
-                <option value="">Padrão geral ({{ languages.get(current.transcription_language, current.transcription_language) }})</option>
-                {% for value, label in languages.items() %}
-                  <option value="{{ value }}" {{ 'selected' if value == c.transcription_language }}>{{ label }}</option>
-                {% endfor %}
-              </select>
-              <button class="mini" type="submit">Salvar</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </table></div>
+    <h3 style="margin-top: 14px">Idioma de cada Empresa</h3>
+    {% for c in companies %}
+      <form class="linha" method="post" action="/config/transcricao/{{ c.id }}">
+        <label>{{ c.name }}
+          <select name="idioma" aria-label="Idioma de {{ c.name }}" style="max-width: 100%">
+            <option value="">Padrão geral ({{ languages.get(current.transcription_language, current.transcription_language) }})</option>
+            {% for value, label in languages.items() %}
+              <option value="{{ value }}" {{ 'selected' if value == c.transcription_language }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="mini" type="submit">Salvar</button>
+      </form>
+    {% endfor %}
   {% endif %}
 </section>
 </div>
