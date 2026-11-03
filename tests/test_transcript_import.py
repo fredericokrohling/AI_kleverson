@@ -302,8 +302,8 @@ def test_import_vtt_linked_to_event(google, sessions):
     page = client.get(response.headers["location"], headers=OWNER).text
     # Texto do aviso.
     assert (
-        "Transcrição carregada com sucesso em Empresa Teste: “Comitê do cliente”, 2 falas, 2 pessoas."
-        in page
+        "Transcrição carregada com sucesso em Empresa Teste: "
+        "“Comitê do cliente”, 2 falas, 2 pessoas." in page
     )
     # Lê o que foi gravado.
     with sessions() as session:

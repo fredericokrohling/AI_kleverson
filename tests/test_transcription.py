@@ -31,11 +31,11 @@ from app.models import BronzeItem, LiveMeeting, SourceKind, TranscriptSegment
 # Módulo de rotas (para trocar o serviço real pelo falso).
 from app.transcription import routes
 
-# Empresa que todo teste tem.
-from tests.fakes import EMPRESA
-
 # Formato de trecho e a função que lê mensagens do Deepgram.
 from app.transcription.providers import Segment, parse_deepgram_message
+
+# Empresa que todo teste tem.
+from tests.fakes import EMPRESA
 
 # Cabeçalho do dono.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
