@@ -87,6 +87,18 @@ class Settings(BaseSettings):
     # Quantos arquivos o coletor manda ao Claude por rodada (uma rodada a cada 5 minutos).
     vision_files_per_run: int = 10
 
+    # Classificação de cada item por projeto (bloco 3, app/classification.py).
+    # Modelo usado quando as regras não decidem. Haiku: classificar é escolher um item de
+    # uma lista curta, e ele custa cerca de 40 vezes menos que o Opus (ver o guia 14).
+    classify_model: str = "claude-haiku-5-5"
+    # Confiança mínima do Claude; abaixo disso a decisão vai para a fila "A revisar".
+    classify_min_confidence: Decimal = Decimal("0.7")
+    # Quantos itens o coletor manda ao Claude por rodada (uma rodada a cada 5 minutos).
+    # As regras sem custo não entram nesta conta: decidem quantos itens houver.
+    classify_llm_per_run: int = 30
+    # Quantos caracteres do texto do item vão ao Claude (o começo é o que mais diz).
+    classify_max_chars: int = 4000
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.

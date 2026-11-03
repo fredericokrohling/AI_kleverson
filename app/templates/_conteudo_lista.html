@@ -43,7 +43,7 @@
   {% if items %}
     <div class="tabela rolagem-10">
       <table>
-        <thead><tr><th>Quando</th>{% if empresa is none %}<th>Empresa</th>{% endif %}<th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr></thead>
+        <thead><tr><th>Quando</th>{% if empresa is none %}<th>Empresa</th>{% endif %}<th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Projeto</th><th>Tags</th></tr></thead>
         <tbody>
           {% for i in items %}
             {% set erro = erros.get(i.id) %}
@@ -53,6 +53,7 @@
               <td>{{ labels.get(i.source, i.source) }}</td>
               <td title="{{ i.subject or '' }}"><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
               <td title="{{ i.author or '' }}">{{ i.author or "" }}</td>
+              <td>{{ item_projeto.get(i.id, "") }}</td>
               <td>{% for name in item_tags.get(i.id, []) %}<span class="tag">{{ name }}</span>{% endfor %}</td>
             </tr>
           {% endfor %}

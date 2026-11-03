@@ -127,6 +127,8 @@ class FactKind(StrEnum):
 class ClassificationMethod(StrEnum):
     # Mesma conversa de e-mail de um item já classificado.
     THREAD = "mesma_conversa"
+    # Pasta ligada ao projeto: marcador do Gmail ou pasta monitorada do Drive.
+    FOLDER = "pasta"
     # Remetente ou participante está cadastrado no projeto.
     STAKEHOLDER = "stakeholder"
     # Encontrou uma palavra-chave do projeto no texto.
@@ -540,6 +542,15 @@ class ItemClassification(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     # Quando a decisão foi tomada.
     decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Por que este projeto, em português (a regra que decidiu ou o motivo dado pelo Claude).
+    reason: Mapped[str | None] = mapped_column(Text)
+    # Projetos que estavam na disputa (ids). Vazio = nenhum sinal; o Claude viu todos.
+    candidates: Mapped[list[int]] = mapped_column(ARRAY(Integer), server_default="{}")
+    # True = a decisão precisa de você (confiança do Claude abaixo do mínimo, ou resposta
+    # que não deu para ler). Aparece na fila "A revisar" da página Classificação.
+    needs_review: Mapped[bool] = mapped_column(Boolean, server_default="false", index=True)
+    # True = você escolheu no console: as regras e o Claude nunca mudam esta decisão.
+    locked: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
 
 # --- Silver -------------------------------------------------------------------

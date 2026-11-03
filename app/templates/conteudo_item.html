@@ -51,6 +51,31 @@
   {% elif drive_tags %}
     <p><strong>Tags (das pastas):</strong> {% for name in drive_tags %}<span class="tag herdada">{{ name }}</span>{% endfor %}</p>
   {% endif %}
+  {# Projeto principal do item (classificação em cascata, app/classification.py). #}
+  {% set cl = classificacao[0] if classificacao else none %}
+  <div style="margin-top: 12px">
+    <strong>Projeto:</strong>
+    {% if cl %}
+      {{ classificacao[1].name if classificacao[1] else "nenhum" }}
+      <span class="muted">· por {{ metodos.get(cl.method, cl.method) }} · {{ "%.0f" | format((cl.confidence or 0) * 100) }}%{% if cl.needs_review %} · <span class="aviso">a revisar</span>{% endif %}</span>
+      {{ m.dica(cl.reason or "") }}
+    {% else %}
+      <span class="muted">ainda não classificado (em até 5 minutos)</span>
+    {% endif %}
+    <form class="linha" method="post" action="/conteudo/{{ item.id }}/projeto">
+      <select name="projeto" aria-label="Escolher o projeto">
+        <option value="">Nenhum projeto</option>
+        {% for p in projetos_empresa %}<option value="{{ p.id }}" {{ 'selected' if cl and p.id == cl.project_id }}>{{ p.name }}</option>{% endfor %}
+      </select>
+      <button class="mini" type="submit">Gravar projeto</button>
+      {{ m.dica("Grava a sua escolha e trava: nenhuma regra nem o Claude mudam mais este item.") }}
+    </form>
+    {% if cl and cl.locked %}
+      <form class="linha" method="post" action="/conteudo/{{ item.id }}/projeto/automatico">
+        <button class="mini secundario" type="submit">Voltar à classificação automática</button>
+      </form>
+    {% endif %}
+  </div>
   {% if speakers %}
     <h2 style="margin-top: 18px">Quem falou</h2>
     <div class="tabela"><table>

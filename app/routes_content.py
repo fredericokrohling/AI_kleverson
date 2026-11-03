@@ -38,6 +38,9 @@ from sqlalchemy import func, or_, select
 # Seção Processamento (diário de ações por dia).
 from app.activity import activity_page, parse_day
 
+# Classificação por projeto: a decisão de cada item e os projetos que podem ser escolhidos.
+from app.classification import METHOD_LABELS, active_projects, of_item, project_of
+
 # Empresas: filtro da página e correção da Empresa de uma transcrição.
 from app.companies import filter_id, move_item, parse_company
 
@@ -319,6 +322,8 @@ def content_list(
         "empresa": company_id,
         # Tags de cada item da lista.
         "item_tags": tag_names(db, [i.id for i in items]),
+        # Projeto de cada item (classificação), para a coluna Projeto.
+        "item_projeto": project_of(db, [i.id for i in items]),
         # Motivo do erro de processamento de cada item com erro (linha roxa).
         "erros": _error_reasons(db, items),
     }
@@ -445,6 +450,12 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
             "project_leaders": project_leaders,
             # Empresa do item.
             "company": db.get(Company, item.company_id),
+            # Projeto do item (classificação) e como foi decidido.
+            "classificacao": of_item(db, item.id),
+            # Projetos ativos da Empresa do item (para escolher à mão).
+            "projetos_empresa": list(active_projects(db, item.company_id).values()),
+            # Nome de cada método da classificação.
+            "metodos": METHOD_LABELS,
             # Reunião ao vivo que gerou a transcrição (a correção a move junto).
             "meeting": db.scalars(
                 select(LiveMeeting).where(LiveMeeting.bronze_item_id == item.id)
