@@ -58,8 +58,11 @@ def test_console_renders_for_owner():
     ):
         # Cada um.
         assert link in response.text
-    # Mostra a seção da coleta de e-mail, ainda sem nenhuma rodada.
-    assert "Nenhuma coleta ainda" in response.text
+    # O indicador de saúde aparece no Início.
+    # Sem nenhum teste ainda, ele não diz "tudo funcionando".
+    assert 'id="saude-resumo"' in response.text and "Nenhum teste automático ainda" in response.text
+    # A coleta de e-mail, ainda sem nenhuma rodada, fica na página Processamento.
+    assert "Nenhuma coleta ainda" in client.get("/conteudo", headers=OWNER).text
 
 
 # O botão de login manda para o Google com os parâmetros certos.

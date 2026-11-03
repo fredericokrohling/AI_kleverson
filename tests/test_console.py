@@ -7,6 +7,9 @@ versões falsas, e a consulta ao GitHub também.
 # Data e hora com fuso, e intervalos.
 from datetime import UTC, datetime, timedelta
 
+# Fusos horários pelo nome.
+from zoneinfo import ZoneInfo
+
 # Biblioteca de testes.
 import pytest
 
@@ -350,6 +353,10 @@ def test_heart_in_menu(sessions):
     page = client.get("/config", headers=OWNER).text
     # Coração vermelho, com o título explicando.
     assert "alerta" in page and "há serviço com problema" in page
+    # O indicador do Início diz só que há problema, sem dizer qual.
+    home = client.get("/", headers=OWNER).text
+    # Vermelho, com o caminho para a Saúde e sem o nome do serviço.
+    assert "Algum serviço está com problema" in home and "gmail" not in home.lower()
     # O Gmail volta.
     with sessions() as s:
         # Novo resultado.
@@ -362,6 +369,8 @@ def test_heart_in_menu(sessions):
         s.commit()
     # Coração normal.
     assert "há serviço com problema" not in client.get("/config", headers=OWNER).text
+    # Indicador verde no Início.
+    assert "Todos os serviços funcionando" in client.get("/", headers=OWNER).text
 
 
 # --- Processamento --------------------------------------------------------------------
@@ -423,7 +432,7 @@ def test_activity_page(sessions):
         assert activity_page(s, "America/Sao_Paulo", page=99, now=now).page == 2
 
 
-# A seção aparece na página inicial e sozinha, pelo HTMX.
+# A seção aparece na página Processamento e sozinha, pelo HTMX.
 def test_activity_section(sessions):
     # Um evento agora, com detalhes.
     with sessions() as s:
@@ -435,9 +444,9 @@ def test_activity_section(sessions):
         )
         # Grava.
         s.commit()
-    # Página inicial.
-    page = client.get("/", headers=OWNER).text
-    # Título novo, evento, detalhes e rolagem no fim.
+    # Página Processamento.
+    page = client.get("/conteudo", headers=OWNER).text
+    # Título, evento, detalhes e rolagem no fim.
     assert "Processamento" in page and "tag.renomear" in page and "de=A, para=B" in page
     # Rolagem no fim (hoje, última página).
     assert "data-rolar-fim" in page
@@ -491,8 +500,8 @@ def test_content_pages(sessions):
         s.commit()
         # Id do e-mail.
         email_id = email.id
-    # Busca por palavra do texto.
-    page = client.get("/conteudo?q=cronograma", headers=OWNER).text
+    # Busca por palavra do texto, em todas as datas (data apagada).
+    page = client.get("/conteudo?q=cronograma&dia=", headers=OWNER).text
     # Acha o e-mail, não o outro.
     assert "Cronograma Atlas" in page and "Almoço" not in page
     # Hora no fuso de Brasília (12:00 UTC = 09:00).
@@ -503,6 +512,72 @@ def test_content_pages(sessions):
     assert "Segue o cronograma." in page and "Homologação | 2026-11-20" in page
     # Inexistente: 404.
     assert client.get("/conteudo/999999", headers=OWNER).status_code == 404
+
+
+# Conteúdo coletado por dia: hoje por padrão, setas, filtro sem clicar e linha roxa com erro.
+def test_content_by_day(sessions):
+    # Agora, e a mesma hora de ontem.
+    now = datetime.now(UTC)
+    # Ontem.
+    yesterday = now - timedelta(days=1)
+    # Dia de ontem no fuso do console (o da URL).
+    day_before = yesterday.astimezone(ZoneInfo(get_settings().console_timezone)).date()
+    # Um e-mail de hoje com anexo sem texto e um arquivo do Drive de ontem.
+    with sessions() as s:
+        # E-mail de hoje.
+        today_email = BronzeItem(
+            source=SourceKind.GMAIL,
+            external_id="hoje",
+            occurred_at=now,
+            subject="Relatório de hoje",
+            content_sha256="c" * 64,
+        )
+        # Arquivo de ontem.
+        old_file = BronzeItem(
+            source=SourceKind.DRIVE,
+            external_id="ontem",
+            occurred_at=yesterday,
+            subject="Planilha de ontem",
+            content_sha256="d" * 64,
+        )
+        # Grava os dois.
+        s.add_all([today_email, old_file])
+        # Gera os ids.
+        s.flush()
+        # Anexo que não virou texto.
+        s.add(
+            Attachment(
+                bronze_item_id=today_email.id,
+                filename="scan.pdf",
+                extraction_error="PDF_SEM_TEXTO: PDF digitalizado",
+            )
+        )
+        # Grava.
+        s.commit()
+    # Sem data: hoje.
+    page = client.get("/conteudo", headers=OWNER).text
+    # Só o de hoje, com a linha roxa e o motivo.
+    assert "Relatório de hoje" in page and "Planilha de ontem" not in page
+    # Linha marcada.
+    assert 'class="com-erro" title="Erro de processamento: scan.pdf: PDF_SEM_TEXTO' in page
+    # Seta para o dia anterior; nenhuma para o futuro.
+    assert f"dia={day_before.isoformat()}" in page and 'aria-label="Dia seguinte"' not in page
+    # Pedido do HTMX só para a tabela (como ao trocar a fonte): devolve só ela, do dia pedido.
+    part = client.get(
+        f"/conteudo?dia={day_before.isoformat()}&fonte=drive",
+        headers={**OWNER, "HX-Target": "conteudo-lista"},
+    ).text
+    # Sem a página em volta, com o item de ontem.
+    assert "<html" not in part and "Planilha de ontem" in part
+    # Os filtros vêm junto, já com a fonte escolhida.
+    assert '<option value="drive" selected>' in part
+    # Outra fonte no mesmo dia: nada.
+    part = client.get(
+        f"/conteudo?dia={day_before.isoformat()}&fonte=gmail",
+        headers={**OWNER, "HX-Target": "conteudo-lista"},
+    ).text
+    # Aviso de vazio.
+    assert "Nada encontrado." in part
 
 
 # Atualização automática: a marca muda com novidades, e a rota avisa o navegador.
@@ -519,12 +594,18 @@ def test_auto_refresh(sessions):
         before = stamp(s, get_settings())
     # Cliente.
     client = TestClient(app)
-    # A página inicial tem o vigia, o bloco que se atualiza e o Processamento de hoje ligado.
+    # A página inicial tem o vigia e o bloco que se atualiza.
     page = client.get("/", headers=OWNER).text
     # Vigia com a marca atual.
     assert f'hx-get="/novidades?marca={before}"' in page
-    # Bloco de dados e Processamento escutando o evento.
-    assert 'id="inicio-dados"' in page and page.count('hx-trigger="novidades from:body"') == 3
+    # Coração do menu e bloco de dados escutando o evento.
+    assert 'id="inicio-dados"' in page and page.count('hx-trigger="novidades from:body"') == 2
+    # Na página Processamento: coração, números e coleta, diário de hoje e conteúdo de hoje.
+    page = client.get("/conteudo", headers=OWNER).text
+    # Os quatro escutam o evento.
+    assert (
+        'id="processamento-dados"' in page and page.count('hx-trigger="novidades from:body"') == 4
+    )
     # Sem novidade: sem aviso.
     assert "HX-Trigger" not in client.get(f"/novidades?marca={before}", headers=OWNER).headers
     # Algo novo no Processamento.

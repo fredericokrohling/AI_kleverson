@@ -418,7 +418,7 @@ def test_email_rules_and_labels(sessions, atlas, tmp_path, monkeypatch):
         # A tag nova.
         legal = session.scalar(select(Tag).where(Tag.name == "Jurídico"))
     # Lista filtrada.
-    listing = client.get(f"/conteudo?tag={legal.id}", headers=OWNER).text
+    listing = client.get(f"/conteudo?tag={legal.id}&dia=", headers=OWNER).text
     # Só o e-mail com a tag.
     assert "Proposta" in listing and "Planilha" not in listing
 

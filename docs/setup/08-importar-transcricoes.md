@@ -45,10 +45,8 @@ nas reuniões do Meet que você quer transcrever.
 
 ## 8.3 Importar
 
-1. Clique em **Reuniões** no menu (ou em **Importar transcrição** na página inicial). Atalho:
-   no calendário da página inicial, clique numa reunião sem transcrição; a página abre com a
-   reunião já escolhida. Na própria página Reuniões, clicar numa reunião do calendário
-   escolhe a reunião no formulário.
+1. Clique em **Reuniões** no menu (ou em **Importar transcrição** na página inicial). Clicar
+   numa reunião sem transcrição no calendário da página escolhe a reunião no formulário.
 2. **Dia da reunião:** começa em hoje. Ao trocar a data, a lista de reuniões é lida de novo
    da sua agenda.
 3. **Reunião:** a lista mostra as reuniões com horário daquele dia, com a plataforma

@@ -1,44 +1,66 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Processamento · Kleverson A.I.{% endblock %}
 {% block content %}
 <div class="cabecalho">
   <div>
-    <h1>Conteúdo coletado</h1>
-    <div class="sub">O texto que a IA vai ler: corpo dos e-mails, texto extraído dos anexos e de cada versão dos arquivos do Drive.</div>
+    <h1>Processamento</h1>
+    <div class="sub">O que foi coletado, o que o sistema fez e o texto que a IA vai ler.</div>
   </div>
 </div>
-<section>
-  <form class="linha" method="get" action="/conteudo">
-    <input type="search" name="q" value="{{ q }}" placeholder="Palavra no assunto ou no texto" aria-label="Procurar">
-    <select name="fonte" aria-label="Fonte">
-      <option value="">Todas as fontes</option>
-      {% for kind, label in labels.items() %}
-        <option value="{{ kind.value }}" {{ "selected" if fonte == kind.value }}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <select name="tag" aria-label="Tag">
-      <option value="">Todas as tags</option>
-      {% for t in tags %}
-        <option value="{{ t.id }}" {{ "selected" if tag == t.id | string }}>{{ t.name }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit">Procurar</button>
-  </form>
-  {% if items %}
-    <div class="tabela"><table>
-      <tr><th>Quando</th><th>Fonte</th><th>Assunto ou arquivo</th><th>De</th><th>Tags</th></tr>
-      {% for i in items %}
-        <tr>
-          <td>{{ i.occurred_at | local("%d/%m/%Y %H:%M") }}</td>
-          <td>{{ labels.get(i.source, i.source) }}</td>
-          <td><a href="/conteudo/{{ i.id }}">{{ i.subject or "(sem assunto)" }}</a></td>
-          <td>{{ i.author or "" }}</td>
-          <td>{% for name in item_tags.get(i.id, []) %}<span class="tag">{{ name }}</span>{% endfor %}</td>
-        </tr>
-      {% endfor %}
-    </table></div>
-    {% if items | length == limit %}<p class="muted pequeno" style="margin-top: 10px">Mostrando os {{ limit }} mais recentes. Use a busca para achar itens mais antigos.</p>{% endif %}
-  {% else %}
-    <p class="muted">Nada encontrado.</p>
-  {% endif %}
+
+{# Com novidades (ver app/updates.py), os números e a coleta se buscam de novo. #}
+{% set c = resumo.coleta %}
+<div id="processamento-dados" hx-get="/conteudo" hx-select="#processamento-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
+  <div class="kpis" style="margin-bottom: 16px">
+    <a class="kpi" href="/conteudo?fonte=gmail&dia=#conteudo">
+      <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></svg>E-mails</div>
+      <div class="valor">{{ c.emails }}</div>
+      <div class="detalhe">no bronze</div>
+    </a>
+    <a class="kpi {{ 'alerta' if c.files_without_text }}" href="/#erros">
+      <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5"/></svg>Anexos</div>
+      <div class="valor">{{ c.files }}</div>
+      <div class="detalhe">{{ c.files_without_text }} sem texto extraído</div>
+    </a>
+    <a class="kpi" href="/config#drive">
+      <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Drive</div>
+      <div class="valor">{{ resumo.versions }}</div>
+      <div class="detalhe">versões · {{ resumo.folders }} pasta(s), {{ resumo.files }} arquivo(s), {{ resumo.linked }} por link</div>
+    </a>
+    <a class="kpi" href="/transcricoes/importar">
+      <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Transcrições</div>
+      <div class="valor">{{ resumo.transcripts }}</div>
+      <div class="detalhe">de reunião</div>
+    </a>
+  </div>
+
+  <section id="coleta">
+    {{ m.titulo("Coleta de e-mail", "Cada linha é uma rodada da coleta do Gmail: quantos e-mails novos chegaram, quantos anexos foram gravados, quantos ficaram sem texto e quantos deram erro (passe o mouse no número de erros para ver o motivo).") }}
+    {% if c.runs %}
+      <div class="tabela"><table>
+        <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
+        {% for r in c.runs %}
+          <tr>
+            <td>{{ r.started_at | local }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.messages_new }}</td>
+            <td>{{ r.attachments_saved }}</td>
+            <td>{{ r.extraction_errors }}</td>
+            <td{% if r.message_errors %} class="erro" title="{{ r.error_detail or '' }}"{% endif %}>{{ r.message_errors }}</td>
+          </tr>
+        {% endfor %}
+      </table></div>
+    {% else %}
+      <p class="vazio">Nenhuma coleta ainda. Ela começa sozinha alguns minutos depois de conectar a conta Google.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% include "_processamento.html" %}
+
+<section id="conteudo">
+  {{ m.titulo("Conteúdo coletado", "O texto que a IA vai ler: corpo dos e-mails, texto extraído dos anexos e de cada versão dos arquivos do Drive, um dia por vez. Trocar a fonte, a tag ou a data já troca a tabela; a palavra vale ao clicar em Procurar. Apague a data para procurar em todas as datas. Linha roxa: algum anexo ou arquivo ficou sem texto (passe o mouse na linha para ver o motivo).") }}
+  {% include "_conteudo_lista.html" %}
 </section>
 {% endblock %}

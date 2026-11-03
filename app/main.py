@@ -22,8 +22,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Serve arquivos fixos (o htmx.min.js) direto de uma pasta.
 from fastapi.staticfiles import StaticFiles
 
-# select monta consultas ao banco; func gera funções SQL (COUNT).
-from sqlalchemy import func, select
+# select monta consultas ao banco.
+from sqlalchemy import select
 
 # Guarda dados entre requisições num cookie assinado (usado no login do Google).
 from starlette.middleware.sessions import SessionMiddleware
@@ -40,22 +40,22 @@ from app.config import get_settings
 # Fábrica de sessões.
 from app.db import get_sessionmaker
 
+# Último teste de saúde (o indicador do Início não diz "tudo funcionando" sem teste).
+from app.health import last_run_at
+
 # Lista de arquivos sem texto.
 from app.ingestion.failures import list_failures
-
-# Resumo da coleta de e-mail mostrado na página inicial.
-from app.ingestion.gmail import collection_overview
 
 # Cliente do Claude e erro de teto.
 from app.llm import BudgetExceededError, LLMClient
 
 # Tabelas consultadas na página inicial.
-from app.models import BronzeItem, DriveFolder, DriveItem, OAuthToken, SourceKind
+from app.models import BronzeItem, OAuthToken, SourceKind
 
 # Rotas da página Configurações e da navegação pelo Drive.
 from app.routes_config import router as config_router
 
-# Rotas do conteúdo coletado (ver o texto que a IA lê).
+# Rotas da página Processamento (números, coleta, diário e conteúdo coletado).
 from app.routes_content import router as content_router
 
 # Botões "Tentar de novo" dos arquivos sem texto.
@@ -140,45 +140,13 @@ def processing(
     return templates.TemplateResponse(request, "_processamento.html", {"p": activity})
 
 
-# Página inicial; response_class diz que a resposta é HTML. data e pagina (opcionais)
-# escolhem o dia e a página da seção Processamento quando o navegador não usa HTMX.
+# Página inicial; response_class diz que a resposta é HTML. Mostra se os serviços estão
+# funcionando, as últimas transcrições e os arquivos sem texto. Os números, a coleta e o
+# diário de ações ficam na página Processamento (app/routes_content.py).
 @app.get("/", response_class=HTMLResponse)
-def index(
-    request: Request, owner: Owner, db: DB, data: str | None = None, pagina: int | None = None
-):
+def index(request: Request, owner: Owner, db: DB):
     # Contas Google conectadas (a página só avisa se não houver nenhuma).
     accounts = db.scalars(select(OAuthToken).order_by(OAuthToken.account_email)).all()
-    # Processamento: eventos do dia (hoje, por padrão).
-    activity = activity_page(db, get_settings().console_timezone, parse_day(data), pagina)
-    # Totais do Drive: pastas ativas, arquivos presentes e versões no bronze.
-    drive = {
-        # Pastas monitoradas ligadas.
-        "folders": db.scalar(
-            select(func.count()).select_from(DriveFolder).where(DriveFolder.active.is_(True))
-        ),
-        # Arquivos (não pastas) ainda presentes nas pastas monitoradas.
-        "files": db.scalar(
-            select(func.count())
-            .select_from(DriveItem)
-            .where(
-                DriveItem.is_folder.is_(False),
-                DriveItem.removed.is_(False),
-                DriveItem.folder_id.is_not(None),
-            )
-        ),
-        # Arquivos que chegaram por link num e-mail (fora das pastas).
-        "linked": db.scalar(
-            select(func.count())
-            .select_from(DriveItem)
-            .where(DriveItem.is_folder.is_(False), DriveItem.folder_id.is_(None))
-        ),
-        # Versões gravadas.
-        "versions": db.scalar(
-            select(func.count())
-            .select_from(BronzeItem)
-            .where(BronzeItem.source == SourceKind.DRIVE)
-        ),
-    }
     # Últimas 5 transcrições de reunião (importadas ou da extensão).
     meetings = db.scalars(
         # Itens do bronze...
@@ -190,22 +158,14 @@ def index(
         # ... só 5.
         .limit(5)
     ).all()
-    # Quantas transcrições de reunião há no total (número de resumo no topo da página).
-    meetings_total = db.scalar(
-        # Conta linhas...
-        select(func.count())
-        # ... da tabela do bronze...
-        .select_from(BronzeItem)
-        # ... só as de transcrição de reunião.
-        .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT)
-    )
     # Preenche o modelo index.html com os dados abaixo.
     return templates.TemplateResponse(
         # A requisição (o Jinja2 precisa dela para montar links).
         request,
         # Qual modelo usar.
         "index.html",
-        # Variáveis disponíveis dentro do HTML.
+        # Variáveis disponíveis dentro do HTML (o indicador de saúde usa saude_alerta, que
+        # toda página já recebe; ver app/web.py).
         {
             # Seu login.
             "owner": owner,
@@ -215,18 +175,12 @@ def index(
             "flash": request.session.pop("flash", None),
             # Contas conectadas.
             "accounts": accounts,
-            # Seção Processamento.
-            "p": activity,
-            # Últimas rodadas da coleta do Gmail e totais do bronze.
-            "coleta": collection_overview(db),
-            # Totais do Drive.
-            "drive": drive,
             # Arquivos sem texto (anexos e Drive), com código e motivo.
             "failures": list_failures(db),
             # Últimas transcrições de reunião.
             "reunioes": meetings,
-            # Total de transcrições de reunião.
-            "transcricoes_total": meetings_total,
+            # Já houve algum teste automático de saúde?
+            "saude_testada": last_run_at(db) is not None,
         },
     )
 

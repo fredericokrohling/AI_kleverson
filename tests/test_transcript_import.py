@@ -482,8 +482,8 @@ def test_build_day_positions_and_lanes():
     assert build_day([], {}, date(2026, 11, 3), "America/Sao_Paulo", now=now).now is None
 
 
-# O cartão da agenda mostra a situação de cada reunião e leva para o lugar certo.
-def test_agenda_card_links(google, sessions):
+# O calendário da página Reuniões mostra a situação de cada reunião e leva para o lugar certo.
+def test_agenda_links(google, sessions):
     # Uma transcrição já ligada à reunião do Teams.
     with sessions() as s:
         # Item de transcrição com o thread_id que a importação grava.
@@ -500,15 +500,15 @@ def test_agenda_card_links(google, sessions):
         s.commit()
         # Id gravado.
         item_id = item.id
-    # O cartão do dia 02/11.
-    card = client.get("/transcricoes/agenda?data=2026-11-02", headers=OWNER).text
+    # A página Reuniões no dia 02/11.
+    card = client.get("/transcricoes/importar?data=2026-11-02", headers=OWNER).text
     # A do Teams abre a transcrição já ligada.
     assert f'href="/conteudo/{item_id}"' in card and "transcrição ligada" in card
     # A do Meet leva para a importação com a reunião já escolhida.
     assert "/transcricoes/importar?data=2026-11-02&evento=meet1" in card
     # E diz que a transcrição do Meet está pronta para baixar.
     assert "transcrição do Meet pronta" in card
-    # Resumo no topo do cartão.
+    # Resumo no topo do calendário.
     assert "2 reunião(ões) · 1 com transcrição" in card
     # A página de importação aberta por esse link já deixa a reunião escolhida.
     page = client.get("/transcricoes/importar?data=2026-11-02&evento=meet1", headers=OWNER).text
@@ -518,11 +518,3 @@ def test_agenda_card_links(google, sessions):
     part = client.get("/transcricoes/importar/reunioes?data=2026-11-03", headers=OWNER).text
     # O calendário vem marcado para ir para o lugar dele.
     assert 'id="agenda-dia" hx-swap-oob="true"' in part and "Amanhã" in part
-
-
-# A página inicial pede o cartão da agenda depois de abrir, sem esperar o Google.
-def test_home_loads_agenda_later():
-    # Página inicial.
-    page = client.get("/", headers=OWNER).text
-    # O cartão chega por HTMX ao carregar a página.
-    assert 'hx-get="/transcricoes/agenda" hx-trigger="load"' in page
