@@ -308,8 +308,10 @@ def check_disk(session: Session, settings: Settings, ctx: dict) -> Result:
     path = settings.data_dir if Path(settings.data_dir).exists() else "/"
     # Total, usado e livre, em bytes.
     usage = shutil.disk_usage(path)
-    # Porcentagem ocupada.
-    percent = usage.used / usage.total * 100
+    # Porcentagem ocupada: tudo o que não está livre para uso. Inclui os ~5% que o Linux
+    # reserva para si, que não aparecem em "used" mas também não podem ser usados. É a
+    # mesma conta do gráfico de rosca de Configurações (app/disk_usage.py).
+    percent = (usage.total - usage.free) / usage.total * 100
     # Livre em GB.
     free_gb = usage.free / 1024**3
     # Texto.

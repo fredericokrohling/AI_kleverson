@@ -43,6 +43,8 @@ from sqlalchemy import (
     DateTime,
     # Lista fechada de valores, validada pelo próprio banco.
     Enum,
+    # Número com vírgula aproximado (rápido); serve para medições como 37,5%.
+    Float,
     # Chave estrangeira: aponta para a linha de outra tabela.
     ForeignKey,
     # Índice do banco; aqui, o que impede dois nomes de Empresa iguais.
@@ -897,6 +899,38 @@ class HealthCheck(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     # Explicação curta do resultado.
     detail: Mapped[str | None] = mapped_column(Text)
+
+
+# Uma medição do servidor, gravada a cada minuto pelo serviço coletor.
+class ServerMetric(Base):
+    """Uso do servidor num minuto: processador, memória e carga.
+
+    Por que gravar no banco, e não ler na hora: "agora" não diz se o servidor aguenta.
+    Gargalo é um padrão no tempo (todo dia às 9h, toda coleta grande), e só aparece
+    comparando horas e dias. Guardamos 8 dias (o gráfico mostra 7): cerca de 11,5 mil
+    linhas, menos de 2 MB.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "server_metrics"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Fim do minuto medido; index: os gráficos sempre filtram por período.
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # % do processador trabalhando (programas e sistema), de 0 a 100.
+    cpu_pct: Mapped[float] = mapped_column(Float)
+    # % do processador parado esperando o disco (leitura ou gravação lenta).
+    iowait_pct: Mapped[float] = mapped_column(Float)
+    # % "roubado": tempo em que a AWS não entregou o processador à máquina (no
+    # Lightsail, sinal de que os créditos de pico acabaram).
+    steal_pct: Mapped[float] = mapped_column(Float)
+    # % da memória RAM em uso (sem contar o cache, que o Linux devolve quando precisa).
+    mem_pct: Mapped[float] = mapped_column(Float)
+    # % da memória de troca (swap) em uso; vazio quando o servidor não tem swap.
+    swap_pct: Mapped[float | None] = mapped_column(Float)
+    # Carga média de 1 minuto: quantos processos queriam o processador ao mesmo tempo.
+    load1: Mapped[float] = mapped_column(Float)
 
 
 # Diário de tudo que o sistema faz sozinho. Como você não aprova cada ação, é aqui

@@ -18,6 +18,7 @@ consideradas e onde ela aparece no código.
 10. [Projetos, equipe, quem falou e tags nos e-mails](10-projetos-equipe-falas-tags.md)
 11. [Reuniões ao vivo no Início: duas reuniões, participantes e quem falou](11-reunioes-ao-vivo.md)
 12. [Empresas: separar os dados de cada cliente em todas as camadas](12-empresas.md)
+13. [Uso do servidor: disco por projeto e gargalos de processador e memória](13-uso-do-servidor.md)
 
 ## Como ler o código
 

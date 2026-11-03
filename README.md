@@ -47,6 +47,7 @@ Siga na ordem:
 11. [Página Processamento, cores novas e indicador de saúde](docs/setup/11-pagina-processamento.md)
 12. [Reuniões ao vivo no Início, participantes e pastas do Drive em Cadastros](docs/setup/12-reunioes-ao-vivo.md)
 13. [Empresas: cada cliente separado, com conta Google, projetos e pessoas próprios](docs/setup/13-empresas.md)
+14. [Uso do servidor: disco por projeto e gráficos de processador e memória](docs/setup/14-uso-do-servidor.md)
 
 ## Desenvolvimento local
 
