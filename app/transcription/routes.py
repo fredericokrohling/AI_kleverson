@@ -44,6 +44,9 @@ from app.config import get_settings
 # Sessão por requisição e fábrica de sessões.
 from app.db import get_session, get_sessionmaker
 
+# Liga a captura à reunião do evento da agenda.
+from app.meetings import link_live_to_event
+
 # Tabela das Empresas.
 from app.models import Company
 
@@ -314,11 +317,14 @@ def start(session_id: str, body: StartIn, owner: Owner, db: DB) -> dict:
     meeting, _ = live.ensure_meeting(db, session_id, body.titulo, body.url_reuniao)
     # Ainda sem Empresa: procura o endereço do Meet na agenda de cada Empresa.
     if meeting.company_id is None:
-        # A Empresa cuja agenda tem a reunião (uma só), ou None.
-        company = detect_company(db, meeting, _today_events(db))
-        # Achou: a reunião passa a ser dela.
+        # A Empresa cuja agenda tem a reunião (uma só) e o evento, ou (None, None).
+        company, event = detect_company(db, meeting, _today_events(db))
+        # Achou: a reunião passa a ser dela, ligada ao evento da agenda.
         if company is not None:
+            # Empresa.
             set_meeting_company(db, meeting, company, "sistema")
+            # Reunião do evento (data, horário, convidados).
+            link_live_to_event(db, meeting, event)
     # Grava.
     db.commit()
     # O Início redesenha as áreas das reuniões (com o título e a Empresa).

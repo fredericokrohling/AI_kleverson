@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     BronzeItem,
     LiveMeeting,
+    MeetingAttendee,
     MeetingParticipant,
     SourceKind,
     Stakeholder,
@@ -143,14 +144,21 @@ class PeopleIndex:
         return None
 
 
-# Participantes do convite guardados no item: nome normalizado → e-mail.
-def attendees_of(item: BronzeItem) -> dict[str, str]:
-    # Dados do evento da agenda, se a transcrição foi ligada a um.
-    event = (item.extra or {}).get("evento_agenda") or {}
-    # Pares (nome, e-mail) guardados na importação.
-    pairs = event.get("participantes_emails") or {}
-    # Chave comparável.
-    return {normalize(name): email for name, email in pairs.items() if email}
+# Participantes da reunião da transcrição: nome normalizado → e-mail.
+def attendees_of(session: Session, item: BronzeItem) -> dict[str, str]:
+    """Vem da tabela de participantes da reunião (convidados da agenda e quem você
+    cadastrou ao vivo). Transcrição sem reunião: nenhum."""
+    # Sem reunião.
+    if item.meeting_id is None:
+        return {}
+    # Pares (nome comparável, e-mail) de quem tem e-mail.
+    rows = session.execute(
+        select(MeetingAttendee.name_key, MeetingAttendee.email).where(
+            MeetingAttendee.meeting_id == item.meeting_id, MeetingAttendee.email.is_not(None)
+        )
+    ).all()
+    # Dicionário.
+    return {key: email for key, email in rows}
 
 
 # Grava as falas de uma transcrição, trocando as que já existiam. Devolve quantas.
@@ -160,7 +168,7 @@ def save_utterances(session: Session, item: BronzeItem, spoken: Iterable[Spoken]
     # Pessoas cadastradas na Empresa da transcrição.
     people = PeopleIndex(session, item.company_id)
     # Participantes do convite.
-    attendees = attendees_of(item)
+    attendees = attendees_of(session, item)
     # Contador.
     count = 0
     # Cada fala.
@@ -309,6 +317,12 @@ def relink_utterances(session: Session, company_id: int | None = None) -> int:
     """Devolve quantas falas passaram a ter pessoa. company_id: só uma Empresa."""
     # Primeiro os participantes de reuniões ao vivo com o e-mail de alguém cadastrado.
     link_participants_by_email(session, company_id)
+    # E os participantes das reuniões (convidados da agenda), pelo mesmo e-mail. Import
+    # local: o módulo das reuniões importa este.
+    from app.meetings import link_attendees_by_email
+
+    # Liga.
+    link_attendees_by_email(session, company_id)
     # Pessoas cadastradas, por Empresa.
     indexes = _Indexes(session)
     # Falas sem pessoa, com o item (para os participantes do convite).
@@ -337,7 +351,7 @@ def relink_utterances(session: Session, company_id: int | None = None) -> int:
     # Cada fala.
     for utterance, item in rows:
         # Participantes do convite desta transcrição.
-        attendees = cache.setdefault(item.id, attendees_of(item))
+        attendees = cache.setdefault(item.id, attendees_of(session, item))
         # Tenta reconhecer entre as pessoas da Empresa da transcrição.
         person = indexes[item.company_id].match(utterance.speaker, attendees)
         # Reconheceu.

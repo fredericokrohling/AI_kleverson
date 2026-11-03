@@ -61,6 +61,9 @@ from app.config import Settings
 # Cliente do Claude, teto e gasto do mês.
 from app.llm import BudgetExceededError, LLMClient, month_spend_usd
 
+# Nomes dos participantes de uma reunião.
+from app.meetings import attendee_names
+
 # Tabelas.
 from app.models import (
     Attachment,
@@ -371,11 +374,11 @@ def item_text(session: Session, item: BronzeItem, max_chars: int) -> str:
     elif item.source == SourceKind.MEET_TRANSCRIPT:
         # Tipo.
         head.append("Tipo: transcrição de reunião")
-        # Convidados da agenda.
-        event = (item.extra or {}).get("evento_agenda") or {}
+        # Participantes da reunião.
+        names = attendee_names(session, item.meeting_id)
         # Mostra.
-        if event.get("participantes"):
-            head.append(f"Participantes: {', '.join(event['participantes'][:20])}")
+        if names:
+            head.append(f"Participantes: {', '.join(names[:20])}")
     # Drive.
     else:
         # Tipo.

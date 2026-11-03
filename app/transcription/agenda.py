@@ -23,8 +23,8 @@ from sqlalchemy import select
 # Session: conversa com o banco.
 from sqlalchemy.orm import Session
 
-# Tabela do bronze e o tipo "transcrição de reunião".
-from app.models import BronzeItem, SourceKind
+# Tabelas do bronze e das reuniões.
+from app.models import BronzeItem, Meeting
 
 # Reunião lida da agenda.
 from app.transcription.calendar import CalendarEvent
@@ -95,34 +95,30 @@ class AgendaDay:
 
 # Transcrições já ligadas a cada reunião: id do evento → id do item no bronze.
 def linked_transcripts(session: Session, event_ids: list[str], company_id: int) -> dict[str, int]:
-    """A importação grava thread_id = "agenda:<id do evento>"; é por ele que se liga.
+    """Pela reunião (tabela meetings): a do evento na Empresa da agenda, e as transcrições
+    que apontam para ela, importadas ou feitas pela extensão.
 
-    Só as transcrições da Empresa da agenda: o mesmo evento aparece na agenda das duas
-    Empresas quando as duas contas foram convidadas, e cada uma tem a sua transcrição."""
+    Só as da Empresa da agenda: o mesmo evento aparece na agenda das duas Empresas quando
+    as duas contas foram convidadas, e cada uma tem a sua reunião e a sua transcrição."""
     # Sem reuniões, sem consulta.
     if not event_ids:
         return {}
-    # Os thread_id procurados.
-    threads = [f"agenda:{event_id}" for event_id in event_ids]
-    # Itens de transcrição com esses thread_id; o mais antigo primeiro (fica o primeiro).
+    # (id do evento, id da transcrição); a mais antiga primeiro (fica a primeira).
     rows = session.execute(
         # Só as duas colunas usadas.
-        select(BronzeItem.thread_id, BronzeItem.id)
-        # Transcrições de reunião ligadas a um destes eventos.
-        .where(
-            BronzeItem.company_id == company_id,
-            BronzeItem.source == SourceKind.MEET_TRANSCRIPT,
-            BronzeItem.thread_id.in_(threads),
-        )
+        select(Meeting.calendar_event_id, BronzeItem.id)
+        # Transcrição → reunião.
+        .join(BronzeItem, BronzeItem.meeting_id == Meeting.id)
+        # Reuniões desta Empresa, destes eventos.
+        .where(Meeting.company_id == company_id, Meeting.calendar_event_id.in_(event_ids))
         # Ordem estável.
         .order_by(BronzeItem.id)
     ).all()
     # Resultado.
     found: dict[str, int] = {}
-    # Cada linha.
-    for thread_id, item_id in rows:
-        # Tira o prefixo "agenda:" e guarda só a primeira transcrição de cada reunião.
-        found.setdefault(thread_id.removeprefix("agenda:"), item_id)
+    # Cada linha: guarda só a primeira transcrição de cada reunião.
+    for event_id, item_id in rows:
+        found.setdefault(event_id, item_id)
     # Devolve.
     return found
 

@@ -20,6 +20,7 @@ consideradas e onde ela aparece no código.
 12. [Empresas: separar os dados de cada cliente em todas as camadas](12-empresas.md)
 13. [Uso do servidor: disco por projeto e gargalos de processador e memória](13-uso-do-servidor.md)
 14. [Classificação por projeto: regras primeiro, Claude só no que sobrar](14-classificacao.md)
+15. [Reuniões: a reunião como uma coisa só, acima das transcrições](15-reunioes.md)
 
 ## Como ler o código
 

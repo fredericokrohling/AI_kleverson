@@ -35,6 +35,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Consultas; or_ junta condições com "ou".
 from sqlalchemy import func, or_, select
 
+# Reuniões: participantes e transcrições de cada uma.
+from app import meetings
+
 # Seção Processamento (diário de ações por dia).
 from app.activity import activity_page, parse_day
 
@@ -58,6 +61,7 @@ from app.models import (
     DriveFolder,
     DriveItem,
     LiveMeeting,
+    Meeting,
     Project,
     ProjectStakeholder,
     SourceKind,
@@ -422,6 +426,8 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
     ):
         # Acrescenta o projeto à lista da pessoa.
         project_leaders.setdefault(person_id, []).append(project_name)
+    # Reunião da transcrição (tabela meetings), se houver.
+    reuniao = db.get(Meeting, item.meeting_id) if item.meeting_id else None
     # Monta a página.
     return templates.TemplateResponse(
         request,
@@ -456,6 +462,17 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
             "projetos_empresa": list(active_projects(db, item.company_id).values()),
             # Nome de cada método da classificação.
             "metodos": METHOD_LABELS,
+            # Reunião da transcrição: data, horário, organizador.
+            "reuniao": reuniao,
+            # Participantes dela, com a Pessoa de cada um.
+            "participantes_reuniao": [
+                (a, db.get(Stakeholder, a.stakeholder_id) if a.stakeholder_id else None)
+                for a in (meetings.attendees(db, reuniao) if reuniao else [])
+            ],
+            # Outras transcrições da mesma reunião (importada e da extensão, por exemplo).
+            "outras_transcricoes": [
+                t for t in (meetings.transcripts(db, reuniao) if reuniao else []) if t.id != item.id
+            ],
             # Reunião ao vivo que gerou a transcrição (a correção a move junto).
             "meeting": db.scalars(
                 select(LiveMeeting).where(LiveMeeting.bronze_item_id == item.id)

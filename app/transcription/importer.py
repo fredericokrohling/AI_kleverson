@@ -41,6 +41,9 @@ from sqlalchemy import select
 # Session: conversa com o banco.
 from sqlalchemy.orm import Session
 
+# Reunião de cada transcrição (tabela meetings).
+from app import meetings
+
 # Leitura dos formatos que já existem para anexos.
 from app.ingestion.extractors import decode_text, extract_text, split_error
 
@@ -376,6 +379,8 @@ def import_transcript(
     company_id: int,
     # "teams" ou "meet", quando se sabe pela origem do arquivo.
     platform: str | None = None,
+    # Horário de início digitado, para reunião fora da agenda (vazio = só o dia).
+    start_time: time | None = None,
 ) -> ImportResult:
     """Cria o item do bronze na Empresa. Levanta ImportFailure com o motivo."""
     # Sem reunião escolhida e sem título: não dá para saber de que reunião é.
@@ -411,8 +416,28 @@ def import_transcript(
         )
     # Título: o do evento, ou o digitado.
     subject = event.title if event else title.strip()[:500]
-    # Quando: início do evento, ou meia-noite do dia escolhido, no fuso do console.
-    when = event.start if event else datetime.combine(day, time.min, tzinfo=ZoneInfo(timezone))
+    # Quando: início do evento, ou o dia escolhido com o horário digitado (sem horário,
+    # meia-noite), no fuso do console.
+    when = (
+        event.start
+        if event
+        else datetime.combine(day, start_time or time.min, tzinfo=ZoneInfo(timezone))
+    )
+    # Plataforma: a da origem do arquivo, ou a da agenda.
+    platform = platform or (event.platform if event else None)
+    # A reunião: a do evento nesta Empresa (achada ou criada), ou uma nova fora da agenda.
+    if event is not None:
+        reuniao = meetings.for_event(session, company_id, event, platform)
+    # Fora da agenda: uma reunião por transcrição (não há como saber que duas são a mesma).
+    else:
+        reuniao = meetings.standalone(
+            session,
+            company_id,
+            title=subject,
+            starts_at=when,
+            time_known=start_time is not None,
+            platform=platform,
+        )
     # Guarda o original.
     key = store.save(data, safe_suffix(filename))
     # Item novo.
@@ -423,8 +448,10 @@ def import_transcript(
         source=SourceKind.MEET_TRANSCRIPT,
         # Id pela impressão digital.
         external_id=external_id,
-        # Liga ao evento; a transcrição da extensão da mesma reunião terá o mesmo valor
-        # quando a extensão passar a saber o evento.
+        # Reunião.
+        meeting_id=reuniao.id,
+        # Liga ao evento; a transcrição da extensão da mesma reunião tem o mesmo valor
+        # (a classificação por projeto trata as duas como a mesma conversa).
         thread_id=f"agenda:{event.id}" if event else None,
         # Quando aconteceu.
         occurred_at=when,
@@ -441,7 +468,7 @@ def import_transcript(
             # Diferencia da transcrição feita pela extensão.
             "origem": "importada",
             # Teams, Meet ou desconhecida.
-            "plataforma": platform or (event.platform if event else None),
+            "plataforma": platform,
             # Arquivo original guardado.
             "arquivo": key,
             # Nome do arquivo enviado.

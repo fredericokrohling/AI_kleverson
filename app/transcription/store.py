@@ -20,6 +20,9 @@ from sqlalchemy import select
 # Session: conversa com o banco.
 from sqlalchemy.orm import Session
 
+# Reunião de cada transcrição (tabela meetings).
+from app import meetings
+
 # Tabelas e a função de auditoria.
 from app.models import BronzeItem, SourceKind, TranscriptSegment, audit
 
@@ -210,6 +213,11 @@ def finalize(
         return None
     # Título e endereço: os informados agora, ou os guardados na reunião.
     title, meeting_url = meeting.title, meeting.meeting_url
+    # A captura sai do "ao vivo" (a primeira finalização marca a hora; é o fim da reunião
+    # quando ela não está na agenda).
+    meeting.finished_at = meeting.finished_at or live.utc_now()
+    # A reunião (tabela meetings): a do evento da agenda, ou uma criada agora.
+    reuniao = meetings.attach_live(session, meeting)
     # Trechos da reunião.
     audio, captions = segments_by_channel(session, session_id)
     # Quem é cada voz: (canal, rótulo) → participante.
@@ -232,6 +240,12 @@ def finalize(
         )
         # Prepara a inserção.
         session.add(item)
+    # A transcrição aponta para a reunião.
+    item.meeting_id = reuniao.id
+    # Reunião da agenda: mesma "conversa" que a transcrição importada do mesmo evento (a
+    # classificação por projeto usa isso).
+    if reuniao.calendar_event_id:
+        item.thread_id = f"agenda:{reuniao.calendar_event_id}"
     # Título informado ou um padrão.
     item.subject = title or "Reunião sem título"
     # A transcrição completa.
@@ -276,9 +290,7 @@ def finalize(
         )
     # Grava (troca as falas de uma finalização anterior).
     save_utterances(session, item, spoken)
-    # A reunião sai do "ao vivo" (a primeira finalização marca a hora).
-    meeting.finished_at = meeting.finished_at or live.utc_now()
-    # E aponta para a transcrição salva.
+    # A captura aponta para a transcrição salva.
     meeting.bronze_item_id = item.id
     # Tags pelas regras (nome do projeto no título).
     apply_rules(session, item)

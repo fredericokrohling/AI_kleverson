@@ -37,6 +37,9 @@ from app.companies import parse_company, set_meeting_company
 # Configuração.
 from app.config import get_settings
 
+# Liga a captura à reunião do evento da agenda.
+from app.meetings import link_live_to_event
+
 # Pessoas cadastradas.
 from app.models import LiveMeeting, Stakeholder
 
@@ -216,6 +219,8 @@ def choose_company(request: Request, owner: Owner, db: DB, sessao: str, empresa:
         company = parse_company(db, empresa)
         # Troca (e salva, se a reunião já acabou).
         set_meeting_company(db, meeting, company, owner)
+        # Procura o evento na agenda da Empresa escolhida, para ligar a reunião a ele.
+        _link_event(db, meeting)
         # Grava.
         db.commit()
     # Sem Empresa, inexistente ou já existe uma transcrição igual na outra Empresa.
@@ -228,6 +233,33 @@ def choose_company(request: Request, owner: Owner, db: DB, sessao: str, empresa:
     live.hub.publish({"tipo": "reunioes"})
     # Seção redesenhada.
     return templates.TemplateResponse(request, "_ao_vivo.html", live_context(db, erros))
+
+
+# Liga a captura ao evento da agenda da Empresa dela com o mesmo endereço do Meet.
+def _link_event(db, meeting: LiveMeeting) -> None:
+    """Melhor esforço: sem endereço do Meet, sem conta Google, agenda fora do ar ou
+    nenhum evento com o endereço, a reunião fica fora da agenda (criada ao salvar)."""
+    # Sem endereço ou sem Empresa, não há o que procurar.
+    if live.meet_code(meeting.meeting_url) is None or meeting.company_id is None:
+        return
+    # Configuração.
+    settings = get_settings()
+    # Tenta ler a agenda do dia em que a reunião começou.
+    try:
+        # Dia no fuso do console.
+        day = meeting.started_at.astimezone(_zone(settings)).date()
+        # Reuniões do dia.
+        events = events_on(
+            calendar_client(db, settings, meeting.company_id), day, settings.console_timezone
+        )
+    # Sem conta (RuntimeError) ou a agenda recusou (HttpError): fica sem o evento.
+    except (RuntimeError, HttpError):
+        return
+    # O evento com o mesmo endereço.
+    event = live.matching_event(meeting, events)
+    # Achou: liga.
+    if event is not None:
+        link_live_to_event(db, meeting, event)
 
 
 # Bloco de participantes de uma reunião (o Início pede quando aparece um falante novo).
@@ -375,6 +407,8 @@ def add_invitees(request: Request, owner: Owner, db: DB, sessao: str):
         )
     # Inclui os convidados.
     added = live.add_invitees(db, meeting, event)
+    # A captura passa a ser da reunião do evento (data, horário e convidados da agenda).
+    link_live_to_event(db, meeting, event)
     # Grava e avisa.
     _changed(db, meeting, owner)
     # Bloco com o resultado.

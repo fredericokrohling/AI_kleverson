@@ -1,7 +1,7 @@
 """Testes da importação de transcrições do Teams e do Meet (agenda, leitura e página)."""
 
 # Data, e data e hora.
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 # Biblioteca de testes.
 import pytest
@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.main import app
 
 # Tabelas.
-from app.models import AuditLog, BronzeItem, SourceKind
+from app.models import AuditLog, BronzeItem, Meeting, SourceKind
 
 # Rotas da importação (para trocar a agenda e o Drive pelos falsos).
 from app.transcription import routes_import
@@ -506,7 +506,18 @@ def test_build_day_positions_and_lanes():
 def test_agenda_links(google, sessions):
     # Uma transcrição já ligada à reunião do Teams.
     with sessions() as s:
-        # Item de transcrição com o thread_id que a importação grava.
+        # A reunião do evento, nesta Empresa.
+        reuniao = Meeting(
+            company_id=EMPRESA,
+            calendar_event_id="teams1",
+            title="Comitê do cliente",
+            starts_at=datetime(2026, 11, 2, 13, tzinfo=UTC),
+        )
+        # Prepara.
+        s.add(reuniao)
+        # Gera o id.
+        s.flush()
+        # Item de transcrição apontando para a reunião.
         item = BronzeItem(
             source=SourceKind.MEET_TRANSCRIPT,
             external_id="ligada-1",
@@ -514,6 +525,7 @@ def test_agenda_links(google, sessions):
             subject="Comitê do cliente",
             content_sha256="0" * 64,
             company_id=EMPRESA,
+            meeting_id=reuniao.id,
         )
         # Grava.
         s.add(item)

@@ -40,6 +40,9 @@ from sqlalchemy import column, delete, select, table
 # Session: conversa com o banco.
 from sqlalchemy.orm import Session
 
+# E-mails dos participantes de uma reunião.
+from app.meetings import attendee_emails
+
 # Tabelas.
 from app.models import (
     BronzeItem,
@@ -187,10 +190,8 @@ def own_text(subject: str | None, body: str | None) -> str:
 
 # E-mails das pessoas de uma transcrição: convidados da agenda e quem falou (reconhecido).
 def _meeting_people(session: Session, item: BronzeItem) -> tuple[set[str], set[int]]:
-    # Dados do evento.
-    event = (item.extra or {}).get("evento_agenda") or {}
-    # E-mails dos convidados.
-    emails = {e.lower() for e in (event.get("participantes_emails") or {}).values() if e}
+    # E-mails dos participantes da reunião (convidados da agenda e os cadastrados ao vivo).
+    emails = attendee_emails(session, item.meeting_id)
     # Pessoas reconhecidas nas falas.
     people = set(
         session.scalars(

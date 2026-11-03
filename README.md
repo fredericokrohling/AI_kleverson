@@ -49,6 +49,7 @@ Siga na ordem:
 13. [Empresas: cada cliente separado, com conta Google, projetos e pessoas próprios](docs/setup/13-empresas.md)
 14. [Uso do servidor: disco por projeto e gráficos de processador e memória](docs/setup/14-uso-do-servidor.md)
 15. [Classificação de cada item por projeto](docs/setup/15-classificacao.md)
+16. [Reuniões: uma linha por reunião, com data, participantes e as transcrições dela](docs/setup/16-reunioes.md)
 
 ## Desenvolvimento local
 
