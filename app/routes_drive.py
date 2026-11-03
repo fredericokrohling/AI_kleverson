@@ -87,6 +87,15 @@ def folders_context(db, company_id: int | None = None) -> dict:
     }
 
 
+# Seção Pastas do Drive de Cadastros, mantendo o filtro de Empresa da página.
+def _drive_section(empresa: str = "") -> str:
+    # Com filtro.
+    if (company_id := filter_id(empresa)) is not None:
+        return f"/cadastros?empresa={company_id}#drive"
+    # Sem filtro.
+    return "/cadastros#drive"
+
+
 # Cadastra uma pasta do Drive para monitorar.
 @router.post("/cadastros/drive/pastas", dependencies=[SameOrigin])
 def add_drive_folder(
@@ -118,7 +127,7 @@ def add_drive_folder(
         # Aviso de erro.
         _flash(request, str(exc), error=True)
     # Volta para a seção.
-    return _back("/cadastros#drive")
+    return _back(_drive_section(empresa))
 
 
 # Para de monitorar uma pasta (nada é apagado).
@@ -151,7 +160,7 @@ def scan_now(request: Request, owner: Owner, db: DB, empresa: Annotated[str, For
     # Aviso.
     _flash(request, "Varredura pedida. O monitor começa em até 1 minuto.")
     # Volta.
-    return _back("/cadastros#drive")
+    return _back(_drive_section(empresa))
 
 
 # Só aceita voltar para páginas do próprio console (evita redirecionar para outro site).

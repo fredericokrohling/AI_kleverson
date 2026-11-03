@@ -4,7 +4,7 @@
 {% block content %}
 <div class="cabecalho">
   <div>
-    <div class="sub"><a href="/cadastros">&larr; Cadastros</a></div>
+    <div class="sub"><a href="/cadastros?empresa={{ project.company_id }}#projetos">&larr; Cadastros</a> · Empresa <strong>{{ company.name }}</strong></div>
     <h1>{{ project.name }}</h1>
   </div>
   {% if tag %}<div class="acoes muted pequeno">Tag <a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a> em {{ tagged }} e-mail(s) e reunião(ões)</div>{% endif %}
@@ -32,11 +32,11 @@
   <h2>Equipe</h2>
   {% if team %}
     <div class="tabela"><table>
-      <tr><th>Pessoa</th><th>Cargo · empresa</th><th>Função no projeto e liderança</th><th></th></tr>
+      <tr><th>Pessoa</th><th>Cargo · organização</th><th>Função no projeto e liderança</th><th></th></tr>
       {% for person, link in team %}
         <tr>
           <td><a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a><br><span class="muted">{{ person.email }}</span>
-            {% if person.is_leader %}<br><span class="tag">liderança na empresa</span>{% endif %}</td>
+            {% if person.is_leader %}<br><span class="tag">liderança na organização</span>{% endif %}</td>
           <td>{{ person.role or "" }}{% if person.role and person.organization %} · {% endif %}{{ person.organization or "" }}</td>
           <td>
             <form class="linha" style="margin:0" method="post" action="/cadastros/projetos/{{ project.id }}/equipe/{{ person.id }}">
@@ -56,7 +56,7 @@
   {% else %}
     <p class="muted">Ninguém na equipe ainda.</p>
   {% endif %}
-  <h3>Incluir na equipe</h3>
+  <h3>Incluir na equipe {{ m.dica("Só aparecem pessoas da Empresa " ~ company.name ~ ". Pessoa nova entra nessa Empresa.") }}</h3>
   <form method="post" action="/cadastros/projetos/{{ project.id }}/equipe">
     <p class="linha">
       <select name="pessoa" aria-label="Pessoa já cadastrada">
@@ -68,9 +68,9 @@
       <input name="nome" maxlength="200" placeholder="Nome" aria-label="Nome">
       <input name="email" type="email" maxlength="320" placeholder="E-mail (obrigatório)" aria-label="E-mail">
       <input name="cargo" maxlength="200" placeholder="Cargo" aria-label="Cargo">
-      <input name="empresa" maxlength="200" placeholder="Empresa" aria-label="Empresa">
+      <input name="organizacao" maxlength="200" placeholder="Organização" aria-label="Organização">
       <input name="outros_nomes" placeholder="Outros nomes" aria-label="Outros nomes">
-      <label><input type="checkbox" name="lider_empresa" value="1"> Liderança na empresa</label>
+      <label><input type="checkbox" name="lider_empresa" value="1"> Liderança na organização</label>
     </p>
     <p class="linha">
       <input name="funcao" maxlength="200" placeholder="Função no projeto" aria-label="Função no projeto">
@@ -81,7 +81,7 @@
 </section>
 
 <section id="pastas">
-  {{ m.titulo("Pastas do Gmail", "E-mail numa destas pastas recebe a tag do projeto, inclusive quando você move o e-mail depois de coletado (conferido a cada coleta). Tirou o e-mail da pasta, a tag sai também.") }}
+  {{ m.titulo("Pastas do Gmail", "Pastas da conta Google da Empresa " ~ company.name ~ ". E-mail numa destas pastas recebe a tag do projeto, inclusive quando você move o e-mail depois de coletado (conferido a cada coleta). Tirou o e-mail da pasta, a tag sai também.") }}
   {% if linked %}
     <ul>
       {% for link in linked %}

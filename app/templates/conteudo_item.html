@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block content %}
 <div class="cabecalho">
   <div>
-    <div class="sub"><a href="/conteudo">&larr; Conteúdo coletado</a></div>
+    <div class="sub"><a href="/conteudo?empresa={{ item.company_id }}">&larr; Conteúdo coletado</a> · Empresa <strong>{{ company.name }}</strong></div>
     <h1>{{ item.subject or "(sem assunto)" }}</h1>
   </div>
 </div>
@@ -17,6 +18,16 @@
   {% if item.extra.get("origem") == "importada" %}
     <p class="muted">Transcrição importada{% if item.extra.get("plataforma") %} do {{ item.extra.plataforma | capitalize }}{% endif %}
       · arquivo {{ item.extra.nome_arquivo }}{% if item.extra.get("falantes") %} · falaram: {{ item.extra.falantes | join(", ") }}{% endif %}</p>
+  {% endif %}
+  {% if item.source.value == "transcricao_reuniao" %}
+    {# Só transcrições mudam de Empresa: e-mails e arquivos são da conta que os coletou. #}
+    <form class="linha" method="post" action="/conteudo/{{ item.id }}/empresa"
+          onsubmit='return confirm("Mover esta transcrição para a Empresa escolhida? As tags, a classificação e os fatos dela serão refeitos lá, e as falas ligadas às Pessoas de lá.")'>
+      <label>Empresa da transcrição
+        {{ m.combo_empresa(empresas_todas, item.company_id, rotulo="Empresa da transcrição") }}</label>
+      <button class="mini secundario" type="submit">Corrigir Empresa</button>
+      {{ m.dica("Use se a transcrição foi atribuída à Empresa errada. O texto não muda; saem as tags, a classificação e os fatos da Empresa antiga (inclusive tags colocadas à mão), as regras da Empresa nova rodam de novo e quem falou é procurado entre as Pessoas dela." ~ (" A reunião ao vivo e os participantes mudam junto." if meeting else "")) }}
+    </form>
   {% endif %}
   {% if item.extra.get("caminho") %}<p class="muted">Caminho: {{ item.extra.caminho }}</p>{% endif %}
   {% if item.extra.get("erro_extracao") %}<p class="erro">Sem texto: {{ item.extra.erro_extracao }}</p>{% endif %}
@@ -50,7 +61,7 @@
           <td>
             {% if person %}
               <a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a>{% if person.role %} · {{ person.role }}{% endif %}
-              {% if person.is_leader %}<span class="tag">liderança na empresa</span>{% endif %}
+              {% if person.is_leader %}<span class="tag">liderança na organização</span>{% endif %}
               {% for project_name in project_leaders.get(person.id, []) %}<span class="tag">liderança no {{ project_name }}</span>{% endfor %}
             {% else %}
               <span class="muted">não reconhecida</span>

@@ -144,8 +144,10 @@ def build_day(
     day: date,
     timezone: str,
     now: datetime | None = None,
+    hours: tuple[int, int] | None = None,
 ) -> AgendaDay:
-    """Reuniões sobrepostas ficam lado a lado, como no Google Agenda."""
+    """Reuniões sobrepostas ficam lado a lado, como no Google Agenda. hours: (início, fim)
+    mínimos da grade, para dois calendários lado a lado terem as mesmas horas."""
     # Fuso do console.
     zone = ZoneInfo(timezone)
     # Início e fim de cada reunião, em minutos do dia, já em ordem de início.
@@ -170,6 +172,10 @@ def build_day(
     start_hour = min([DEFAULT_START_HOUR] + [s // 60 for s, _, _ in spans])
     # Hora em que a grade termina: arredonda o fim para cima (-(-x // 60) é a divisão para cima).
     end_hour = max([DEFAULT_END_HOUR] + [-(-max(f, s + MIN_MINUTES) // 60) for s, f, _ in spans])
+    # Alinha com o outro calendário, se pedido.
+    if hours is not None:
+        # A grade cobre também as horas do outro.
+        start_hour, end_hour = min(start_hour, hours[0]), max(end_hour, hours[1])
     # Nunca passa de meia-noite.
     end_hour = min(24, end_hour)
     # Topo da grade, em minutos do dia.

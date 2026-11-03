@@ -5,7 +5,7 @@
 <div class="cabecalho">
   <div>
     <h1>Configurações</h1>
-    <div class="sub">Contas, modelo do Claude e transcrição. As pastas do Drive e as tags ficam em <a href="/cadastros#drive">Cadastros</a>.</div>
+    <div class="sub">Contas de cada Empresa, modelo do Claude e idioma das reuniões. As pastas do Drive e as tags ficam em <a href="/cadastros#drive">Cadastros</a>.</div>
   </div>
 </div>
 <nav class="abas" aria-label="Seções">
@@ -15,18 +15,28 @@
 {# Cartões pequenos lado a lado. #}
 <div class="grade" style="margin-bottom: 16px">
 <section id="contas">
-  {{ m.titulo("Contas conectadas", "Contas Google com acesso de leitura ao Gmail, ao Drive e à Agenda. Nada é enviado nem alterado nelas.") }}
+  {{ m.titulo("Contas conectadas", "Uma conta Google por Empresa, com acesso de leitura ao Gmail, ao Drive e à Agenda. Nada é enviado nem alterado nelas. Os e-mails, arquivos e eventos de cada conta ficam na Empresa dela. Para renovar o acesso, conecte de novo a mesma conta na mesma Empresa.") }}
   {% if accounts %}
     <div class="tabela"><table>
-      <tr><th>Conta</th><th>Atualizado em</th></tr>
+      <tr><th>Empresa</th><th>Conta</th><th>Atualizado em</th></tr>
       {% for a in accounts %}
-        <tr><td>{{ a.account_email }}</td><td>{{ a.updated_at | local("%d/%m/%Y %H:%M") }}</td></tr>
+        <tr><td>{{ nomes_empresa.get(a.company_id, "") }}</td><td>{{ a.account_email }}</td><td>{{ a.updated_at | local("%d/%m/%Y %H:%M") }}</td></tr>
       {% endfor %}
     </table></div>
   {% else %}
     <p class="muted">Nenhuma conta conectada ainda.</p>
   {% endif %}
-  <p style="margin-top: 12px"><a class="botao" href="/auth/google/login">Conectar conta Google</a></p>
+  {# GET simples: o servidor guarda a Empresa e manda para o Google. #}
+  <form class="linha" style="margin-top: 12px" method="get" action="/auth/google/login">
+    <select name="empresa" required aria-label="Empresa da conta">
+      <option value="">Escolha a Empresa</option>
+      {% for c in companies %}
+        <option value="{{ c.id }}">{{ c.name }}{% if c.id in with_account %} (renovar){% endif %}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Conectar conta Google</button>
+  </form>
+  {% if not companies %}<p class="muted">Cadastre a Empresa antes, em <a href="/cadastros#empresas">Cadastros</a>.</p>{% endif %}
 </section>
 
 <section id="claude">
@@ -59,9 +69,9 @@
 </section>
 
 <section id="transcricao">
-  {{ m.titulo("Transcrição de reuniões", "Vale a partir da próxima transcrição iniciada na extensão. \"Automático\" reconhece português e inglês na mesma reunião, inclusive trocando no meio da frase; num idioma só, escolher o idioma certo costuma acertar um pouco mais.") }}
+  {{ m.titulo("Transcrição de reuniões", "Cada Empresa pode ter o seu idioma; sem idioma próprio, vale o padrão geral. A Empresa da reunião vem da agenda (ou da sua escolha no Início). Vale a partir da próxima transcrição iniciada na extensão. \"Automático\" reconhece português e inglês na mesma reunião, inclusive trocando no meio da frase; num idioma só, escolher o idioma certo costuma acertar um pouco mais.") }}
   <form class="linha" method="post" action="/config/transcricao">
-    <label>Idioma
+    <label>Padrão geral
       <select name="idioma">
         {% for value, label in languages.items() %}
           <option value="{{ value }}" {{ 'selected' if value == current.transcription_language }}>{{ label }}</option>
@@ -70,6 +80,27 @@
     </label>
     <button type="submit">Salvar</button>
   </form>
+  {% if companies %}
+    <div class="tabela" style="margin-top: 12px"><table>
+      <tr><th>Empresa</th><th>Idioma das reuniões</th></tr>
+      {% for c in companies %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td>
+            <form class="linha" style="margin:0" method="post" action="/config/transcricao/{{ c.id }}">
+              <select name="idioma" aria-label="Idioma de {{ c.name }}">
+                <option value="">Padrão geral ({{ languages.get(current.transcription_language, current.transcription_language) }})</option>
+                {% for value, label in languages.items() %}
+                  <option value="{{ value }}" {{ 'selected' if value == c.transcription_language }}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button class="mini" type="submit">Salvar</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% endif %}
 </section>
 </div>
 

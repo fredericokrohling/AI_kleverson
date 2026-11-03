@@ -7,7 +7,7 @@ Regras:
 - uma pessoa é única pelo e-mail dentro da Empresa (o e-mail é obrigatório, a chave dela):
   a mesma pessoa pode estar em vários projetos da Empresa, com uma função e uma marca de
   liderança diferentes em cada um; um projeto só recebe pessoas da Empresa dele;
-- "liderança na empresa" é da pessoa; "liderança no projeto" é da pessoa naquele projeto;
+- "liderança na organização" é da pessoa; "liderança no projeto" é da pessoa naquele projeto;
 - depois de qualquer mudança, as falas sem pessoa são reconhecidas de novo e as regras de
   tag rodam de novo (um nome novo pode reconhecer falas e e-mails antigos).
 """

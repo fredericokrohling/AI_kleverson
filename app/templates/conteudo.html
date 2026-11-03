@@ -7,13 +7,19 @@
     <h1>Processamento</h1>
     <div class="sub">O que foi coletado, o que o sistema fez e o texto que a IA vai ler.</div>
   </div>
+  {# Empresa mostrada em toda a página: números, coleta, diário e conteúdo. #}
+  <form class="acoes linha" method="get" action="/conteudo">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
 </div>
+{% set eq = "&empresa=" ~ empresa if empresa is not none else "" %}
 
 {# Com novidades (ver app/updates.py), os números e a coleta se buscam de novo. #}
 {% set c = resumo.coleta %}
-<div id="processamento-dados" hx-get="/conteudo" hx-select="#processamento-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
+<div id="processamento-dados" hx-get="/conteudo?{{ eq[1:] }}" hx-select="#processamento-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">
   <div class="kpis" style="margin-bottom: 16px">
-    <a class="kpi" href="/conteudo?fonte=gmail&dia=#conteudo">
+    <a class="kpi" href="/conteudo?fonte=gmail&dia={{ eq }}#conteudo">
       <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></svg>E-mails</div>
       <div class="valor">{{ c.emails }}</div>
       <div class="detalhe">no bronze</div>
@@ -23,7 +29,7 @@
       <div class="valor">{{ c.files }}</div>
       <div class="detalhe">{{ c.files_without_text }} sem texto extraído</div>
     </a>
-    <a class="kpi" href="/cadastros#drive">
+    <a class="kpi" href="/cadastros?{{ eq[1:] }}#drive">
       <div class="rotulo-kpi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Drive</div>
       <div class="valor">{{ resumo.versions }}</div>
       <div class="detalhe">versões · {{ resumo.folders }} pasta(s), {{ resumo.files }} arquivo(s), {{ resumo.linked }} por link</div>
@@ -36,13 +42,14 @@
   </div>
 
   <section id="coleta">
-    {{ m.titulo("Coleta de e-mail", "Cada linha é uma rodada da coleta do Gmail: quantos e-mails novos chegaram, quantos anexos foram gravados, quantos ficaram sem texto e quantos deram erro (passe o mouse no número de erros para ver o motivo).") }}
+    {{ m.titulo("Coleta de e-mail", "Cada linha é uma rodada da coleta do Gmail (uma por conta, em cada Empresa): quantos e-mails novos chegaram, quantos anexos foram gravados, quantos ficaram sem texto e quantos deram erro (passe o mouse no número de erros para ver o motivo).") }}
     {% if c.runs %}
       <div class="tabela"><table>
-        <tr><th>Início</th><th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
+        <tr><th>Início</th>{% if empresa is none %}<th>Empresa</th>{% endif %}<th>Situação</th><th>Novas</th><th>Arquivos</th><th>Sem texto</th><th>Erros</th></tr>
         {% for r in c.runs %}
           <tr>
             <td>{{ r.started_at | local }}</td>
+            {% if empresa is none %}<td>{{ nomes_empresa.get(r.company_id, "") }}</td>{% endif %}
             <td>{{ r.status }}</td>
             <td>{{ r.messages_new }}</td>
             <td>{{ r.attachments_saved }}</td>

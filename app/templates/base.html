@@ -294,6 +294,11 @@
     .estado-vivo::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
     .estado-vivo.ao_vivo { color: var(--ok); } .estado-vivo.ao_vivo::before { background: var(--ok); animation: pulsar 1.6s infinite; }
     .estado-vivo.salva { color: var(--accent); } .estado-vivo.salva::before { background: var(--accent); }
+    .tag.empresa { border-color: color-mix(in srgb, var(--aviso) 45%, transparent); color: var(--aviso); }
+    .estado-vivo.pendente { color: var(--aviso); } .estado-vivo.pendente::before { background: var(--aviso); }
+    .empresa-viva { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+    .empresa-viva select { padding: 3px 6px; font-size: 12.5px; }
+    .empresa-viva.falta select { border-color: var(--aviso); }
     @keyframes pulsar { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     .falas-vivas { height: 340px; overflow-y: auto; background: var(--cartao); border: 1px solid var(--linha-fraca); border-radius: 8px;
                    padding: 8px 10px; font-size: 13px; line-height: 1.5; }

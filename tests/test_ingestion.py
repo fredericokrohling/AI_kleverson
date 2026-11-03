@@ -37,6 +37,7 @@ from app.models import Attachment, BronzeItem, IngestionRun, SourceKind
 
 # Falsos do Google e geradores de arquivos.
 from tests.fakes import (
+    EMPRESA,
     FakeGmail,
     make_docx,
     make_email,
@@ -311,7 +312,7 @@ def test_first_collection(sessions, settings, store):
     # Falsos.
     gmail = _gmail()
     # Roda.
-    summary = collect_gmail(sessions, gmail, store, settings, now=NOW)
+    summary = collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Rodada sem erro.
     assert summary.status == "ok"
     # 3 vistos, 2 novos (o rascunho foi pulado).
@@ -364,19 +365,21 @@ def test_next_collections_are_incremental_and_idempotent(sessions, settings, sto
     # Mesmos falsos em todas as rodadas.
     gmail = _gmail()
     # Primeira rodada: marco zero em NOW.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Downloads feitos na primeira.
     first_fetches = len(gmail.fetched)
     # Segunda rodada, 2 horas depois.
     later = NOW + timedelta(hours=2)
     # Roda de novo.
-    summary = collect_gmail(sessions, gmail, store, settings, now=later)
+    summary = collect_gmail(sessions, gmail, store, settings, now=later, company_id=EMPRESA)
     # Nada novo.
     assert summary.messages_new == 0
     # Fim da anterior menos 60 min cairia antes do marco zero; a janela fica no marco zero.
     assert gmail.queries[-1].endswith(f"after:{int(NOW.timestamp())}")
     # Terceira rodada, mais 1 hora depois.
-    collect_gmail(sessions, gmail, store, settings, now=later + timedelta(hours=1))
+    collect_gmail(
+        sessions, gmail, store, settings, now=later + timedelta(hours=1), company_id=EMPRESA
+    )
     # Agora sim: fim da segunda menos a folga de 60 minutos.
     since = int((later - timedelta(minutes=60)).timestamp())
     # Confere a busca.
@@ -396,7 +399,7 @@ def test_failed_message_is_retried(sessions, settings, store):
     # A mensagem m3 vai falhar.
     gmail.failing.add("m3")
     # Primeira rodada.
-    first = collect_gmail(sessions, gmail, store, settings, now=NOW)
+    first = collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Termina com erro, mas grava a m1.
     assert first.status == "com_erros" and first.messages_new == 1
     # A rede volta.
@@ -404,7 +407,7 @@ def test_failed_message_is_retried(sessions, settings, store):
     # Cinco minutos depois.
     later = NOW + timedelta(minutes=5)
     # Segunda rodada.
-    second = collect_gmail(sessions, gmail, store, settings, now=later)
+    second = collect_gmail(sessions, gmail, store, settings, now=later, company_id=EMPRESA)
     # A janela não avançou: como nenhuma rodada terminou "ok", recomeça do início da
     # primeira rodada, em vez de partir do fim da rodada com erro.
     assert gmail.queries[-1].endswith(f"after:{int(NOW.timestamp())}")
@@ -421,7 +424,7 @@ def test_failed_message_is_retried(sessions, settings, store):
 # Links do Drive não contam nos totais de arquivos da página inicial.
 def test_drive_links_do_not_count_as_files(sessions, settings, store):
     # Coleta.
-    collect_gmail(sessions, _gmail(), store, settings, now=NOW)
+    collect_gmail(sessions, _gmail(), store, settings, now=NOW, company_id=EMPRESA)
     # Resumo da página inicial.
     from app.ingestion.gmail import collection_overview
 
@@ -438,11 +441,11 @@ def test_only_one_collection_at_a_time(sessions, settings, store):
     # Outra "coleta" segura a trava numa conexão separada.
     with sessions() as other:
         # Pega a trava.
-        other.execute(text("SELECT pg_try_advisory_lock(20002)"))
+        other.execute(text("SELECT pg_try_advisory_lock(20002, 1)"))
         # Tenta coletar.
-        summary = collect_gmail(sessions, _gmail(), store, settings, now=NOW)
+        summary = collect_gmail(sessions, _gmail(), store, settings, now=NOW, company_id=EMPRESA)
         # Solta a trava.
-        other.execute(text("SELECT pg_advisory_unlock(20002)"))
+        other.execute(text("SELECT pg_advisory_unlock(20002, 1)"))
     # Desistiu.
     assert summary.skipped
     # Nenhuma rodada registrada.
@@ -458,7 +461,7 @@ def test_explicit_since(sessions, settings, store):
     # Data pedida.
     since = datetime(2026, 9, 1, tzinfo=UTC)
     # Roda com a data.
-    collect_gmail(sessions, gmail, store, settings, since=since, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, since=since, now=NOW, company_id=EMPRESA)
     # A busca usa a data pedida.
     assert gmail.queries[0].endswith(f"after:{int(since.timestamp())}")
 
@@ -484,7 +487,7 @@ def test_same_attachment_is_reused(sessions, settings, store, monkeypatch):
     # Troca por uma versão que conta as chamadas.
     monkeypatch.setattr(gmail_module, "extract_text", lambda *a: calls.append(a[1]) or original(*a))
     # Roda.
-    collect_gmail(sessions, gmail, store, settings, now=NOW)
+    collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
     # Extraído uma vez só.
     assert len(calls) == 1
     # As duas linhas têm o mesmo texto e apontam para o mesmo arquivo.
@@ -500,7 +503,7 @@ def test_same_attachment_is_reused(sessions, settings, store, monkeypatch):
 # reextrair-anexos: depois de "consertar" um extrator, o texto aparece.
 def test_reextract_attachments(sessions, settings, store, monkeypatch):
     # Primeira coleta: o PDF escaneado fica sem texto.
-    collect_gmail(sessions, _gmail(), store, settings, now=NOW)
+    collect_gmail(sessions, _gmail(), store, settings, now=NOW, company_id=EMPRESA)
     # Simula um extrator melhor que agora lê o PDF escaneado.
     from app.ingestion import gmail as gmail_module
 

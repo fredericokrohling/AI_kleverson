@@ -3,31 +3,58 @@
 {% block title %}Reuniões · Kleverson A.I.{% endblock %}
 {% block head %}
 <style>
-  /* Calendário do dia à esquerda (mais largo) e o formulário à direita. */
-  .reunioes-grade { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.25fr) minmax(min(300px, 100%), 1fr); align-items: start; margin-bottom: 16px; }
+  /* Dois calendários (um por Empresa) e o formulário: três colunas em tela larga; em
+     tela média, os calendários lado a lado e o formulário embaixo. */
+  .reunioes-grade { display: grid; gap: 16px; align-items: start; margin-bottom: 16px;
+                    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(min(320px, 100%), .95fr); }
   .reunioes-grade > section { margin-bottom: 0; }
-  .reunioes-grade .agenda { --px: 1px; }
-  #evento { width: 100%; }
-  @media (max-width: 1000px) { .reunioes-grade { grid-template-columns: minmax(0, 1fr); } }
+  /* O bloco trocado pelo HTMX não vira caixa: os dois calendários são itens da grade. */
+  #calendarios { display: contents; }
+  .cal .agenda { --px: .75px; }
+  .cal-topo { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 4px; }
+  .cal-topo select { max-width: 100%; }
+  /* Segundo calendário: fundo roxo escuro e reuniões em laranja, para não confundir as Empresas. */
+  .cal.roxa { --cartao: #1e0e2e; --linha: #3a2252; --linha-fraca: #2b1840; background: #1e0e2e; border-color: #3a2252; }
+  .cal.roxa .reuniao, .cal.roxa .reuniao.meet, .cal.roxa .reuniao.teams { --cor: #ff8a3d; }
+  .cal.roxa select { background: #2b1840; border-color: #4a2d68; }
+  #evento, #empresa-importar { width: 100%; }
+  @media (max-width: 1250px) {
+    .reunioes-grade { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    #importar { grid-column: 1 / -1; }
+  }
+  @media (max-width: 760px) { .reunioes-grade { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
-  // Clicar numa reunião sem transcrição no calendário escolhe a reunião no formulário
-  // (sem sair da página). Delegado no documento: continua valendo depois que o HTMX
-  // troca o calendário ao mudar a data.
+  // Clicar numa reunião sem transcrição escolhe a Empresa e a reunião no formulário (sem
+  // sair da página). Da mesma Empresa do formulário, só escolhe; de outra, troca a
+  // Empresa e pede a lista dela já com a reunião escolhida. Delegado no documento:
+  // continua valendo depois que o HTMX troca os calendários.
   document.addEventListener("click", function (ev) {
-    var bloco = ev.target.closest("#agenda-dia a[data-evento]");
+    var bloco = ev.target.closest("#calendarios a[data-evento]");
     var lista = document.getElementById("evento");
-    if (!bloco || !lista) return;
+    var empresa = document.getElementById("empresa-importar");
+    if (!bloco || !lista || !empresa || !window.htmx) return;
     ev.preventDefault();
+    if (empresa.value === bloco.dataset.empresa) {
+      lista.value = bloco.dataset.evento;
+      marcarEscolhida();
+      document.getElementById("arquivo").focus();
+      return;
+    }
+    // A opção ainda não existe na lista (é de outra Empresa): entra provisória, só para o
+    // pedido levar o id da reunião; a resposta traz a lista certa já com ela escolhida.
+    empresa.value = bloco.dataset.empresa;
+    lista.add(new Option("", bloco.dataset.evento));
     lista.value = bloco.dataset.evento;
-    marcarEscolhida();
-    document.getElementById("arquivo").focus();
+    htmx.trigger(empresa, "change");
   });
-  // Destaca no calendário a reunião escolhida na lista.
+  // Destaca, no calendário da Empresa do formulário, a reunião escolhida na lista.
   function marcarEscolhida() {
     var lista = document.getElementById("evento");
-    document.querySelectorAll("#agenda-dia .reuniao").forEach(function (el) {
-      el.classList.toggle("escolhida", !!lista && el.dataset.evento === lista.value);
+    var empresa = document.getElementById("empresa-importar");
+    document.querySelectorAll("#calendarios .reuniao").forEach(function (el) {
+      el.classList.toggle("escolhida", !!lista && !!empresa && el.dataset.evento === lista.value
+                                       && el.dataset.empresa === empresa.value);
     });
   }
   document.addEventListener("change", function (ev) { if (ev.target.id === "evento") marcarEscolhida(); });
@@ -36,30 +63,54 @@
 </script>
 {% endblock %}
 {% block content %}
+{# Trocar a data ou uma Empresa busca esta mesma página e recorta só os calendários e a
+   lista de reuniões (hx-select e hx-select-oob); o endereço guarda as escolhas. #}
+{% set troca = 'hx-get="/transcricoes/importar" hx-trigger="change" hx-target="#calendarios" hx-select="#calendarios" hx-select-oob="#reunioes" hx-swap="outerHTML" hx-push-url="true" hx-include="#data, #e1, #e2, #empresa-importar, #evento" hx-indicator="#lendo"' %}
+{% set dias = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] %}
 <div class="cabecalho">
   <div>
     <h1>Reuniões</h1>
-    <div class="sub">Ligue a transcrição do Teams ou do Meet à reunião certa da sua agenda.</div>
+    <div class="sub">A agenda do dia de duas Empresas lado a lado, e a transcrição do Teams ou do Meet ligada à reunião certa.</div>
+  </div>
+  <div class="acoes linha">
+    <label for="data">Dia</label>
+    <input type="date" id="data" name="data" form="form-importar" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}" {{ troca | safe }}>
+    <span id="lendo" class="htmx-indicator muted pequeno">lendo a agenda…</span>
   </div>
 </div>
 
 <div class="reunioes-grade">
-  <section>
-    {% set titulo_dia = true %}
-    <div id="agenda-dia">{% include "_agenda_dia.html" %}</div>
-  </section>
+  <div id="calendarios">
+    {% for c in calendarios %}
+      {% set n = loop.index %}
+      <section class="cal {{ 'roxa' if n == 2 }}">
+        <div class="cal-topo">
+          {{ m.combo_empresa(empresas_todas, c.empresa, nome="e" ~ n, obrigatoria=(c.empresa is none), rotulo="Empresa do calendário " ~ n, id="e" ~ n, extra='form="form-importar" ' ~ troca) }}
+          {% if n == 1 %}<span class="muted pequeno">{{ "Hoje" if c.agenda.today else dias[dia.weekday()] | capitalize }}, {{ dia.strftime("%d/%m") }}
+            {{ m.dica("Cada calendário mostra a agenda da conta Google da Empresa escolhida no combo. Clique numa reunião sem transcrição para escolhê-la no formulário; as que já têm transcrição abrem o texto. A cor é a plataforma (no calendário roxo, todas em laranja); a bolinha, a situação da transcrição.") }}</span>{% endif %}
+        </div>
+        {% if c.empresa is none %}
+          <p class="vazio">Escolha a Empresa para ver a agenda dela.</p>
+        {% else %}
+          {% if c.erro %}<p class="erro pequeno">Não consegui ler a agenda: {{ c.erro }}</p>{% endif %}
+          {% with agenda=c.agenda, cal_empresa=c.empresa, roxa=(n == 2),
+                  cal_params="&e1=" ~ (calendarios[0].empresa or "") ~ "&e2=" ~ (calendarios[1].empresa or "") %}
+            {% include "_agenda_dia.html" %}
+          {% endwith %}
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
 
   <section id="importar">
     <div class="secao-topo">
       <h2>Importar transcrição {% call m.dica(lado="esquerda") %}Traga a transcrição que o Teams ou o Meet já fizeram, sem gastar com a extensão.
-        Formatos: {{ aceitos }}. No Teams, prefira o <strong>.vtt</strong>: ele traz o nome de quem falou em cada trecho.{% endcall %}</h2>
+        A Empresa é obrigatória: a transcrição fica só nela. Formatos: {{ aceitos }}. No Teams, prefira o <strong>.vtt</strong>: ele traz o nome de quem falou em cada trecho.{% endcall %}</h2>
     </div>
-    <form method="post" action="/transcricoes/importar" enctype="multipart/form-data">
+    <form method="post" action="/transcricoes/importar" enctype="multipart/form-data" id="form-importar">
       <div class="campo">
-        <label for="data">Dia da reunião</label>
-        <span><input type="date" id="data" name="data" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}"
-               hx-get="/transcricoes/importar/reunioes" hx-target="#reunioes" hx-swap="outerHTML" hx-trigger="change">
-        <span class="htmx-indicator muted pequeno">lendo a agenda…</span></span>
+        <label for="empresa-importar">Empresa</label>
+        {{ m.combo_empresa(empresas_todas, empresa_form, id="empresa-importar", rotulo="Empresa da transcrição", extra=troca) }}
       </div>
       <div class="campo">
         <label for="evento">Reunião</label>
@@ -79,13 +130,14 @@
 </div>
 
 <section>
-  {{ m.titulo("Últimas transcrições", "As 10 transcrições de reunião mais recentes, importadas ou feitas pela extensão.") }}
+  {{ m.titulo("Últimas transcrições", "As 10 transcrições de reunião mais recentes, de todas as Empresas, importadas ou feitas pela extensão. Empresa errada: abra a transcrição e corrija lá.") }}
   {% if recentes %}
     <div class="tabela"><table>
-      <tr><th>Quando</th><th>Reunião</th><th>Origem</th></tr>
+      <tr><th>Quando</th><th>Empresa</th><th>Reunião</th><th>Origem</th></tr>
       {% for r in recentes %}
         <tr>
           <td>{{ r.occurred_at | local("%d/%m/%Y %H:%M") }}</td>
+          <td>{{ nomes_empresa.get(r.company_id, "") }}</td>
           <td><a href="/conteudo/{{ r.id }}">{{ r.subject or "(sem título)" }}</a></td>
           <td>{% if r.extra.get("origem") == "importada" %}Importada{% if r.extra.get("plataforma") %} ({{ r.extra.plataforma | capitalize }}){% endif %}{% else %}Extensão{% endif %}</td>
         </tr>

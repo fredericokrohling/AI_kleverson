@@ -113,8 +113,10 @@ def start_login(settings: Settings) -> tuple[str, str, str]:
     url, state = flow.authorization_url(
         # "offline" pede o refresh token, para acessar sem você estar presente.
         access_type="offline",
-        # Força o Google a devolver o refresh token mesmo em logins repetidos.
-        prompt="consent",
+        # select_account: sempre pergunta qual conta (há uma por Empresa, e o navegador
+        # pode estar logado em outra); consent: força o Google a devolver o refresh
+        # token mesmo em logins repetidos.
+        prompt="select_account consent",
         # Não herda permissões de logins antigos; pede exatamente a lista atual.
         include_granted_scopes="false",
     )

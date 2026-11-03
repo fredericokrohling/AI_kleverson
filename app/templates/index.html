@@ -17,6 +17,8 @@
 </div>
 {% if not accounts %}
   <div class="aviso-caixa">Nenhuma conta Google conectada. Conecte em <a href="/config#contas">Configurações → Contas conectadas</a>.</div>
+{% elif sem_conta %}
+  <div class="aviso-caixa">Sem conta Google: {{ sem_conta | map(attribute="name") | join(", ") }}. E-mails, Drive e agenda dessa(s) Empresa(s) não são lidos. Conecte em <a href="/config#contas">Configurações</a>.</div>
 {% endif %}
 
 {# Reuniões ao vivo: fora do bloco abaixo, porque não se redesenha com as novidades (as
@@ -45,14 +47,16 @@
 
   <section id="reunioes">
       <div class="secao-topo">
-        {{ m.titulo("Transcrições recentes", "As últimas transcrições de reunião que entraram no sistema: importadas do Teams ou do Meet, ou feitas pela extensão do navegador.") }}
+        {{ m.titulo("Transcrições recentes", "As últimas transcrições de reunião que entraram no sistema: importadas do Teams ou do Meet, ou feitas pela extensão do navegador. Ao lado, a Empresa e os projetos (pelas tags de projeto). Empresa errada: abra a transcrição e corrija lá.") }}
         <a class="pequeno" href="/transcricoes/importar">Importar transcrição</a>
       </div>
       {% if reunioes %}
         <ul class="lista">
           {% for r in reunioes %}
             <li><a href="/conteudo/{{ r.id }}">{{ r.subject or "(sem título)" }}</a>
-              <span class="quando">{{ r.occurred_at | local("%d/%m %H:%M") }} · {{ "importada" if r.extra.get("origem") == "importada" else "extensão" }}</span></li>
+              <span class="quando">{{ r.occurred_at | local("%d/%m %H:%M") }} · {{ "importada" if r.extra.get("origem") == "importada" else "extensão" }}</span>
+              <div class="pequeno"><span class="tag empresa">{{ nomes_empresa.get(r.company_id, "") }}</span>
+                {% for nome in projetos_item.get(r.id, []) %}<span class="tag">{{ nome }}</span>{% else %}<span class="muted">sem projeto</span>{% endfor %}</div></li>
           {% endfor %}
         </ul>
       {% else %}
@@ -72,10 +76,12 @@
     </div>
     {% if failures %}
       <div class="tabela"><table>
-        <tr><th>Arquivo</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
+        <tr><th>Arquivo</th><th>Empresa</th><th>Projeto</th><th>Origem</th><th>Remetente</th><th>Quando</th><th>Código</th><th>Motivo</th><th></th></tr>
         {% for f in failures %}
           <tr>
             <td>{% if f.item_id %}<a href="/conteudo/{{ f.item_id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+            <td>{{ nomes_empresa.get(f.company_id, "") }}</td>
+            <td>{{ f.projects | join(", ") if f.projects else "" }}{% if not f.projects %}<span class="muted">—</span>{% endif %}</td>
             <td>{{ "E-mail: " if f.kind == "anexo" else "Drive: " }}{{ f.origin }}</td>
             <td>{{ f.sender or "" }}</td>
             <td>{{ f.when | local("%d/%m/%Y %H:%M") }}</td>

@@ -36,6 +36,7 @@ from app.main import app
 # Tabelas.
 from app.models import (
     BronzeItem,
+    LiveMeeting,
     Project,
     SourceKind,
     Stakeholder,
@@ -62,7 +63,7 @@ from app.transcription.importer import read_transcript
 from app.transcription.store import finalize
 
 # Falsos.
-from tests.fakes import FakeCalendar, FakeGmail
+from tests.fakes import EMPRESA, FakeCalendar, FakeGmail
 
 # Cabeçalho do Tailscale da dona.
 OWNER = {"Tailscale-User-Login": "dona@exemplo.com"}
@@ -129,7 +130,7 @@ def atlas(sessions):
     # Uma sessão.
     with sessions() as session:
         # Projeto (cria a tag "Projeto Atlas").
-        project = create_project(session, "Projeto Atlas", "ATL", "Atlas")
+        project = create_project(session, EMPRESA, "Projeto Atlas", "ATL", "Atlas")
         # Diretora.
         marcia = save_person(
             session,
@@ -138,10 +139,16 @@ def atlas(sessions):
             email="marcia@cliente.com",
             role="Diretora",
             is_leader=True,
+            company_id=EMPRESA,
         )
         # Analista, conhecido como "Beto".
         beto = save_person(
-            session, None, name="Roberto Lima", email="beto@cliente.com", aliases="Beto"
+            session,
+            None,
+            name="Roberto Lima",
+            email="beto@cliente.com",
+            aliases="Beto",
+            company_id=EMPRESA,
         )
         # Equipe: Márcia é patrocinadora e liderança no projeto.
         set_member(session, project.id, marcia.id, "Patrocinadora", True)
@@ -160,7 +167,7 @@ def test_normalize_and_match(sessions, atlas):
     # Índice das pessoas.
     with sessions() as session:
         # Monta.
-        people = PeopleIndex(session)
+        people = PeopleIndex(session, EMPRESA)
         # Pelo nome, pelo apelido e pelo e-mail.
         assert people.match("marcia lopes") == atlas["marcia"]
         # Apelido.
@@ -172,9 +179,9 @@ def test_normalize_and_match(sessions, atlas):
         # Desconhecido.
         assert people.match("Zé") is None
         # Duas pessoas com o mesmo nome: não liga (errar é pior que não saber).
-        save_person(session, None, name="Roberto Lima", email="outro@x.com")
+        save_person(session, None, name="Roberto Lima", email="outro@x.com", company_id=EMPRESA)
         # Ambíguo.
-        assert PeopleIndex(session).match("Roberto Lima") is None
+        assert PeopleIndex(session, EMPRESA).match("Roberto Lima") is None
 
 
 # Falas do .docx do Teams e do documento do Meet são separadas por pessoa.
@@ -239,11 +246,16 @@ def test_imported_transcript_links_people(sessions, atlas, monkeypatch, tmp_path
     # Originais numa pasta temporária.
     monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path))
     # Agenda sem reuniões (importação fora da agenda).
-    monkeypatch.setattr(routes_import, "calendar_client", lambda db, s: FakeCalendar([]))
+    monkeypatch.setattr(routes_import, "calendar_client", lambda db, s, *_a: FakeCalendar([]))
     # Importa.
     page = client.post(
         "/transcricoes/importar",
-        data={"data": "2026-11-02", "evento": routes_import.OUTSIDE_CALENDAR, "titulo": "Comitê"},
+        data={
+            "empresa": EMPRESA,
+            "data": "2026-11-02",
+            "evento": routes_import.OUTSIDE_CALENDAR,
+            "titulo": "Comitê",
+        },
         files={"arquivo": ("comite.vtt", VTT.encode(), "text/vtt")},
         headers=SAME,
     ).text
@@ -264,13 +276,13 @@ def test_imported_transcript_links_people(sessions, atlas, monkeypatch, tmp_path
     # A página da reunião mostra quem falou e a liderança.
     detail = client.get(f"/conteudo/{item.id}", headers=OWNER).text
     # Liderança na empresa e no projeto.
-    assert "liderança na empresa" in detail and "liderança no Projeto Atlas" in detail
+    assert "liderança na organização" in detail and "liderança no Projeto Atlas" in detail
     # O desconhecido aparece como não reconhecido.
     assert "não reconhecida" in detail
     # Sem e-mail (a chave da pessoa), o cadastro é recusado.
     client.post(
         "/cadastros/pessoas",
-        data={"nome": "José Silva", "outros_nomes": "Zé Desconhecido"},
+        data={"empresa": EMPRESA, "nome": "José Silva", "outros_nomes": "Zé Desconhecido"},
         headers=SAME,
         # Sem seguir o redirecionamento, para o aviso ser lido pela página abaixo.
         follow_redirects=False,
@@ -280,7 +292,12 @@ def test_imported_transcript_links_people(sessions, atlas, monkeypatch, tmp_path
     # Cadastrar o desconhecido, com e-mail, liga as falas antigas na hora.
     client.post(
         "/cadastros/pessoas",
-        data={"nome": "José Silva", "email": "jose@x.com", "outros_nomes": "Zé Desconhecido"},
+        data={
+            "empresa": EMPRESA,
+            "nome": "José Silva",
+            "email": "jose@x.com",
+            "outros_nomes": "Zé Desconhecido",
+        },
         headers=SAME,
     )
     # Agora as três falas têm pessoa.
@@ -316,6 +333,8 @@ def test_live_and_backfill_utterances(sessions):
         )
         # Grava.
         session.commit()
+        # A reunião ao vivo, já com a Empresa (sem ela, nada vai para o banco).
+        session.add(LiveMeeting(session_id="sessao-123", company_id=EMPRESA))
         # Finaliza a reunião.
         item = finalize(session, "sessao-123", actor="dona", title="Status", meeting_url=None)
         # Duas falas.
@@ -327,6 +346,7 @@ def test_live_and_backfill_utterances(sessions):
                 external_id="antiga",
                 content_sha256="x",
                 body_text="[00:01] Ana: Olá\n[1:00:02] Bruno: Tchau\ncontinua",
+                company_id=EMPRESA,
             )
         )
         # Grava.
@@ -378,7 +398,7 @@ def test_email_rules_and_labels(sessions, atlas, tmp_path, monkeypatch):
     # Pasta criada no Gmail.
     gmail.user_labels = [("L1", "Clientes/Atlas")]
     # Liga a pasta ao projeto pela página (o Gmail falso no lugar do real).
-    monkeypatch.setattr(routes_registry, "gmail_client", lambda db, s: gmail)
+    monkeypatch.setattr(routes_registry, "gmail_client", lambda db, s, *_a: gmail)
     # Liga.
     page = client.post(
         f"/cadastros/projetos/{atlas['project']}/pastas", data={"pasta": "L1"}, headers=SAME
@@ -386,7 +406,14 @@ def test_email_rules_and_labels(sessions, atlas, tmp_path, monkeypatch):
     # Ligada (ainda sem e-mails coletados).
     assert "Pasta “Clientes/Atlas” ligada" in page
     # Coleta (as regras rodam em cada e-mail novo e a pasta é conferida no fim).
-    collect_gmail(sessions, gmail, FileStore(tmp_path), Settings(data_dir=str(tmp_path)), now=NOW)
+    collect_gmail(
+        sessions,
+        gmail,
+        FileStore(tmp_path),
+        Settings(data_dir=str(tmp_path)),
+        now=NOW,
+        company_id=EMPRESA,
+    )
     # Tags por e-mail.
     with sessions() as session:
         # Id do Gmail → regra.
@@ -402,7 +429,14 @@ def test_email_rules_and_labels(sessions, atlas, tmp_path, monkeypatch):
     # Você tira o e-mail da pasta no Gmail.
     gmail.emails["m4"]["labels"] = ["INBOX"]
     # Próxima coleta: a tag da pasta sai.
-    collect_gmail(sessions, gmail, FileStore(tmp_path), Settings(data_dir=str(tmp_path)), now=NOW)
+    collect_gmail(
+        sessions,
+        gmail,
+        FileStore(tmp_path),
+        Settings(data_dir=str(tmp_path)),
+        now=NOW,
+        company_id=EMPRESA,
+    )
     # Conferência.
     with sessions() as session:
         # Sem tag no m4.
@@ -438,9 +472,11 @@ def test_registry_pages(sessions, atlas, monkeypatch):
     # Página principal.
     page = client.get("/cadastros", headers=OWNER).text
     # Projeto, pessoas, liderança e tag.
-    assert "Projeto Atlas" in page and "Márcia Lopes" in page and "liderança na empresa" in page
+    assert "Projeto Atlas" in page and "Márcia Lopes" in page and "liderança na organização" in page
     # Projeto repetido.
-    page = client.post("/cadastros/projetos", data={"nome": "projeto atlas"}, headers=SAME).text
+    page = client.post(
+        "/cadastros/projetos", data={"empresa": EMPRESA, "nome": "projeto atlas"}, headers=SAME
+    ).text
     # Recusado.
     assert "já existe" in page
     # Apagar a tag do projeto: recusado.
@@ -461,7 +497,7 @@ def test_registry_pages(sessions, atlas, monkeypatch):
     monkeypatch.setattr(
         routes_registry,
         "gmail_client",
-        lambda db, s: (_ for _ in ()).throw(RuntimeError("Sem conta.")),
+        lambda db, s, *_a: (_ for _ in ()).throw(RuntimeError("Sem conta.")),
     )
     # Abre.
     page = client.get(f"/cadastros/projetos/{atlas['project']}", headers=OWNER).text
@@ -480,7 +516,9 @@ def test_registry_pages(sessions, atlas, monkeypatch):
     )
     # A mesma pessoa pelo e-mail não duplica (e-mail com outras maiúsculas).
     page = client.post(
-        "/cadastros/pessoas", data={"nome": "Carla D.", "email": "CARLA@cliente.com"}, headers=SAME
+        "/cadastros/pessoas",
+        data={"empresa": EMPRESA, "nome": "Carla D.", "email": "CARLA@cliente.com"},
+        headers=SAME,
     ).text
     # Conferência.
     with sessions() as session:

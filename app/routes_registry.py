@@ -765,14 +765,16 @@ def edit_person(
 
 # Reaplica as regras de tag e religa as falas (depois de uma mudança grande).
 @router.post("/cadastros/reaplicar", dependencies=[SameOrigin])
-def reapply(request: Request, owner: Owner, db: DB):
-    # Religa falas e reaplica tags.
-    linked, tagged = refresh(db)
+def reapply(request: Request, owner: Owner, db: DB, empresa: Text = ""):
+    # Religa falas e reaplica tags (só da Empresa do filtro, ou de todas).
+    linked, tagged = refresh(db, filter_id(empresa))
     # Grava.
     db.commit()
     # Volta.
     return _back(
-        request, "/cadastros", f"{linked} fala(s) ligada(s) a pessoas e {tagged} tag(s) nova(s)."
+        request,
+        _registry(empresa, "pessoas"),
+        f"{linked} fala(s) ligada(s) a pessoas e {tagged} tag(s) nova(s).",
     )
 
 

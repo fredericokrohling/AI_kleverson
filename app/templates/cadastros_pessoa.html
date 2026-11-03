@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ person.name }} · Cadastros{% endblock %}
+{% import "_macros.html" as m %}
 {% block content %}
 <div class="cabecalho">
   <div>
-    <div class="sub"><a href="/cadastros#pessoas">&larr; Cadastros</a></div>
+    <div class="sub"><a href="/cadastros?empresa={{ person.company_id }}#pessoas">&larr; Cadastros</a> · Empresa <strong>{{ company.name }}</strong> {{ m.dica("A pessoa pertence a uma Empresa só e não muda de Empresa. Se ela também trabalha com outro cliente seu, cadastre-a de novo naquela Empresa (o mesmo e-mail pode existir em Empresas diferentes).") }}</div>
     <h1>{{ person.name }}</h1>
   </div>
 </div>
@@ -16,13 +17,13 @@
     </p>
     <p class="linha">
       <label>Cargo <input name="cargo" maxlength="200" value="{{ person.role or '' }}"></label>
-      <label>Empresa <input name="empresa" maxlength="200" value="{{ person.organization or '' }}"></label>
+      <label>Organização <input name="organizacao" maxlength="200" value="{{ person.organization or '' }}"></label>
     </p>
     <p class="linha">
       <label>Outros nomes (como aparece nas reuniões) <input name="outros_nomes" size="40" value="{{ person.aliases | join(', ') }}"></label>
     </p>
     <p class="linha">
-      <label><input type="checkbox" name="lider_empresa" value="1" {{ "checked" if person.is_leader }}> Liderança na empresa</label>
+      <label><input type="checkbox" name="lider_empresa" value="1" {{ "checked" if person.is_leader }}> Liderança na organização</label>
       <button type="submit">Salvar pessoa</button>
     </p>
   </form>
