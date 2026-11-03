@@ -105,7 +105,7 @@ def content_list(
         "conteudo.html",
         {
             "owner": owner,
-            "menu": "inicio",
+            "menu": "conteudo",
             "items": items,
             "q": q,
             "fonte": fonte,
@@ -192,7 +192,7 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
         "conteudo_item.html",
         {
             "owner": owner,
-            "menu": "inicio",
+            "menu": "conteudo",
             "item": item,
             "label": SOURCE_LABELS.get(item.source, item.source),
             "attachments": attachments,

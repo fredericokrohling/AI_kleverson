@@ -1,14 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Cadastros · Kleverson A.I.{% endblock %}
+{% import "_macros.html" as m %}
 {% block content %}
-<h1>Cadastros</h1>
-<p class="muted"><a href="#projetos">Projetos</a> · <a href="#pessoas">Pessoas</a> · <a href="#tags">Tags</a></p>
+<div class="cabecalho">
+  <div>
+    <h1>Cadastros</h1>
+    <div class="sub">Projetos, pessoas e tags que organizam tudo o que chega.</div>
+  </div>
+</div>
+<nav class="abas" aria-label="Seções"><a href="#projetos">Projetos</a><a href="#pessoas">Pessoas</a><a href="#tags">Tags</a></nav>
 
 <section id="projetos">
-  <h2>Projetos</h2>
-  <p class="muted">Cada projeto tem uma tag de mesmo nome. E-mails e reuniões recebem a tag sozinhos quando citam o projeto
-    (nome, código, outros nomes ou palavras-chave), quando vêm de alguém da equipe ou quando estão numa pasta do Gmail
-    ligada ao projeto. Separe os termos por vírgula.</p>
+  {{ m.titulo("Projetos", "Cada projeto tem uma tag de mesmo nome. E-mails e reuniões recebem a tag sozinhos quando citam o projeto (nome, código, outros nomes ou palavras-chave), quando vêm de alguém da equipe ou quando estão numa pasta do Gmail ligada ao projeto. Separe os termos por vírgula.") }}
   <form class="linha" method="post" action="/cadastros/projetos">
     <input name="nome" required maxlength="200" placeholder="Nome do projeto" aria-label="Nome do projeto">
     <input name="codigo" maxlength="50" size="10" placeholder="Código (opcional)" aria-label="Código">
@@ -35,9 +38,12 @@
 </section>
 
 <section id="pessoas">
-  <h2>Pessoas</h2>
-  <p class="muted">A mesma pessoa pode estar em vários projetos. "Outros nomes" é como ela aparece nas reuniões
-    (ex.: "Ana", "Ana S."): serve para reconhecer quem falou. A função e a liderança em cada projeto ficam na página do projeto.</p>
+  <div class="secao-topo">
+    {{ m.titulo("Pessoas", "A mesma pessoa pode estar em vários projetos. \"Outros nomes\" é como ela aparece nas reuniões (ex.: \"Ana\", \"Ana S.\"): serve para reconhecer quem falou. A função e a liderança em cada projeto ficam na página do projeto.") }}
+    <form method="post" action="/cadastros/reaplicar">
+      <button class="mini secundario" type="submit" title="Religa as falas sem pessoa e aplica as regras de tag em tudo">Conferir falas e tags de novo</button>
+    </form>
+  </div>
   <form class="linha" method="post" action="/cadastros/pessoas">
     <input name="nome" required maxlength="200" placeholder="Nome" aria-label="Nome">
     <input name="email" type="email" maxlength="320" placeholder="E-mail" aria-label="E-mail">
@@ -67,15 +73,11 @@
   {% else %}
     <p class="muted">Nenhuma pessoa ainda.</p>
   {% endif %}
-  <form method="post" action="/cadastros/reaplicar">
-    <button class="mini secundario" type="submit" title="Religa as falas sem pessoa e aplica as regras de tag em tudo">Conferir falas e tags de novo</button>
-  </form>
 </section>
 
 <section id="tags">
-  <h2>Tags</h2>
-  <p class="muted">Uma tag diz a que o conteúdo se refere. A tag de um projeto acompanha o projeto: para renomear, renomeie
-    o projeto. Para colocar uma tag numa pasta do Drive, use <a href="/config#drive">Configurações → Pastas do Drive</a>.</p>
+  <h2>Tags {% call m.dica() %}Uma tag diz a que o conteúdo se refere. A tag de um projeto acompanha o projeto: para renomear,
+    renomeie o projeto. Para colocar uma tag numa pasta do Drive, use <a href="/config#drive">Configurações → Pastas do Drive</a>.{% endcall %}</h2>
   <form class="linha" method="post" action="/cadastros/tags">
     <input name="nome" required maxlength="100" placeholder="Nome da nova tag" aria-label="Nome da nova tag">
     <button type="submit">Criar tag</button>

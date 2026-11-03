@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Configurações · Kleverson A.I.{% endblock %}
+{% import "_macros.html" as m %}
 {% block content %}
-<h1>Configurações</h1>
-<p class="muted">
-  <a href="#contas">Contas conectadas</a> · <a href="#claude">Claude</a> · <a href="#transcricao">Transcrição</a> ·
-  <a href="#drive">Pastas do Drive</a> · <a href="#tags">Tags</a>
-</p>
+<div class="cabecalho">
+  <div>
+    <h1>Configurações</h1>
+    <div class="sub">Contas, modelo do Claude, transcrição e pastas monitoradas.</div>
+  </div>
+</div>
+<nav class="abas" aria-label="Seções">
+  <a href="#contas">Contas conectadas</a><a href="#claude">Claude</a><a href="#transcricao">Transcrição</a>
+  <a href="#drive">Pastas do Drive</a><a href="#tags">Tags</a>
+</nav>
 
+{# Cartões pequenos lado a lado; os grandes (Drive) ocupam a largura toda. #}
+<div class="grade" style="margin-bottom: 16px">
 <section id="contas">
-  <h2>Contas conectadas</h2>
+  {{ m.titulo("Contas conectadas", "Contas Google com acesso de leitura ao Gmail, ao Drive e à Agenda. Nada é enviado nem alterado nelas.") }}
   {% if accounts %}
     <div class="tabela"><table>
       <tr><th>Conta</th><th>Atualizado em</th></tr>
@@ -19,11 +27,11 @@
   {% else %}
     <p class="muted">Nenhuma conta conectada ainda.</p>
   {% endif %}
-  <p><a href="/auth/google/login">Conectar conta Google</a></p>
+  <p style="margin-top: 12px"><a class="botao" href="/auth/google/login">Conectar conta Google</a></p>
 </section>
 
 <section id="claude">
-  <h2>Claude</h2>
+  {{ m.titulo("Claude", "Esforço é quanto o modelo pensa antes de responder. Mais esforço, respostas mais cuidadosas, porém mais caras e lentas. Médio é o padrão do Opus 5.5; Extra alto e Máximo ficam para análises difíceis.") }}
   <p>Em uso: <strong>{{ models.get(current.llm_model, current.llm_model) }}</strong>, esforço
     <strong>{{ efforts.get(current.llm_effort, current.llm_effort) }}</strong>.
     Gasto no mês: <strong>US$ {{ "%.4f"|format(spent) }}</strong> de US$ {{ budget }}.</p>
@@ -44,17 +52,15 @@
     </label>
     <button type="submit">Salvar</button>
   </form>
-  <p class="muted">Esforço é quanto o modelo pensa antes de responder. Mais esforço, respostas mais cuidadosas,
-    porém mais caras e lentas. Médio é o padrão do Opus 5.5; Extra alto e Máximo ficam para análises difíceis.</p>
   <form method="post" action="/testes/llm" hx-post="/testes/llm" hx-target="#resultado-llm" hx-indicator="#aguarde">
-    <button type="submit">Testar Claude</button>
+    <button class="secundario" type="submit">Testar Claude</button>
     <span id="aguarde" class="htmx-indicator muted">aguarde...</span>
   </form>
   <div id="resultado-llm"></div>
 </section>
 
 <section id="transcricao">
-  <h2>Transcrição de reuniões</h2>
+  {{ m.titulo("Transcrição de reuniões", "Vale a partir da próxima transcrição iniciada na extensão. \"Automático\" reconhece português e inglês na mesma reunião, inclusive trocando no meio da frase; num idioma só, escolher o idioma certo costuma acertar um pouco mais.") }}
   <form class="linha" method="post" action="/config/transcricao">
     <label>Idioma
       <select name="idioma">
@@ -65,15 +71,11 @@
     </label>
     <button type="submit">Salvar</button>
   </form>
-  <p class="muted">Vale a partir da próxima transcrição iniciada na extensão. "Automático" reconhece português e
-    inglês na mesma reunião, inclusive trocando no meio da frase; num idioma só, escolher o idioma certo costuma
-    acertar um pouco mais.</p>
 </section>
+</div>
 
 <section id="drive">
-  <h2>Pastas do Drive monitoradas</h2>
-  <p class="muted">Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e
-    subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco.</p>
+  {{ m.titulo("Pastas do Drive monitoradas", "Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco. Clique no nome da pasta para colocar tags.") }}
   <form class="linha" method="post" action="/config/drive/pastas">
     <input name="link" required size="50" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta">
     <button type="submit">Monitorar pasta</button>
@@ -108,7 +110,7 @@
         </tr>
       {% endfor %}
     </table></div>
-    <form method="post" action="/config/drive/varrer"><button type="submit">Varrer agora</button></form>
+    <form method="post" action="/config/drive/varrer" style="margin-top: 12px"><button class="secundario" type="submit">Varrer agora</button></form>
   {% else %}
     <p class="muted">Nenhuma pasta cadastrada.</p>
   {% endif %}
@@ -116,7 +118,7 @@
 
 <section id="tags">
   <h2>Tags</h2>
-  <p class="muted">O cadastro de tags (criar, renomear, apagar) fica em <a href="/cadastros#tags">Cadastros</a>, junto com
+  <p class="muted pequeno">O cadastro de tags (criar, renomear, apagar) fica em <a href="/cadastros#tags">Cadastros</a>, junto com
     projetos e pessoas. Para colocar uma tag numa pasta do Drive, clique no nome da pasta acima.</p>
 </section>
 {% endblock %}

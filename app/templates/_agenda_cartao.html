@@ -1,0 +1,27 @@
+{# Cartão "Agenda" da página inicial: um dia de calendário com as reuniões e a situação
+   da transcrição de cada uma. Chega depois da página (hx-trigger="load" no index.html) e
+   troca de dia sozinho, sem recarregar o resto. #}
+{% import "_macros.html" as m %}
+{% set a = agenda %}
+{% set dias = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] %}
+{% set ontem = (a.day - a.day.resolution).isoformat() %}
+{% set amanha = (a.day + a.day.resolution).isoformat() %}
+<section id="agenda-cartao" class="cartao-agenda">
+  <div class="secao-topo">
+    <h2>Agenda {% call m.dica(lado="esquerda") %}Suas reuniões do dia, lidas da agenda do Google. A cor é a plataforma (Meet, Teams ou outra);
+      a bolinha diz se a transcrição já está no sistema. Clique numa reunião sem transcrição para importar a do Teams ou do Meet
+      já ligada a ela; numa com transcrição, para abri-la.{% endcall %}</h2>
+    <div class="agenda-nav">
+      <a class="botao" href="/transcricoes/importar?data={{ ontem }}" hx-get="/transcricoes/agenda?data={{ ontem }}" hx-target="#agenda-cartao" hx-swap="outerHTML" title="Dia anterior" aria-label="Dia anterior">&#8249;</a>
+      <span class="dia">{{ "Hoje" if a.today else dias[a.day.weekday()] | capitalize }}, {{ a.day.strftime("%d/%m") }}</span>
+      <a class="botao" href="/transcricoes/importar?data={{ amanha }}" hx-get="/transcricoes/agenda?data={{ amanha }}" hx-target="#agenda-cartao" hx-swap="outerHTML" title="Dia seguinte" aria-label="Dia seguinte">&#8250;</a>
+      {% if not a.today %}<a class="botao" href="/" hx-get="/transcricoes/agenda" hx-target="#agenda-cartao" hx-swap="outerHTML">Hoje</a>{% endif %}
+    </div>
+  </div>
+  {% if erro_agenda %}
+    <p class="erro pequeno">Não consegui ler a agenda: {{ erro_agenda }}</p>
+  {% else %}
+    {% if a.blocks %}<p class="muted pequeno">{{ a.blocks | length }} reunião(ões) · {{ a.linked }} com transcrição</p>{% endif %}
+    {% include "_agenda_dia.html" %}
+  {% endif %}
+</section>

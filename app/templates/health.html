@@ -1,14 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Saúde · Kleverson A.I.{% endblock %}
+{% import "_macros.html" as m %}
 {% block content %}
-<h1>Saúde do sistema</h1>
+<div class="cabecalho">
+  <div>
+    <h1>Saúde do sistema</h1>
+    <div class="sub">Serviços, versão instalada e atalhos para o servidor.</div>
+  </div>
+</div>
 
 <section>
   <h2>Serviços</h2>
   <div id="tabela-saude">{% include "_health_table.html" %}</div>
   <form method="post" action="/monitoramento/testar" hx-post="/monitoramento/testar" hx-target="#tabela-saude"
         hx-indicator="#testando">
-    <button type="submit">Testar agora</button>
+    <button class="secundario" type="submit">Testar agora</button>
     <span id="testando" class="htmx-indicator muted">testando, alguns segundos...</span>
   </form>
 </section>
@@ -18,16 +24,15 @@
   <div id="versao">{% include "_version.html" %}</div>
   <form method="post" action="/monitoramento/versao" hx-post="/monitoramento/versao" hx-target="#versao"
         hx-indicator="#verificando">
-    <button type="submit">Verificar atualização</button>
+    <button class="secundario" type="submit">Verificar atualização</button>
     <span id="verificando" class="htmx-indicator muted">consultando o GitHub...</span>
   </form>
 </section>
 
 <section>
-  <h2>Servidor</h2>
-  <p class="muted">Estes botões abrem um terminal no seu computador, que conecta ao servidor por SSH e roda o
+  <h2>Servidor {% call m.dica() %}Estes botões abrem um terminal no seu computador, que conecta ao servidor por SSH e roda o
     comando. Reiniciar e atualizar pedem confirmação no terminal antes de rodar. Precisam do atalho
-    <code>kleverson://</code> instalado uma vez no seu computador (guia <code>docs/setup/06-console.md</code>).</p>
+    <code>kleverson://</code> instalado uma vez no seu computador (guia <code>docs/setup/06-console.md</code>).{% endcall %}</h2>
   <p>
     {% for action, label, command in actions %}
       <a class="botao" href="kleverson://{{ action }}" title="{{ command }}">{{ label }}</a>
@@ -43,7 +48,7 @@
       <tr><td>Aplicar atualização</td><td><code>cd ~/AI_kleverson && git pull && docker compose up -d --build</code></td></tr>
     </table></div>
   </details>
-  <p class="muted">Conectividade da rede privada: se esta página abriu, o Tailscale está funcionando entre o seu
+  <p class="muted pequeno">Conectividade da rede privada: se esta página abriu, o Tailscale está funcionando entre o seu
     computador e o servidor. Detalhes dos aparelhos no <a href="https://login.tailscale.com/admin/machines"
     target="_blank" rel="noopener">painel do Tailscale</a>.</p>
 </section>

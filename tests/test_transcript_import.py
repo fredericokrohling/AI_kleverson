@@ -1,7 +1,7 @@
 """Testes da importação de transcrições do Teams e do Meet (agenda, leitura e página)."""
 
-# Data.
-from datetime import date
+# Data, e data e hora.
+from datetime import date, datetime
 
 # Biblioteca de testes.
 import pytest
@@ -23,6 +23,9 @@ from app.models import AuditLog, BronzeItem, SourceKind
 
 # Rotas da importação (para trocar a agenda e o Drive pelos falsos).
 from app.transcription import routes_import
+
+# Contas do dia de calendário.
+from app.transcription.agenda import build_day
 
 # Agenda.
 from app.transcription.calendar import events_on, parse_event
@@ -429,3 +432,97 @@ def test_meet_transcript_blocked(google):
     ).text
     # Mostra o motivo, sem gravar nada.
     assert "Não consegui baixar a transcrição do Meet" in page
+
+
+# --- Dia de calendário (página inicial e página Reuniões) ----------------------------
+
+
+# Posição, altura e colunas das reuniões no dia de calendário.
+def test_build_day_positions_and_lanes():
+    # Agenda: 7h30 (antes da grade padrão), duas sobrepostas às 10h e uma de 5 minutos.
+    calendar = FakeCalendar(
+        [
+            # Começa antes das 8h: a grade tem de começar às 7h.
+            make_event("cedo", "Cedo", "2026-11-02T07:30:00-03:00", "2026-11-02T08:00:00-03:00"),
+            # Duas no mesmo horário: lado a lado.
+            make_event("a", "A", "2026-11-02T10:00:00-03:00", "2026-11-02T11:30:00-03:00"),
+            # Começa no meio da A.
+            make_event("b", "B", "2026-11-02T10:30:00-03:00", "2026-11-02T11:00:00-03:00"),
+            # Começa quando a B acaba, ainda durante a A: volta para a coluna da B.
+            make_event("c", "C", "2026-11-02T11:00:00-03:00", "2026-11-02T11:05:00-03:00"),
+        ]
+    )
+    # Reuniões do dia.
+    events = events_on(calendar, date(2026, 11, 2), "America/Sao_Paulo")
+    # "Agora" fixo: 02/11 às 12h de Brasília.
+    now = datetime.fromisoformat("2026-11-02T12:00:00-03:00")
+    # Monta o dia, com a reunião A já tendo transcrição (item 42).
+    day = build_day(events, {"a": 42}, date(2026, 11, 2), "America/Sao_Paulo", now=now)
+    # A grade começa às 7h (por causa da reunião cedo) e vai até as 19h (padrão).
+    assert (day.start_hour, day.end_hour) == (7, 19)
+    # Blocos por id.
+    blocks = {b.event.id: b for b in day.blocks}
+    # A reunião cedo fica a 30 minutos do topo e tem 30 de altura.
+    assert (blocks["cedo"].top, blocks["cedo"].height) == (30, 30)
+    # A e B dividem duas colunas; C volta para a segunda coluna (a B já acabou).
+    assert [(blocks[k].lane, blocks[k].lanes) for k in "abc"] == [(0, 2), (1, 2), (1, 2)]
+    # A de 5 minutos ganha a altura mínima.
+    assert blocks["c"].height == 25
+    # Situação: A ligada à transcrição 42; as outras sem transcrição.
+    assert (blocks["a"].status, blocks["a"].item_id, blocks["b"].status) == (
+        "ligada",
+        42,
+        "pendente",
+    )
+    # A linha do "agora" fica a 5 horas do topo (12h - 7h) e o dia é hoje.
+    assert day.now == 300 and day.today
+    # Um resumo: uma reunião com transcrição.
+    assert day.linked == 1
+    # Outro dia: sem linha do "agora".
+    assert build_day([], {}, date(2026, 11, 3), "America/Sao_Paulo", now=now).now is None
+
+
+# O cartão da agenda mostra a situação de cada reunião e leva para o lugar certo.
+def test_agenda_card_links(google, sessions):
+    # Uma transcrição já ligada à reunião do Teams.
+    with sessions() as s:
+        # Item de transcrição com o thread_id que a importação grava.
+        item = BronzeItem(
+            source=SourceKind.MEET_TRANSCRIPT,
+            external_id="ligada-1",
+            thread_id="agenda:teams1",
+            subject="Comitê do cliente",
+            content_sha256="0" * 64,
+        )
+        # Grava.
+        s.add(item)
+        # Confirma.
+        s.commit()
+        # Id gravado.
+        item_id = item.id
+    # O cartão do dia 02/11.
+    card = client.get("/transcricoes/agenda?data=2026-11-02", headers=OWNER).text
+    # A do Teams abre a transcrição já ligada.
+    assert f'href="/conteudo/{item_id}"' in card and "transcrição ligada" in card
+    # A do Meet leva para a importação com a reunião já escolhida.
+    assert "/transcricoes/importar?data=2026-11-02&evento=meet1" in card
+    # E diz que a transcrição do Meet está pronta para baixar.
+    assert "transcrição do Meet pronta" in card
+    # Resumo no topo do cartão.
+    assert "2 reunião(ões) · 1 com transcrição" in card
+    # A página de importação aberta por esse link já deixa a reunião escolhida.
+    page = client.get("/transcricoes/importar?data=2026-11-02&evento=meet1", headers=OWNER).text
+    # A opção da reunião do Meet vem marcada.
+    assert '<option value="meet1" selected>' in page
+    # Trocar a data devolve a lista e o calendário do novo dia (troca "fora da faixa").
+    part = client.get("/transcricoes/importar/reunioes?data=2026-11-03", headers=OWNER).text
+    # O calendário vem marcado para ir para o lugar dele.
+    assert 'id="agenda-dia" hx-swap-oob="true"' in part and "Amanhã" in part
+
+
+# A página inicial pede o cartão da agenda depois de abrir, sem esperar o Google.
+def test_home_loads_agenda_later():
+    # Página inicial.
+    page = client.get("/", headers=OWNER).text
+    # O cartão chega por HTMX ao carregar a página.
+    assert 'hx-get="/transcricoes/agenda" hx-trigger="load"' in page

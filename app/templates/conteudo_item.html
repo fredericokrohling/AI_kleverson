@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<p><a href="/conteudo">&larr; Conteúdo coletado</a></p>
-<h1>{{ item.subject or "(sem assunto)" }}</h1>
+<div class="cabecalho">
+  <div>
+    <div class="sub"><a href="/conteudo">&larr; Conteúdo coletado</a></div>
+    <h1>{{ item.subject or "(sem assunto)" }}</h1>
+  </div>
+</div>
 <section>
   <p>
     <strong>{{ label }}</strong> · {{ item.occurred_at | local("%d/%m/%Y %H:%M") }}
@@ -37,7 +41,7 @@
     <p><strong>Tags (das pastas):</strong> {% for name in drive_tags %}<span class="tag herdada">{{ name }}</span>{% endfor %}</p>
   {% endif %}
   {% if speakers %}
-    <h2>Quem falou</h2>
+    <h2 style="margin-top: 18px">Quem falou</h2>
     <div class="tabela"><table>
       <tr><th>Nome na transcrição</th><th>Pessoa cadastrada</th><th>Falas</th></tr>
       {% for name, person, count in speakers %}
@@ -58,7 +62,7 @@
     </table></div>
     <p class="muted">Nome não reconhecido? Cadastre a pessoa (ou o nome como "outro nome") em <a href="/cadastros">Cadastros</a>: as falas são ligadas na hora.</p>
   {% endif %}
-  <h2>Texto</h2>
+  <h2 style="margin-top: 18px">Texto</h2>
   {% if item.body_text %}
     <pre class="texto">{{ item.body_text }}</pre>
   {% else %}

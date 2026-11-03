@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}{{ item.name }} · Kleverson A.I.{% endblock %}
 {% macro tag_form(target) %}
   <form class="linha" style="margin:4px 0 0" method="post" action="/config/drive/itens/{{ target.id }}/tags">
@@ -22,18 +23,19 @@
   {% endfor %}
 {% endmacro %}
 {% block content %}
-<p class="muted"><a href="/config#drive">Pastas do Drive</a>
+<p class="muted pequeno"><a href="/config#drive">Pastas do Drive</a>
   {% for t in trail %} / {% if not loop.last %}<a href="/config/drive/itens/{{ t.id }}">{{ t.name }}</a>{% else %}<strong>{{ t.name }}</strong>{% endif %}{% endfor %}
 </p>
 <datalist id="sugestoes">{% for t in all_tags %}<option value="{{ t.name }}">{% endfor %}</datalist>
 
 <section>
-  <h2>{{ item.name }}</h2>
+  <div class="secao-topo">
+    <h2>{{ item.name }} {% call m.dica() %}Tags com borda cheia foram colocadas aqui; as tracejadas vêm de uma pasta acima.
+      {% if item.is_folder %}Tudo dentro desta pasta herda as tags dela.{% endif %}{% endcall %}</h2>
+    {% if item.web_link %}<a class="botao" href="{{ item.web_link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}
+  </div>
   <div>Tags: {{ tag_list(item) }} {% if not tags.get(item.id) %}<span class="muted">nenhuma</span>{% endif %}</div>
   {{ tag_form(item) }}
-  <p class="muted">Tags com borda cheia foram colocadas aqui; as tracejadas vêm de uma pasta acima.
-    {% if item.is_folder %}Tudo dentro desta pasta herda as tags dela.{% endif %}
-    {% if item.web_link %}<a href="{{ item.web_link }}" target="_blank" rel="noopener">Abrir no Drive</a>{% endif %}</p>
   {% if item.error %}<p class="erro">Não foi lido: {{ item.error }}</p>{% endif %}
 </section>
 
