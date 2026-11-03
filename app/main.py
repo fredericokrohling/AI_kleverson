@@ -52,11 +52,14 @@ from app.llm import BudgetExceededError, LLMClient
 # Tabelas consultadas na página inicial.
 from app.models import BronzeItem, OAuthToken, SourceKind
 
-# Rotas da página Configurações e da navegação pelo Drive.
+# Rotas da página Configurações.
 from app.routes_config import router as config_router
 
 # Rotas da página Processamento (números, coleta, diário e conteúdo coletado).
 from app.routes_content import router as content_router
+
+# Pastas do Drive monitoradas (em Cadastros) e a navegação pelas pastas.
+from app.routes_drive import router as drive_router
 
 # Botões "Tentar de novo" dos arquivos sem texto.
 from app.routes_failures import router as failures_router
@@ -78,6 +81,10 @@ from app.transcription.routes import router as transcription_router
 
 # Rotas da importação de transcrições.
 from app.transcription.routes_import import router as import_router
+
+# Rotas do Início ao vivo (canal de eventos, áreas das reuniões, participantes).
+from app.transcription.routes_live import live_context
+from app.transcription.routes_live import router as live_router
 
 # Peças comuns: modelos HTML, dono, banco e proteção de POST.
 from app.web import DB, Owner, SameOrigin, templates
@@ -108,6 +115,10 @@ app.include_router(transcription_router)
 app.include_router(registry_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
+# Rotas das pastas do Drive.
+app.include_router(drive_router)
+# Rotas do Início ao vivo.
+app.include_router(live_router)
 # Rotas da página Saúde.
 app.include_router(health_router)
 # Rotas de "Tentar de novo".
@@ -181,6 +192,9 @@ def index(request: Request, owner: Owner, db: DB):
             "reunioes": meetings,
             # Já houve algum teste automático de saúde?
             "saude_testada": last_run_at(db) is not None,
+            # Reuniões ao vivo (ou salvas há pouco), cada uma com suas falas; o "**" junta
+            # as chaves desse dicionário a este.
+            **live_context(db),
         },
     )
 

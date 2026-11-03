@@ -29,6 +29,9 @@ from app.people import Spoken, save_utterances
 # Tags automáticas pelas regras dos projetos.
 from app.project_tags import apply_rules
 
+# Reunião ao vivo e quem é cada voz.
+from app.transcription import live
+
 # Canais que vêm do serviço de transcrição; as legendas do Meet ficam à parte para comparação.
 AUDIO_CHANNELS = ("voce", "outros")
 # Nome do canal das legendas do Meet.
@@ -148,9 +151,15 @@ def _timestamp(ms: int | None) -> str:
 
 
 # Monta o texto final: uma linha "[mm:ss] Falante: texto" por trecho.
-def render(segments: Iterable[TranscriptSegment]) -> str:
+def render(segments: Iterable[TranscriptSegment], names: dict | None = None) -> str:
+    """names: (canal, rótulo) → nome do participante, para trocar "Falante 2" pelo nome."""
+    # Sem nomes: os rótulos como vieram.
+    names = names or {}
     # "\n".join junta as linhas com quebra de linha entre elas.
-    return "\n".join(f"[{_timestamp(s.start_ms)}] {s.speaker}: {s.text}" for s in segments)
+    return "\n".join(
+        f"[{_timestamp(s.start_ms)}] {names.get((s.channel, s.speaker), s.speaker)}: {s.text}"
+        for s in segments
+    )
 
 
 # Busca os trechos de uma reunião, separados em áudio e legendas.
@@ -179,11 +188,21 @@ def segments_by_channel(
 def finalize(
     session: Session, session_id: str, *, actor: str, title: str | None, meeting_url: str | None
 ) -> BronzeItem:
-    """Cria (ou atualiza) o item do bronze desta reunião. Pode ser chamado de novo sem duplicar."""
+    """Cria (ou atualiza) o item do bronze desta reunião. Pode ser chamado de novo sem duplicar.
+
+    Chamado de novo quando você muda quem é cada voz depois de salvar: o texto e as falas
+    são refeitos com os nomes novos.
+    """
+    # A reunião ao vivo (criada aqui se a captura for de antes desta versão).
+    meeting, _ = live.ensure_meeting(session, session_id, title, meeting_url)
+    # Título e endereço: os informados agora, ou os guardados na reunião.
+    title, meeting_url = meeting.title, meeting.meeting_url
     # Trechos da reunião.
     audio, captions = segments_by_channel(session, session_id)
-    # Texto final da transcrição (só o áudio; as legendas vão para "extra").
-    body = render(audio)
+    # Quem é cada voz: (canal, rótulo) → participante.
+    people = live.participant_map(session, meeting)
+    # Texto final da transcrição com os nomes (só o áudio; as legendas vão para "extra").
+    body = render(audio, {key: p.name for key, p in people.items()})
     # Procura se esta reunião já foi finalizada antes.
     item = session.scalar(
         select(BronzeItem).where(
@@ -214,11 +233,36 @@ def finalize(
         "legendas_meet": render(captions),
         # Quantas linhas de legenda.
         "trechos_legenda": len(captions),
+        # Participantes que você cadastrou na reunião.
+        "participantes": [
+            {"nome": p.name, "email": p.email} for p in live.participants(session, meeting)
+        ],
     }
     # flush envia ao banco sem confirmar ainda; serve para obter o item.id.
     session.flush()
-    # Uma linha por fala ("Você" e "Falante N"; os nomes vêm no bloco 6).
-    save_utterances(session, item, [Spoken(s.start_ms, s.speaker, s.text) for s in audio])
+    # Uma linha por fala: com o participante quando você disse quem é a voz; senão o
+    # rótulo ("Você", "Falante N").
+    spoken = []
+    # Cada trecho.
+    for s in audio:
+        # Participante desse falante, se houver.
+        p = people.get((s.channel, s.speaker))
+        # Fala com nome, participante e pessoa (ou só o rótulo).
+        spoken.append(
+            Spoken(
+                s.start_ms,
+                p.name if p else s.speaker,
+                s.text,
+                participant_id=p.id if p else None,
+                stakeholder_id=p.stakeholder_id if p else None,
+            )
+        )
+    # Grava (troca as falas de uma finalização anterior).
+    save_utterances(session, item, spoken)
+    # A reunião sai do "ao vivo" (a primeira finalização marca a hora).
+    meeting.finished_at = meeting.finished_at or live.utc_now()
+    # E aponta para a transcrição salva.
+    meeting.bronze_item_id = item.id
     # Tags pelas regras (nome do projeto no título).
     apply_rules(session, item)
     # Registra a finalização no log de auditoria.

@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
+{# Recebe os trechos ao vivo e põe cada um na área da reunião dele. #}
+{% block head %}<script src="/static/ao-vivo.js" defer></script>{% endblock %}
 {% block content %}
 <div class="cabecalho">
   <div>
     <h1>Início</h1>
-    <div class="sub">Se tudo está funcionando, as últimas transcrições e o que ficou sem ler.</div>
+    <div class="sub">Seu painel: as reuniões ao vivo, se tudo está funcionando e o que ficou sem ler.</div>
   </div>
   <div class="acoes">
     <a class="botao" href="/conteudo#conteudo">
@@ -16,6 +18,10 @@
 {% if not accounts %}
   <div class="aviso-caixa">Nenhuma conta Google conectada. Conecte em <a href="/config#contas">Configurações → Contas conectadas</a>.</div>
 {% endif %}
+
+{# Reuniões ao vivo: fora do bloco abaixo, porque não se redesenha com as novidades (as
+   falas chegam pelo canal de eventos; ver app/transcription/live.py). #}
+{% include "_ao_vivo.html" %}
 
 {# Com novidades (ver app/updates.py), este bloco se busca de novo na página inicial. #}
 <div id="inicio-dados" hx-get="/" hx-select="#inicio-dados" hx-swap="outerHTML" hx-trigger="novidades from:body">

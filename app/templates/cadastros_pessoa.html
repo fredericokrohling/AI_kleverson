@@ -12,7 +12,7 @@
   <form method="post" action="/cadastros/pessoas/{{ person.id }}">
     <p class="linha">
       <label>Nome <input name="nome" required maxlength="200" value="{{ person.name }}"></label>
-      <label>E-mail <input name="email" type="email" maxlength="320" value="{{ person.email or '' }}"></label>
+      <label>E-mail <input name="email" type="email" required maxlength="320" value="{{ person.email }}"></label>
     </p>
     <p class="linha">
       <label>Cargo <input name="cargo" maxlength="200" value="{{ person.role or '' }}"></label>

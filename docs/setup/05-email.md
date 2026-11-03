@@ -45,7 +45,7 @@ docker compose ps -a
 ## 5.2 Pastas do Drive
 
 O Drive não é configurado no `.env`: as pastas monitoradas são cadastradas pelo console, em
-**Configurações → Pastas do Drive** (guia [06-console.md](06-console.md)). Os arquivos do
+**Cadastros → Pastas do Drive** (guia [06-console.md](06-console.md); ficava em Configurações até o guia 12). Os arquivos do
 Drive citados por link nos e-mails são lidos à parte, sem precisar estar numa pasta.
 
 ## 5.3 Acompanhar a coleta

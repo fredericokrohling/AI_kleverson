@@ -13,6 +13,10 @@ Como reconhece, nesta ordem (só aceita quando a resposta é uma pessoa só):
    de uma pessoa cadastrada.
 
 Nome que bate com duas pessoas fica sem ligação: errar quem falou é pior que não saber.
+
+Na transcrição ao vivo, o serviço só separa vozes ("Falante 2"). Quem diz quem é cada voz
+é você, no Início (ver app/transcription/live.py): a fala aponta para o participante da
+reunião e, se ele tiver o e-mail de uma pessoa cadastrada, para a pessoa também.
 """
 
 # re: expressões regulares (padrões de texto).
@@ -28,13 +32,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 # Consultas.
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 # Session: conversa com o banco.
 from sqlalchemy.orm import Session
 
 # Tabelas.
-from app.models import BronzeItem, SourceKind, Stakeholder, Utterance
+from app.models import BronzeItem, MeetingParticipant, SourceKind, Stakeholder, Utterance
 
 # Marcas que o Teams e o Meet põem depois do nome ("Ana Souza (Convidado)").
 _SUFFIX = re.compile(r"\s*\((convidad[oa]|guest|external|externo|externa|unverified)\)\s*$", re.I)
@@ -51,6 +55,10 @@ class Spoken:
     speaker: str | None
     # Texto.
     text: str
+    # Participante da reunião ao vivo, quando você disse quem é aquela voz.
+    participant_id: int | None = None
+    # Pessoa cadastrada já conhecida (a do participante); vazio = reconhecer pelo nome.
+    stakeholder_id: int | None = None
 
 
 # Forma comparável de um nome: sem acento, sem marca de convidado, minúsculo, um espaço.
@@ -156,8 +164,10 @@ def save_utterances(session: Session, item: BronzeItem, spoken: Iterable[Spoken]
                 start_ms=s.start_ms,
                 # Nome como apareceu (cortado ao tamanho da coluna).
                 speaker=s.speaker[:200] if s.speaker else None,
-                # Pessoa reconhecida.
-                stakeholder_id=people.match(s.speaker, attendees),
+                # Pessoa: a do participante, ou a reconhecida pelo nome.
+                stakeholder_id=s.stakeholder_id or people.match(s.speaker, attendees),
+                # Participante da reunião ao vivo.
+                participant_id=s.participant_id,
                 # Texto.
                 text=s.text,
             )
@@ -223,9 +233,42 @@ def backfill_utterances(session: Session) -> int:
     return done
 
 
+# Liga à Pessoa os participantes de reunião sem ligação que têm o e-mail dela.
+def link_participants_by_email(session: Session) -> int:
+    """Devolve quantos participantes foram ligados. As falas deles seguem junto."""
+    # Pessoas por e-mail.
+    people = PeopleIndex(session)
+    # Contador.
+    linked = 0
+    # Participantes com e-mail e sem pessoa.
+    for participant in session.scalars(
+        select(MeetingParticipant).where(
+            MeetingParticipant.stakeholder_id.is_(None), MeetingParticipant.email.is_not(None)
+        )
+    ):
+        # Pessoa com esse e-mail.
+        person = people.by_email.get(participant.email)
+        # Achou.
+        if person is not None:
+            # Liga o participante.
+            participant.stakeholder_id = person
+            # E todas as falas dele.
+            session.execute(
+                update(Utterance)
+                .where(Utterance.participant_id == participant.id)
+                .values(stakeholder_id=person)
+            )
+            # Conta.
+            linked += 1
+    # Devolve.
+    return linked
+
+
 # Reconhece de novo as falas sem pessoa (depois de cadastrar alguém ou um apelido).
 def relink_utterances(session: Session) -> int:
     """Devolve quantas falas passaram a ter pessoa."""
+    # Primeiro os participantes de reuniões ao vivo com o e-mail de alguém cadastrado.
+    link_participants_by_email(session)
     # Pessoas cadastradas.
     people = PeopleIndex(session)
     # Falas sem pessoa, com o item (para os participantes do convite).
@@ -234,8 +277,13 @@ def relink_utterances(session: Session) -> int:
         select(Utterance, BronzeItem)
         # ... ligadas pelo id...
         .join(BronzeItem, BronzeItem.id == Utterance.bronze_item_id)
-        # ... só as que têm nome e ainda não têm pessoa.
-        .where(Utterance.stakeholder_id.is_(None), Utterance.speaker.is_not(None))
+        # ... só as que têm nome e ainda não têm pessoa. As de um participante sem e-mail
+        # cadastrado ficam como estão: quem é aquela voz, você já disse.
+        .where(
+            Utterance.stakeholder_id.is_(None),
+            Utterance.speaker.is_not(None),
+            Utterance.participant_id.is_(None),
+        )
     ).all()
     # Participantes por item (calcula uma vez por transcrição).
     cache: dict[int, dict[str, str]] = {}

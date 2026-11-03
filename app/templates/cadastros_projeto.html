@@ -7,7 +7,7 @@
     <div class="sub"><a href="/cadastros">&larr; Cadastros</a></div>
     <h1>{{ project.name }}</h1>
   </div>
-  {% if tag %}<div class="acoes muted pequeno">Tag <a href="/conteudo?tag={{ tag.id }}" class="tag">{{ tag.name }}</a> em {{ tagged }} e-mail(s) e reunião(ões)</div>{% endif %}
+  {% if tag %}<div class="acoes muted pequeno">Tag <a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a> em {{ tagged }} e-mail(s) e reunião(ões)</div>{% endif %}
 </div>
 <nav class="abas" aria-label="Seções"><a href="#projeto">Projeto</a><a href="#equipe">Equipe</a><a href="#pastas">Pastas do Gmail</a></nav>
 <section id="projeto">
@@ -35,7 +35,7 @@
       <tr><th>Pessoa</th><th>Cargo · empresa</th><th>Função no projeto e liderança</th><th></th></tr>
       {% for person, link in team %}
         <tr>
-          <td><a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a><br><span class="muted">{{ person.email or "sem e-mail" }}</span>
+          <td><a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a><br><span class="muted">{{ person.email }}</span>
             {% if person.is_leader %}<br><span class="tag">liderança na empresa</span>{% endif %}</td>
           <td>{{ person.role or "" }}{% if person.role and person.organization %} · {% endif %}{{ person.organization or "" }}</td>
           <td>
@@ -66,7 +66,7 @@
     </p>
     <p class="linha">
       <input name="nome" maxlength="200" placeholder="Nome" aria-label="Nome">
-      <input name="email" type="email" maxlength="320" placeholder="E-mail" aria-label="E-mail">
+      <input name="email" type="email" maxlength="320" placeholder="E-mail (obrigatório)" aria-label="E-mail">
       <input name="cargo" maxlength="200" placeholder="Cargo" aria-label="Cargo">
       <input name="empresa" maxlength="200" placeholder="Empresa" aria-label="Empresa">
       <input name="outros_nomes" placeholder="Outros nomes" aria-label="Outros nomes">

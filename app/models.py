@@ -184,8 +184,10 @@ class Stakeholder(Timestamped, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     # Nome da pessoa.
     name: Mapped[str] = mapped_column(String(200))
-    # E-mail; 320 é o tamanho máximo de um endereço de e-mail. Sem repetição.
-    email: Mapped[str | None] = mapped_column(String(320), unique=True)
+    # E-mail: a chave da pessoa (obrigatório, sem repetição, sempre em minúsculas).
+    # 320 é o tamanho máximo de um endereço de e-mail. O id numérico continua sendo a
+    # chave interna das ligações, porque um e-mail pode mudar e o id não.
+    email: Mapped[str] = mapped_column(String(320), unique=True)
     # Empresa ou área.
     organization: Mapped[str | None] = mapped_column(String(200))
     # Cargo.
@@ -321,6 +323,100 @@ class TranscriptSegment(Base):
     )
 
 
+# Uma reunião transcrita ao vivo pela extensão (uma por aba do Meet capturada).
+class LiveMeeting(Base):
+    """Reunião ao vivo: existe desde o primeiro clique na extensão até ser salva.
+
+    Cada captura tem seu próprio session_id (gerado pela extensão). É ele que separa duas
+    reuniões ao mesmo tempo: trechos, participantes e falantes ficam presos a ele.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "live_meetings"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Identificador da captura, o mesmo dos trechos (transcript_segments.session_id).
+    session_id: Mapped[str] = mapped_column(String(64), unique=True)
+    # Título da aba do Meet (o nome da reunião).
+    title: Mapped[str | None] = mapped_column(Text)
+    # Endereço da reunião (https://meet.google.com/abc-defg-hij).
+    meeting_url: Mapped[str | None] = mapped_column(String(500))
+    # Quando a captura começou.
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Último trecho recebido: serve para saber se a reunião ainda está no ar.
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Quando foi salva (botão "Parar e salvar" da extensão); vazio = ainda ao vivo.
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Item do bronze criado ao salvar.
+    bronze_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="SET NULL")
+    )
+
+
+# Quem participa de uma reunião ao vivo, cadastrado por você.
+class MeetingParticipant(Base):
+    """Participante de uma reunião: nome único na reunião, e-mail opcional.
+
+    Pode vir da página Pessoas (stakeholder_id preenchido) ou ser só desta reunião. Um
+    e-mail igual ao de uma Pessoa liga as duas automaticamente (o e-mail é a chave).
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "meeting_participants"
+    # Nome (na forma comparável) e e-mail não se repetem dentro da mesma reunião.
+    # No Postgres, vários e-mails vazios (NULL) não contam como repetidos.
+    __table_args__ = (
+        UniqueConstraint("meeting_id", "name_key"),
+        UniqueConstraint("meeting_id", "email"),
+    )
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # A reunião; apagou a reunião, apagam os participantes.
+    meeting_id: Mapped[int] = mapped_column(
+        ForeignKey("live_meetings.id", ondelete="CASCADE"), index=True
+    )
+    # Nome como você escreveu.
+    name: Mapped[str] = mapped_column(String(200))
+    # Nome sem acento, minúsculo e com um espaço (ver app/people.normalize): "Ana" e
+    # "ana" contam como o mesmo nome.
+    name_key: Mapped[str] = mapped_column(String(200))
+    # E-mail em minúsculas, opcional.
+    email: Mapped[str | None] = mapped_column(String(320))
+    # Pessoa cadastrada, quando houver; apagar a pessoa deixa o participante sem ligação.
+    stakeholder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stakeholders.id", ondelete="SET NULL"), index=True
+    )
+
+
+# Qual participante é cada voz que o serviço de transcrição separou ("Falante 2").
+class MeetingSpeaker(Base):
+    """Liga um rótulo de falante de um canal a um participante da reunião."""
+
+    # Nome da tabela no banco.
+    __tablename__ = "meeting_speakers"
+    # Um rótulo por canal tem um participante só.
+    __table_args__ = (UniqueConstraint("meeting_id", "channel", "label"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # A reunião.
+    meeting_id: Mapped[int] = mapped_column(
+        ForeignKey("live_meetings.id", ondelete="CASCADE"), index=True
+    )
+    # Canal do trecho: "voce" (seu microfone) ou "outros" (áudio da aba).
+    channel: Mapped[str] = mapped_column(String(30))
+    # Rótulo do serviço de transcrição ("Falante 2", "Você").
+    label: Mapped[str] = mapped_column(String(200))
+    # Participante; tirar o participante da reunião desfaz a ligação.
+    participant_id: Mapped[int] = mapped_column(
+        ForeignKey("meeting_participants.id", ondelete="CASCADE")
+    )
+
+
 # Uma fala de uma transcrição de reunião: quem falou, quando e o quê.
 class Utterance(Base):
     """Fala de uma transcrição, ligada à pessoa cadastrada quando o sistema reconhece.
@@ -349,6 +445,11 @@ class Utterance(Base):
     # Pessoa cadastrada; vazio quando o nome não foi reconhecido.
     stakeholder_id: Mapped[int | None] = mapped_column(
         ForeignKey("stakeholders.id", ondelete="SET NULL"), index=True
+    )
+    # Participante da reunião ao vivo, quando você disse quem era aquela voz. Ligar o
+    # participante a uma Pessoa depois liga todas as falas dele de uma vez.
+    participant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meeting_participants.id", ondelete="SET NULL"), index=True
     )
     # O que foi dito.
     text: Mapped[str] = mapped_column(Text)

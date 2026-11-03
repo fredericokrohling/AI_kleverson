@@ -47,8 +47,8 @@ from app.runtime_settings import get_value
 # Verificação de acesso (versão para cabeçalhos e versão para rotas HTTP).
 from app.security import owner_login, require_owner
 
-# Gravação dos trechos e finalização.
-from app.transcription import store
+# Gravação dos trechos e finalização; reunião ao vivo e transmissão para o console.
+from app.transcription import live, store
 
 # Fábrica do serviço de transcrição configurado.
 from app.transcription.providers import create_provider
@@ -97,6 +97,12 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
 
     # Fábrica de sessões do banco, para gravar os trechos.
     sessions = get_sessionmaker()
+    # Registra a reunião ao vivo (a primeira conexão da captura cria; a segunda só acha).
+    created = await asyncio.to_thread(_open_meeting, sessions, sessao)
+    # Reunião nova: o Início abre uma área para ela.
+    if created:
+        # Aviso para todas as abas do console.
+        live.hub.publish({"tipo": "reunioes"})
     # Tenta abrir a conexão com o serviço de transcrição.
     try:
         # Configuração do .env.
@@ -136,6 +142,11 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
                 if message.get("bytes"):
                     # Repassa o áudio ao serviço.
                     await stream.send_audio(message["bytes"])
+                # "manter": o microfone está mudo nesta reunião e a extensão não manda
+                # áudio; o serviço precisa saber que a conexão continua viva.
+                elif message.get("text") == "manter":
+                    # Repassa o "estou vivo".
+                    await stream.keep_alive()
         # Desconexão abrupta também encerra o laço.
         except WebSocketDisconnect:
             # Nada a fazer; o finally cuida do resto.
@@ -151,6 +162,26 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
         async for segment in stream.results():
             # Nome a exibir para o falante.
             speaker = store.speaker_label(canal, segment.speaker)
+            # Manda o trecho (rascunho ou definitivo) para o Início, com o id da reunião,
+            # que é o que impede misturar duas reuniões ao mesmo tempo.
+            live.hub.publish(
+                {
+                    # Tipo do aviso.
+                    "tipo": "trecho",
+                    # Reunião.
+                    "sessao": sessao,
+                    # Canal.
+                    "canal": canal,
+                    # Rótulo do falante ("Falante 2"); o navegador troca pelo nome.
+                    "rotulo": speaker,
+                    # Texto.
+                    "texto": segment.text,
+                    # Rascunho ou definitivo.
+                    "final": segment.is_final,
+                    # Momento, em ms desde o começo do canal.
+                    "inicio_ms": segment.start_ms,
+                }
+            )
             # Só grava a versão definitiva; os rascunhos servem apenas para exibir.
             if segment.is_final:
                 # O banco é síncrono; to_thread roda a gravação em paralelo sem travar.
@@ -210,11 +241,25 @@ async def live_transcription(websocket: WebSocket, sessao: str, canal: str) -> N
             await websocket.close()
 
 
+# Cria a reunião ao vivo, se ainda não existir (roda numa thread separada).
+def _open_meeting(sessions, session_id: str) -> bool:
+    # Sessão só para isto.
+    with sessions() as session:
+        # Cria ou acha.
+        _, created = live.ensure_meeting(session, session_id)
+        # Grava.
+        session.commit()
+        # Devolve se foi criada agora.
+        return created
+
+
 # Grava um trecho numa sessão própria (roda numa thread separada, ver to_thread acima).
 def _save(sessions, **fields) -> None:
     # Abre e fecha uma sessão só para esta gravação.
     with sessions() as session:
-        # Repassa todos os campos para a função de gravação.
+        # Marca a atividade da reunião (o Início mostra "ao vivo" ou "sem áudio").
+        live.touch(session, fields["session_id"])
+        # Repassa todos os campos para a função de gravação (que grava as duas coisas).
         store.save_segment(session, **fields)
 
 
@@ -247,6 +292,29 @@ def receive_captions(session_id: str, body: CaptionsIn, owner: Owner, db: DB) ->
     return {"gravados": store.save_captions(db, session_id, lines)}
 
 
+# Formato do aviso de início que a extensão manda ao começar a captura.
+class StartIn(BaseModel):
+    # Título da aba do Meet, opcional.
+    titulo: str | None = Field(default=None, max_length=500)
+    # Endereço do Meet, opcional.
+    url_reuniao: str | None = Field(default=None, max_length=500)
+
+
+# A extensão começou a capturar uma aba: o Início abre a área da reunião, com o título.
+@router.post("/transcricoes/{session_id}/iniciar")
+def start(session_id: str, body: StartIn, owner: Owner, db: DB) -> dict[str, int]:
+    # Valida o id.
+    _check_session_id(session_id)
+    # Cria a reunião (ou acha, se o WebSocket chegou antes) com título e endereço.
+    meeting, _ = live.ensure_meeting(db, session_id, body.titulo, body.url_reuniao)
+    # Grava.
+    db.commit()
+    # O Início redesenha as áreas das reuniões (com o título novo).
+    live.hub.publish({"tipo": "reunioes"})
+    # Devolve o id interno.
+    return {"reuniao": meeting.id}
+
+
 # Formato do pedido de finalização.
 class FinalizeIn(BaseModel):
     # Título da reunião, opcional.
@@ -264,6 +332,8 @@ def finalize(session_id: str, body: FinalizeIn, owner: Owner, db: DB) -> dict[st
     item = store.finalize(
         db, session_id, actor=owner, title=body.titulo, meeting_url=body.url_reuniao
     )
+    # O Início mostra a reunião como salva.
+    live.hub.publish({"tipo": "reunioes"})
     # Devolve o id do item criado.
     return {"bronze_id": item.id}
 
@@ -276,6 +346,8 @@ def compare(session_id: str, request: Request, owner: Owner, db: DB):
     _check_session_id(session_id)
     # Busca os trechos separados por canal.
     audio, captions = store.segments_by_channel(db, session_id)
+    # A reunião ao vivo (existe para as capturas feitas a partir desta versão).
+    meeting = live.get_meeting(db, session_id)
     # Preenche o modelo transcricao.html.
     return templates.TemplateResponse(
         # Requisição.
@@ -283,5 +355,18 @@ def compare(session_id: str, request: Request, owner: Owner, db: DB):
         # Modelo.
         "transcricao.html",
         # Dados para a página.
-        {"owner": owner, "session_id": session_id, "audio": audio, "captions": captions},
+        {
+            # Seu login.
+            "owner": owner,
+            # Id da captura.
+            "session_id": session_id,
+            # Trechos do serviço.
+            "audio": audio,
+            # Legendas do Meet.
+            "captions": captions,
+            # Reunião (para o bloco de participantes).
+            "meeting": meeting,
+            # "canal|rótulo" → nome do participante.
+            "names": live.name_map(db, meeting) if meeting else {},
+        },
     )

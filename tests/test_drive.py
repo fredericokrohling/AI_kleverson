@@ -464,26 +464,26 @@ def test_tags_are_inherited(sessions, drive, store, settings):
         assert "CRM" not in _names(s, "doc1")
 
 
-# Páginas: Configurações, navegação e as ações de tag pelo formulário.
+# Pastas do Drive em Cadastros: cadastro, navegação e as ações de tag pelo formulário.
 def test_config_and_browse_pages(sessions, drive, store, settings, monkeypatch):
     # O console usa o Drive falso ao cadastrar.
-    from app import routes_config
+    from app import routes_drive
 
     # Troca a fábrica do cliente.
-    monkeypatch.setattr(routes_config, "drive_client", lambda db, settings: drive)
+    monkeypatch.setattr(routes_drive, "drive_client", lambda db, settings: drive)
     # Cliente do navegador simulado.
     client = TestClient(app)
     # Cadastra a pasta pelo formulário.
     response = client.post(
-        "/config/drive/pastas",
+        "/cadastros/drive/pastas",
         data={"link": f"https://drive.google.com/drive/folders/{ROOT}"},
         headers=SAME,
         follow_redirects=False,
     )
     # Redireciona para a seção.
-    assert response.status_code == 303 and response.headers["location"] == "/config#drive"
+    assert response.status_code == 303 and response.headers["location"] == "/cadastros#drive"
     # A página mostra a pasta e o aviso.
-    page = client.get("/config", headers=OWNER).text
+    page = client.get("/cadastros", headers=OWNER).text
     # Nome e aviso.
     assert "CRM" in page and "cadastrada" in page
     # Varre (como o agendador faria).
@@ -494,31 +494,31 @@ def test_config_and_browse_pages(sessions, drive, store, settings, monkeypatch):
         root_id, sub_id = _item(s, ROOT).id, _item(s, SUB).id
     # Coloca uma tag na raiz pelo formulário, voltando para a página da raiz.
     client.post(
-        f"/config/drive/itens/{root_id}/tags",
-        data={"nome": "Projeto CRM", "voltar": f"/config/drive/itens/{root_id}"},
+        f"/cadastros/drive/itens/{root_id}/tags",
+        data={"nome": "Projeto CRM", "voltar": f"/cadastros/drive/itens/{root_id}"},
         headers=SAME,
     )
     # Página da subpasta: mostra o documento e a tag herdada.
-    page = client.get(f"/config/drive/itens/{sub_id}", headers=OWNER).text
+    page = client.get(f"/cadastros/drive/itens/{sub_id}", headers=OWNER).text
     # Documento e tag tracejada.
     assert "Contrato" in page and 'class="tag herdada"' in page and "Projeto CRM" in page
     # Caminho de pastas no topo.
-    assert f'href="/config/drive/itens/{root_id}">CRM</a>' in page
+    assert f'href="/cadastros/drive/itens/{root_id}">CRM</a>' in page
     # "voltar" para fora do console é ignorado (não vira redirecionamento para outro site).
     response = client.post(
-        f"/config/drive/itens/{root_id}/tags",
+        f"/cadastros/drive/itens/{root_id}/tags",
         data={"nome": "X", "voltar": "https://exemplo.com"},
         headers=SAME,
         follow_redirects=False,
     )
     # Volta para a própria página.
-    assert response.headers["location"] == f"/config/drive/itens/{root_id}"
+    assert response.headers["location"] == f"/cadastros/drive/itens/{root_id}"
     # Para de monitorar.
     with sessions() as s:
         # Id da pasta.
         folder_id = s.scalar(select(DriveFolder.id))
     # Pelo formulário.
-    client.post(f"/config/drive/pastas/{folder_id}/remover", headers=SAME)
+    client.post(f"/cadastros/drive/pastas/{folder_id}/remover", headers=SAME)
     # Desligada, mas os itens continuam.
     with sessions() as s:
         # Pasta.
@@ -531,9 +531,11 @@ def test_add_folder_without_google(sessions):
     client = TestClient(app)
     # Sem conta Google no banco, o cliente do Drive não pode ser criado. Sem seguir o
     # redirecionamento, para o aviso ser lido pela página abaixo.
-    client.post("/config/drive/pastas", data={"link": ROOT}, headers=SAME, follow_redirects=False)
+    client.post(
+        "/cadastros/drive/pastas", data={"link": ROOT}, headers=SAME, follow_redirects=False
+    )
     # O aviso aparece.
-    assert "Nenhuma conta Google conectada" in client.get("/config", headers=OWNER).text
+    assert "Nenhuma conta Google conectada" in client.get("/cadastros", headers=OWNER).text
     # Nada gravado.
     with sessions() as s:
         # Sem pastas.
