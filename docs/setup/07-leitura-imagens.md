@@ -43,6 +43,8 @@ Se você já usa o botão **Atualizar** do console (6.1), ele faz o mesmo.
 
 Não vão para o Claude, para não gastar à toa:
 
+- imagens de e-mail com menos de 70 KB, coladas no corpo ou anexadas (logo, assinatura,
+  ícones de redes sociais): nem aparecem (desde 03/11/2026);
 - imagens pequenas coladas no corpo do e-mail (logo e ícones da assinatura): nem aparecem;
   imagens grandes coladas no corpo (um print, por exemplo) são lidas;
 - imagens anexadas com o lado maior abaixo de 200 pixels (ícones): ficam como `IMAGEM_PEQUENA`;
@@ -52,7 +54,9 @@ Não vão para o Claude, para não gastar à toa:
 ## 7.3 Testar
 
 1. Mande para o seu Gmail um e-mail com um diagrama em PNG anexado (por exemplo, um
-   fluxograma exportado do Lucid) e um PDF digitalizado.
+   fluxograma exportado do Lucid) e um PDF digitalizado. O PNG precisa ter **70 KB ou
+   mais** (veja o tamanho no explorador de arquivos): abaixo disso ele é ignorado como
+   logo de assinatura.
 2. Espere a coleta (até 5 minutos). Os dois aparecem em **Arquivos sem texto** com
    "aguardando leitura pelo Claude".
 3. Clique **Tentar de novo** no PNG. Deve aparecer **Funcionou** e a linha some.
@@ -60,6 +64,9 @@ Não vão para o Claude, para não gastar à toa:
    texto e a descrição do diagrama batem com a imagem.
 5. Espere mais 5 minutos sem clicar no PDF: ele deve sair da lista sozinho.
 6. Em **Configurações → Claude**, confira o gasto do mês.
+7. **Limite de 70 KB:** responda a um e-mail que tenha logo na assinatura e anexe também
+   um print grande. Depois da coleta, abra o e-mail em **Ver o conteúdo coletado**: o
+   print aparece como anexo; o logo, não.
 
 Para forçar uma rodada pelo terminal, vendo o resultado:
 

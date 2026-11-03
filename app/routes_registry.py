@@ -8,10 +8,17 @@ Todo POST volta para uma página (padrão "POST, redireciona, GET"): apertar F5 
 o cadastro, e o resultado aparece como aviso no topo.
 
 Empresas (pedido de 03/11/2026): a página começa pelas Empresas (botão "Nova Empresa").
-Projeto, pessoa, pasta do Drive e tag só são cadastrados com a Empresa escolhida no combo
-do formulário; o servidor confere de novo (o navegador pode ser enganado). O combo
-"Mostrar" no topo filtra as listas por Empresa e já deixa essa Empresa escolhida nos
-formulários.
+Projeto, pessoa, pasta do Drive e tag só são cadastrados com uma Empresa escolhida; o
+servidor confere de novo (o navegador pode ser enganado).
+
+Um combo só (ajuste de 03/11/2026): antes havia um combo "Mostrar" no topo e outro em cada
+formulário (cinco no total), e dava para listar a Empresa A e cadastrar na B sem perceber.
+Agora um único combo "Empresa", fixo no topo enquanto a página rola, vale para as quatro
+seções: filtra as listas e decide onde o cadastro novo entra (os formulários levam a
+Empresa num campo escondido). Não existe mais "Todas as Empresas" aqui: com todas, os
+formulários não saberiam onde gravar. A visão geral fica na tabela de Empresas (contagens).
+A última Empresa escolhida fica guardada no cookie de sessão, para o menu Cadastros abrir
+nela.
 """
 
 # Annotated junta um tipo com informação extra (aqui, campos de formulário).
@@ -138,11 +145,37 @@ def _checked(value: str) -> bool:
     return bool(value)
 
 
+# Chave, no cookie de sessão, da última Empresa escolhida em Cadastros.
+_SESSION_KEY = "cadastros_empresa"
+
+
+# Empresa da página Cadastros: a do endereço, senão a última escolhida, senão a primeira
+# em ordem alfabética. None só quando não há nenhuma Empresa cadastrada.
+def _chosen_company(request: Request, ids: list[int], empresa: str | None) -> int | None:
+    # Candidatas, em ordem de preferência: endereço (?empresa=) e cookie de sessão.
+    for candidate in (filter_id(empresa), request.session.get(_SESSION_KEY)):
+        # Só vale uma Empresa que existe (pode ter vindo de um link antigo).
+        if candidate in ids:
+            # Guarda para a próxima visita.
+            request.session[_SESSION_KEY] = candidate
+            # Esta.
+            return candidate
+    # Nenhuma Empresa cadastrada: os formulários ficam escondidos.
+    if not ids:
+        return None
+    # Primeira visita: a primeira da lista (já vem em ordem alfabética).
+    request.session[_SESSION_KEY] = ids[0]
+    # Devolve.
+    return ids[0]
+
+
 # Página principal: projetos, pessoas e tags.
 @router.get("/cadastros", response_class=HTMLResponse)
 def registry_page(request: Request, owner: Owner, db: DB, empresa: str | None = None):
-    # Empresa do filtro "Mostrar" (None = todas).
-    company_id = filter_id(empresa)
+    # Empresas em ordem alfabética (tabela do topo e escolha da Empresa).
+    companies = list_companies(db)
+    # A Empresa do combo único: vale para Projetos, Pessoas, Pastas do Drive e Tags.
+    company_id = _chosen_company(request, [c.id for c in companies], empresa)
     # Projetos (ativos primeiro) com o tamanho da equipe.
     query = (
         # Projeto, tag e quantas pessoas.
@@ -158,12 +191,10 @@ def registry_page(request: Request, owner: Owner, db: DB, empresa: str | None = 
     )
     # Pessoas, por nome.
     people_query = select(Stakeholder).order_by(func.lower(Stakeholder.name))
-    # Filtro de Empresa.
-    if company_id is not None:
-        # Projetos da Empresa.
-        query = query.where(Project.company_id == company_id)
-        # Pessoas da Empresa.
-        people_query = people_query.where(Stakeholder.company_id == company_id)
+    # Só a Empresa escolhida (sem Empresa cadastrada, -1 não acha nada, como deve ser).
+    query = query.where(Project.company_id == (company_id or -1))
+    # Pessoas da Empresa.
+    people_query = people_query.where(Stakeholder.company_id == (company_id or -1))
     # Executa.
     projects = db.execute(query).all()
     # Pessoas.
@@ -205,14 +236,15 @@ def registry_page(request: Request, owner: Owner, db: DB, empresa: str | None = 
                 db.scalars(select(Project.tag_id).where(Project.tag_id.is_not(None)))
             ),
             # Empresas, com a conta e as contagens.
-            "companies": list_companies(db),
+            "companies": companies,
             # Conta Google de cada Empresa.
             "accounts": accounts_by_company(db),
             # Projetos e pessoas por Empresa.
             "counts": counts,
             # Idiomas de transcrição (para a Empresa nova).
             "languages": TRANSCRIPTION_LANGUAGES,
-            # Empresa do filtro (None = todas); também vem escolhida nos formulários.
+            # Empresa do combo único (None só sem Empresa cadastrada); os quatro
+            # formulários a levam num campo escondido.
             "filtro": company_id,
             # Pastas do Drive monitoradas (folders, roots, root_tags).
             **folders_context(db, company_id),

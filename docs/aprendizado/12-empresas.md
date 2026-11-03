@@ -108,6 +108,36 @@ A correção (`move_item` em `app/companies.py`) refaz as camadas que dependem d
 O texto original não muda. Se a mesma transcrição já foi importada na Empresa nova, a
 correção é recusada (ficariam duas iguais).
 
+## Cadastros: um combo de Empresa só (ajuste de 03/11/2026)
+
+Na primeira versão, a página Cadastros tinha cinco combos de Empresa: o filtro **Mostrar**
+no topo e um em cada formulário (projeto, pessoa, pasta do Drive e tag). Você pediu um só.
+
+O problema dos cinco não era só a repetição: dava para olhar a lista da Empresa A no
+filtro e cadastrar na Empresa B no formulário, sem perceber. Agora um único combo
+**Empresa**, numa barra que fica presa no topo enquanto a página rola, vale para as quatro
+seções ao mesmo tempo:
+
+- as listas mostram só os cadastros daquela Empresa;
+- o que você cadastra entra nela (cada formulário leva a Empresa num campo escondido, e o
+  servidor confere de novo, como antes);
+- trocar a Empresa recarrega a página na mesma seção em que você estava.
+
+**O que mudou de comportamento:** a opção **Todas as Empresas** saiu de Cadastros. Com
+todas, os formulários não saberiam onde gravar, e voltaríamos a precisar de um combo em
+cada um. A visão geral continua na tabela **Empresas** (quantos projetos e pessoas cada
+uma tem; clicar no número abre a Empresa). Em **Processamento**, a opção Todas continua.
+
+**Qual Empresa abre:** a do endereço (`/cadastros?empresa=2`), senão a última que você
+escolheu (guardada no cookie de sessão do console, o mesmo que guarda os avisos), senão a
+primeira em ordem alfabética. Sem nenhuma Empresa cadastrada, as quatro seções ficam
+escondidas, com o aviso para cadastrar uma.
+
+Alternativa avaliada: manter **Todas** e desligar os formulários quando ela estivesse
+escolhida. Descartada porque o formulário apagado na tela parece defeito, e porque a
+premissa 1 (não misturar Empresas) pede que a tela de cadastro trabalhe com uma de cada
+vez.
+
 ## O que ainda vai precisar de cuidado
 
 - **Chat e relatórios (premissas 5 e 6):** ainda não existem. Quando chegarem, **toda**
@@ -120,6 +150,9 @@ correção é recusada (ficariam duas iguais).
   transcrições fica como reserva, porque só avisa depois que você já falou.
 
 ## Onde está no código
+
+- `app/routes_registry.py` (`_chosen_company`) e `app/templates/cadastros.html`: o combo
+  único de Cadastros.
 
 - `migrations/versions/0008_empresas.py`: a tabela, as colunas, as regras de "não repete"
   e os três gatilhos.

@@ -11,9 +11,10 @@
   mas só dentro da Empresa: a mesma pessoa pode existir em duas Empresas, uma em cada.
   Duas Empresas podem ter a tag "Portal", cada uma a sua.
 - **Telas:**
-  - **Cadastros:** seção **Empresas** com o botão **Nova Empresa**, o filtro **Mostrar** no
-    topo e o combo de Empresa obrigatório nos formulários de projeto, pessoa, pasta do
-    Drive e tag;
+  - **Cadastros:** seção **Empresas** com o botão **Nova Empresa** e, abaixo dela, um único
+    combo **Empresa** (preso no topo ao rolar) que vale para Projetos, Pessoas, Pastas do
+    Drive e Tags: filtra as listas e decide onde o cadastro novo entra. Até o ajuste de
+    03/11/2026 eram cinco combos (um filtro e um por formulário);
   - **Configurações:** a conta Google de cada Empresa (você escolhe a Empresa antes de
     conectar) e o idioma das reuniões de cada Empresa. O modelo do Claude é um só;
   - **Início:** Empresa e projeto nas Transcrições recentes e nos Arquivos sem texto. Cada
@@ -76,15 +77,17 @@ A versão passa a ser **0.3.0**. Faça o mesmo nos dois computadores do KVM.
 
 ## 13.4 Roteiro de testes
 
-1. **Dados atuais:** em Cadastros, com **Mostrar: Todas as Empresas**, tudo o que existia
-   aparece com a Empresa "Teste aplicacao".
-2. **Combo obrigatório:** tente criar um projeto, uma pessoa, uma pasta ou uma tag sem
-   escolher a Empresa: o navegador não deixa e, se passar, o console recusa com
-   "Escolha a Empresa.".
+1. **Dados atuais:** em Cadastros, com a Empresa "Teste aplicacao" no combo, tudo o que
+   existia aparece.
+2. **Combo único:** em Cadastros só existe um combo de Empresa, na barra abaixo da tabela
+   de Empresas. Role a página: a barra fica presa no topo. Crie um projeto, uma pessoa e
+   uma tag: os três entram na Empresa do combo. Pedido sem Empresa (só por fora da tela)
+   continua recusado com "Escolha a Empresa.".
 3. **Mesmo nome em Empresas diferentes:** crie a tag "Portal" nas duas Empresas: as duas
    ficam, separadas. Na mesma Empresa, a segunda é recusada.
-4. **Filtro:** em Cadastros, escolha uma Empresa em **Mostrar**: só os cadastros dela
-   aparecem, e os formulários já vêm com ela escolhida.
+4. **Troca de Empresa:** estando em Tags, troque a Empresa no combo: a página recarrega
+   em Tags, com as listas da outra Empresa. Saia e volte pelo menu Cadastros: ela abre na
+   última Empresa escolhida.
 5. **Reuniões:** os dois calendários mostram a agenda de cada conta. Troque a Empresa de um
    deles no combo; troque o dia. Clique numa reunião sem transcrição do calendário roxo: o
    formulário passa para a Empresa daquele calendário, com a reunião escolhida.
