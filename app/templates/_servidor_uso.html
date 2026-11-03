@@ -1,0 +1,71 @@
+{% import "_macros.html" as m %}
+{# Bloco "Uso do servidor": botões de período, veredito, números e os dois gráficos.
+   É devolvido inteiro por /config/servidor (HTMX troca o bloco todo). No período de
+   2 horas ele se atualiza sozinho a cada minuto, junto com a medição nova. #}
+{% macro barras(g, rotulo) %}
+<svg class="barras" viewBox="0 0 {{ g.width }} {{ g.height }}" role="img" aria-label="{{ rotulo }}" preserveAspectRatio="none">
+  {% for y, texto in g.grid %}
+    <line class="grade" x1="{{ g.left }}" x2="{{ g.left + g.plot_width }}" y1="{{ y }}" y2="{{ y }}"/>
+    {% if texto %}<text class="eixo" x="{{ g.left - 6 }}" y="{{ y + 3.5 }}" text-anchor="end">{{ texto }}</text>{% endif %}
+  {% endfor %}
+  <line class="limite" x1="{{ g.left }}" x2="{{ g.left + g.plot_width }}" y1="{{ g.limit_y }}" y2="{{ g.limit_y }}"/>
+  <text class="limite-texto" x="{{ g.left + g.plot_width }}" y="{{ g.limit_y - 3 }}" text-anchor="end">{{ g.limit }}% · atenção</text>
+  {% for b in g.bars %}
+    <g class="barra{{ ' vazia' if b.empty }}">
+      <title>{{ b.tip }}</title>
+      {# Área invisível da altura toda: a dica aparece mesmo com a barra baixinha. #}
+      <rect class="alvo" x="{{ b.x }}" y="{{ g.top }}" width="{{ b.width }}" height="{{ g.plot_height }}"/>
+      {% for s in b.segments %}
+        <rect class="serie-{{ s.series }}" x="{{ b.x }}" y="{{ s.y }}" width="{{ b.width }}" height="{{ s.height }}" rx="1"/>
+      {% endfor %}
+      {% if b.peak_y is not none %}<rect class="pico" x="{{ b.x }}" y="{{ b.peak_y - 0.75 }}" width="{{ b.width }}" height="1.5"/>{% endif %}
+    </g>
+  {% endfor %}
+  {% for x, texto in g.ticks %}
+    <text class="eixo" x="{{ x }}" y="{{ g.height - 6 }}">{{ texto }}</text>
+  {% endfor %}
+</svg>
+{% endmacro %}
+<div id="servidor-uso"
+     {% if periodo == "2h" %}hx-get="/config/servidor?periodo=2h" hx-trigger="every 60s" hx-swap="outerHTML"{% endif %}>
+  <div class="linha" style="justify-content: space-between">
+    <div class="alternar" role="group" aria-label="Período">
+      {% for chave, p in periodos.items() %}
+        <a class="botao{{ ' ativo' if chave == periodo }}" href="/config?periodo={{ chave }}#servidor"
+           hx-get="/config/servidor?periodo={{ chave }}" hx-target="#servidor-uso" hx-swap="outerHTML"
+           aria-pressed="{{ 'true' if chave == periodo else 'false' }}">{{ p.label }}</a>
+      {% endfor %}
+    </div>
+    <span class="muted pequeno">{{ resumo.samples }} de {{ resumo.expected }} minutos medidos</span>
+  </div>
+
+  {% for nivel, texto in resumo.verdicts %}
+    <p class="veredito {{ nivel }}"><strong>{{ {"ok": "Folga", "aviso": "Atenção", "erro": "Gargalo", "info": "Observação"}[nivel] }}:</strong> {{ texto }}</p>
+  {% endfor %}
+
+  {% if resumo.samples %}
+  <div class="numeros">
+    <div><span class="muted pequeno">Processador</span><strong>{{ "%.0f"|format(resumo.cpu_avg) }}%</strong><span class="muted pequeno">média · pico {{ "%.0f"|format(resumo.cpu_peak) }}%</span></div>
+    <div><span class="muted pequeno">Roubado pela AWS</span><strong>{{ "%.1f"|format(resumo.steal_avg)|replace(".", ",") }}%</strong><span class="muted pequeno">média · pico {{ "%.0f"|format(resumo.steal_peak) }}%</span></div>
+    <div><span class="muted pequeno">Espera de disco</span><strong>{{ "%.1f"|format(resumo.iowait_avg)|replace(".", ",") }}%</strong><span class="muted pequeno">média · pico {{ "%.0f"|format(resumo.iowait_peak) }}%</span></div>
+    <div><span class="muted pequeno">Memória</span><strong>{{ "%.0f"|format(resumo.mem_avg) }}%</strong><span class="muted pequeno">média · pico {{ "%.0f"|format(resumo.mem_peak) }}%{% if resumo.swap_peak is not none %} · swap até {{ "%.0f"|format(resumo.swap_peak) }}%{% endif %}</span></div>
+    <div><span class="muted pequeno">Carga máxima</span><strong>{{ "%.1f"|format(resumo.load_peak)|replace(".", ",") }}</strong><span class="muted pequeno">processos querendo o processador; ele tem {{ nucleos }} núcleo{{ "s" if nucleos > 1 }}</span></div>
+  </div>
+  {% endif %}
+
+  <h3>Processador {{ m.dica("Cada barra é a média do pedaço de tempo (2 minutos nas últimas 2 horas, 1 hora nos 7 dias). Azul: trabalhando. Laranja: parado esperando o disco. Violeta: tempo que a AWS não entregou (créditos de pico do Lightsail acabando). O traço fino acima da barra é o minuto mais cheio daquele pedaço. Passe o mouse numa barra para ver os números.") }}</h3>
+  <div class="legenda">
+    <span><i style="background: var(--g-cpu)"></i>Trabalhando</span>
+    <span><i style="background: var(--g-iowait)"></i>Espera de disco</span>
+    <span><i style="background: var(--g-steal)"></i>Roubado pela AWS</span>
+    <span><i class="traco"></i>Minuto mais cheio</span>
+  </div>
+  {{ barras(grafico_cpu, "Uso do processador, " ~ periodos[periodo].label) }}
+
+  <h3>Memória {{ m.dica("Memória RAM em uso pelos programas. O cache do Linux não conta: ele é devolvido na hora quando um programa precisa. Perto de 100%, o Linux encerra um programa para não travar.") }}</h3>
+  <div class="legenda">
+    <span><i style="background: var(--g-mem)"></i>Em uso</span>
+    <span><i class="traco"></i>Pico</span>
+  </div>
+  {{ barras(grafico_mem, "Uso da memória, " ~ periodos[periodo].label) }}
+</div>

@@ -308,7 +308,7 @@ def cmd_reaplicar_tags(_: argparse.Namespace) -> None:
 
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, Drive, leitura pelo Claude e saúde, cada um no seu intervalo."""
+    """Roda sem parar: Gmail, Drive, leitura pelo Claude, saúde e medição do servidor."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -332,6 +332,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
 
     # Rodada de leitura de imagens e PDFs digitalizados pelo Claude.
     from app.ingestion.vision_queue import run_from_settings as run_vision
+
+    # Medição do servidor (processador, memória) a cada minuto, numa thread à parte.
+    from app.server_metrics import start_thread as start_metrics
 
     # Formato das mensagens: hora, nível e texto.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -373,6 +376,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             # Falhou.
             return False
 
+    # Liga a medição do servidor. Ela roda em paralelo, no seu próprio ritmo de 1 minuto,
+    # para não ficar sem medir enquanto uma coleta longa ocupa este laço.
+    start_metrics(sessions)
     # Laço sem fim: uma volta por minuto.
     while True:
         # Momento desta volta.

@@ -1,15 +1,63 @@
 {% extends "base.html" %}
 {% block title %}Configurações · Kleverson A.I.{% endblock %}
 {% import "_macros.html" as m %}
+{% block head %}
+<style>
+  /* Cores das séries dos gráficos: paleta validada para daltonismo sobre o fundo escuro
+     dos cartões (ver docs/aprendizado/13-uso-do-servidor.md). */
+  :root { --g-cpu: #3987e5; --g-iowait: #d95926; --g-steal: #9085e9; --g-mem: #3987e5; }
+  .servidor { display: grid; gap: 24px; grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; }
+  @media (max-width: 900px) { .servidor { grid-template-columns: 1fr; } }
+  .rosca { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .rosca svg { width: 200px; height: 200px; }
+  .rosca circle.fatia { fill: none; stroke-width: 26; }
+  .rosca circle.fatia:hover { stroke-width: 30; }
+  .rosca .centro { fill: var(--fg); font-size: 26px; font-weight: 600; }
+  .rosca .centro-sub { fill: var(--muted); font-size: 11px; }
+  .fatias { width: 100%; font-size: 12.5px; }
+  .fatias td { padding: 3px 6px; vertical-align: top; }
+  .fatias td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cor { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .alternar { display: inline-flex; gap: 0; border: 1px solid var(--linha); border-radius: 999px; padding: 2px; }
+  .alternar .botao { border: 0; border-radius: 999px; background: transparent; color: var(--fg-2); padding: 4px 12px; }
+  .alternar .botao.ativo { background: var(--accent-suave); color: var(--fg); }
+  .veredito { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--raio-p); border: 1px solid var(--linha); font-size: 13px; }
+  .veredito.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--fg); }
+  .veredito.ok strong { color: var(--ok); }
+  .veredito.aviso { border-color: color-mix(in srgb, var(--aviso) 40%, transparent); color: var(--fg); }
+  .veredito.aviso strong { color: var(--aviso); }
+  .veredito.erro { border-color: color-mix(in srgb, var(--erro) 45%, transparent); color: var(--fg); }
+  .veredito.erro strong { color: var(--erro); }
+  .veredito.info { color: var(--fg-2); }
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+  .numeros > div { display: flex; flex-direction: column; background: var(--cartao-2); border-radius: var(--raio-p); padding: 8px 10px; }
+  .numeros strong { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--fg-2); margin-bottom: 4px; }
+  .legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .legenda i.traco { height: 2px; vertical-align: 3px; background: var(--fg-2); border-radius: 0; }
+  svg.barras { width: 100%; height: 190px; display: block; }
+  svg.barras .grade { stroke: var(--linha); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  svg.barras .limite { stroke: var(--aviso); stroke-opacity: .55; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  svg.barras .limite-texto { fill: var(--aviso); font-size: 10px; opacity: .8; }
+  svg.barras .eixo { fill: var(--muted); font-size: 10px; }
+  svg.barras .alvo { fill: transparent; }
+  svg.barras .barra:hover .alvo { fill: rgba(255,255,255,.05); }
+  svg.barras .serie-cpu { fill: var(--g-cpu); }
+  svg.barras .serie-iowait { fill: var(--g-iowait); }
+  svg.barras .serie-steal { fill: var(--g-steal); }
+  svg.barras .serie-mem { fill: var(--g-mem); }
+  svg.barras .pico { fill: var(--fg-2); opacity: .75; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="cabecalho">
   <div>
     <h1>Configurações</h1>
-    <div class="sub">Contas de cada Empresa, modelo do Claude e idioma das reuniões. As pastas do Drive e as tags ficam em <a href="/cadastros#drive">Cadastros</a>.</div>
+    <div class="sub">Contas de cada Empresa, modelo do Claude, idioma das reuniões e uso do servidor. As pastas do Drive e as tags ficam em <a href="/cadastros#drive">Cadastros</a>.</div>
   </div>
 </div>
 <nav class="abas" aria-label="Seções">
-  <a href="#contas">Contas conectadas</a><a href="#claude">Claude</a><a href="#transcricao">Transcrição</a>
+  <a href="#contas">Contas conectadas</a><a href="#claude">Claude</a><a href="#transcricao">Transcrição</a><a href="#servidor">Servidor</a>
 </nav>
 
 {# Cartões pequenos lado a lado. #}
@@ -98,5 +146,47 @@
   {% endif %}
 </section>
 </div>
+
+<section id="servidor">
+  {{ m.titulo("Servidor", "Serve para saber se o servidor dá conta do sistema. À esquerda, como o disco está ocupado: cada projeto, o que não tem projeto, o banco e o sistema. À direita, o uso de processador e memória, medido a cada minuto pelo serviço coletor. Gargalo é padrão no tempo, por isso dá para ver 2 horas (picos de coleta) ou 7 dias (horários de mais uso).") }}
+  <div class="servidor">
+    <div class="rosca">
+      <svg viewBox="0 0 200 200" role="img" aria-label="Disco: {{ '%.0f'|format(disco.used_percent) }}% ocupado de {{ humano(disco.total) }}">
+        {# Trilho de fundo: o círculo inteiro. #}
+        <circle cx="100" cy="100" r="{{ raio }}" fill="none" stroke="var(--cartao-2)" stroke-width="26"/>
+        {# Cada fatia: um traço do círculo; começa no topo (rotação de -90°). #}
+        <g transform="rotate(-90 100 100)">
+          {% for s in disco.slices %}{% set a = arcos[loop.index0] %}
+            {% if a.dash > 0 %}
+            <circle class="fatia" cx="100" cy="100" r="{{ raio }}" stroke="{{ s.color }}"
+                    stroke-dasharray="{{ a.dash }} {{ a.gap }}" stroke-dashoffset="{{ a.offset }}">
+              <title>{{ s.label }}: {{ humano(s.size) }} ({{ pct(s.percent) }} do disco){% if s.detail %} · {{ s.detail }}{% endif %}</title>
+            </circle>
+            {% endif %}
+          {% endfor %}
+        </g>
+        <text class="centro" x="100" y="102" text-anchor="middle">{{ "%.0f"|format(disco.used_percent) }}%</text>
+        <text class="centro-sub" x="100" y="120" text-anchor="middle">ocupado de {{ humano(disco.total) }}</text>
+      </svg>
+      <table class="fatias">
+        {% for s in disco.slices %}
+          <tr>
+            <td><span class="cor" style="background: {{ s.color }}"></span>{{ s.label }}{% if s.detail %}<div class="muted pequeno" style="margin-left: 16px">{{ s.detail }}</div>{% endif %}</td>
+            <td class="num">{{ humano(s.size) }}</td>
+            <td class="num">{{ pct(s.percent) }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+      {% if disco.data_total %}
+      <p class="pequeno" style="margin: 0">Os dados guardados pelo sistema (projetos, sem projeto e banco) somam
+        <strong>{{ humano(disco.data_total) }}</strong>, {{ pct(disco.data_total / disco.total * 100) }} do disco.
+        {% if disco.project_slices %}{% set maior = disco.project_slices | first %}O projeto que mais ocupa é
+        <strong>{{ maior.label }}</strong>, com {{ "%.0f"|format(maior.size / disco.data_total * 100) }}% desses dados.{% endif %}</p>
+      {% endif %}
+      <p class="muted pequeno" style="margin: 0">Medido às {{ disco.measured_at | local("%H:%M") }}; o disco é medido de novo a cada 10 minutos.</p>
+    </div>
+    <div>{% include "_servidor_uso.html" %}</div>
+  </div>
+</section>
 
 {% endblock %}
