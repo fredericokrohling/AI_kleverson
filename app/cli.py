@@ -66,18 +66,43 @@ def cmd_testar_google(_: argparse.Namespace) -> None:
     # Data e hora com fuso, para pedir "eventos a partir de agora".
     from datetime import UTC, datetime
 
-    # Cria clientes das APIs do Google.
-    from googleapiclient.discovery import build
+    # Consultas.
+    from sqlalchemy import select
 
     # Lê e renova as credenciais gravadas.
     from app.google_auth import load_credentials
+
+    # Tabelas das contas e das Empresas.
+    from app.models import Company, OAuthToken
 
     # Configuração.
     settings = get_settings()
     # get_sessionmaker() devolve a fábrica; o segundo () cria a sessão.
     with get_sessionmaker()() as session:
-        # Credenciais válidas (renova se tiver expirado).
-        creds = load_credentials(session, get_cipher(), settings)
+        # Contas conectadas, com a Empresa de cada uma.
+        rows = session.execute(
+            select(OAuthToken.company_id, Company.name).join(
+                Company, Company.id == OAuthToken.company_id
+            )
+        ).all()
+        # Nenhuma.
+        if not rows:
+            print("Nenhuma conta Google conectada.")
+        # Cada conta.
+        for company_id, company_name in rows:
+            # Cabeçalho com a Empresa.
+            print(f"Empresa {company_name}:")
+            # Credenciais válidas da conta desta Empresa (renova se tiver expirado).
+            creds = load_credentials(session, get_cipher(), settings, company_id=company_id)
+            # Testa Gmail e Agenda desta conta.
+            _print_google(creds, datetime.now(UTC))
+
+
+# Mostra o perfil do Gmail e os próximos eventos de uma conta.
+def _print_google(creds, now) -> None:
+    # Cria clientes das APIs do Google.
+    from googleapiclient.discovery import build
+
     # Cliente da API do Gmail, versão 1.
     gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
     # Lê o perfil da conta ("me" = a conta dona do token).
@@ -95,7 +120,7 @@ def cmd_testar_google(_: argparse.Namespace) -> None:
             # Agenda principal da conta.
             calendarId="primary",
             # A partir de agora, no formato que a API espera (ISO 8601).
-            timeMin=datetime.now(UTC).isoformat(),
+            timeMin=now.isoformat(),
             # No máximo 5.
             maxResults=5,
             # Expande eventos recorrentes em ocorrências individuais.
@@ -144,7 +169,10 @@ def cmd_coletar_gmail(args: argparse.Namespace) -> None:
         # Uma rodada.
         try:
             # Roda e mostra o resumo.
-            print(run_from_settings(settings, since=since).describe(), flush=True)
+            # Uma linha por conta (uma conta por Empresa).
+            for summary in run_from_settings(settings, since=since):
+                # Resumo da rodada.
+                print(summary.describe(), flush=True)
         # Erro na rodada inteira (ex.: Google não conectado, banco fora do ar).
         except Exception as exc:
             # Sem modo contínuo, o erro aparece completo e o comando termina com falha.
@@ -183,7 +211,10 @@ def cmd_coletar_drive(_: argparse.Namespace) -> None:
     from app.ingestion.drive_sync import run_from_settings
 
     # Roda e mostra o resumo.
-    print(run_from_settings(get_settings()).describe())
+    # Uma linha por Empresa.
+    for summary in run_from_settings(get_settings()):
+        # Resumo da varredura.
+        print(summary.describe())
 
 
 # Testes de saúde (uma rodada), com o resultado no terminal.
@@ -327,10 +358,12 @@ def cmd_agendador(_: argparse.Namespace) -> None:
         try:
             # Executa.
             result = job()
-            # Mostra o resumo, se a tarefa devolver um.
-            if hasattr(result, "describe"):
-                # Uma linha no log.
-                logging.info(result.describe())
+            # Tarefas por Empresa devolvem uma lista de resumos; as outras, um só.
+            for item in result if isinstance(result, list) else [result]:
+                # Mostra o resumo, se houver.
+                if hasattr(item, "describe"):
+                    # Linha no log.
+                    logging.info(item.describe())
             # Deu certo.
             return True
         # Qualquer erro.

@@ -7,6 +7,9 @@ configuração (como o sistema funciona). Os endereços passaram de /config/driv
 
 Formulários comuns (sem JavaScript): cada botão envia um POST, a rota faz a mudança e
 redireciona de volta (padrão "POST, redireciona, GET"). O aviso viaja no cookie de sessão.
+
+Empresa: cada pasta é cadastrada numa Empresa (combo obrigatório) e conferida com a conta
+Google dessa Empresa. As tags que você põe numa pasta são da Empresa dela.
 """
 
 # Annotated junta um tipo com informação extra (aqui, campos de formulário).
@@ -22,6 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
 # Leitura da configuração.
+from app.companies import filter_id, parse_company
 from app.config import get_settings
 
 # Cadastro de pastas e cliente do Drive.
@@ -56,17 +60,24 @@ def _back(url: str) -> RedirectResponse:
 
 
 # Dados da seção "Pastas do Drive" da página Cadastros.
-def folders_context(db) -> dict:
-    # Pastas monitoradas (ativas primeiro) e o item da árvore de cada uma.
-    folders = db.scalars(
-        select(DriveFolder).order_by(DriveFolder.active.desc(), DriveFolder.name)
-    ).all()
-    # Itens raiz, pelo id do Drive.
+def folders_context(db, company_id: int | None = None) -> dict:
+    """company_id: só as pastas de uma Empresa; None = todas."""
+    # Pastas monitoradas (ativas primeiro).
+    query = select(DriveFolder).order_by(DriveFolder.active.desc(), DriveFolder.name)
+    # Só uma Empresa, se pedido.
+    if company_id is not None:
+        query = query.where(DriveFolder.company_id == company_id)
+    # Executa.
+    folders = db.scalars(query).all()
+    # Pares (Empresa, id do Drive) das pastas: o mesmo id pode estar em duas Empresas.
+    keys = {(f.company_id, f.drive_id) for f in folders}
+    # Itens raiz, por (Empresa, id do Drive).
     roots = {
-        item.drive_id: item
+        (item.company_id, item.drive_id): item
         for item in db.scalars(
             select(DriveItem).where(DriveItem.drive_id.in_([f.drive_id for f in folders]))
         )
+        if (item.company_id, item.drive_id) in keys
     }
     # Pastas, itens raiz e as tags efetivas das pastas raiz.
     return {
@@ -78,13 +89,22 @@ def folders_context(db) -> dict:
 
 # Cadastra uma pasta do Drive para monitorar.
 @router.post("/cadastros/drive/pastas", dependencies=[SameOrigin])
-def add_drive_folder(request: Request, owner: Owner, db: DB, link: Annotated[str, Form()]):
+def add_drive_folder(
+    request: Request,
+    owner: Owner,
+    db: DB,
+    link: Annotated[str, Form()],
+    # Empresa da pasta (combo obrigatório).
+    empresa: Annotated[str, Form()] = "",
+):
     # Tenta cadastrar.
     try:
-        # Cliente do Drive com as credenciais gravadas.
-        drive = drive_client(db, get_settings())
-        # Confere no Drive e cadastra.
-        folder = add_folder(db, drive, link)
+        # Empresa escolhida (sem ela, não cadastra).
+        company = parse_company(db, empresa)
+        # Cliente do Drive da conta dessa Empresa.
+        drive = drive_client(db, get_settings(), company.id)
+        # Confere no Drive e cadastra na Empresa.
+        folder = add_folder(db, drive, link, company.id)
         # Confirma.
         db.commit()
         # Aviso.
@@ -116,9 +136,14 @@ def remove_drive_folder(request: Request, owner: Owner, db: DB, folder_id: int):
 
 # Pede uma varredura já (o agendador roda em até 1 minuto).
 @router.post("/cadastros/drive/varrer", dependencies=[SameOrigin])
-def scan_now(request: Request, owner: Owner, db: DB):
-    # Cada pasta ativa.
-    for folder in db.scalars(select(DriveFolder).where(DriveFolder.active.is_(True))):
+def scan_now(request: Request, owner: Owner, db: DB, empresa: Annotated[str, Form()] = ""):
+    # Pastas ativas.
+    query = select(DriveFolder).where(DriveFolder.active.is_(True))
+    # Só as da Empresa mostrada na página, se houver filtro.
+    if (company_id := filter_id(empresa)) is not None:
+        query = query.where(DriveFolder.company_id == company_id)
+    # Cada pasta.
+    for folder in db.scalars(query):
         # "Nunca varrida" faz o agendador varrer na próxima volta.
         folder.last_scan_at = None
     # Confirma.
@@ -200,7 +225,10 @@ def browse(request: Request, owner: Owner, db: DB, item_id: int, removidos: bool
     # Conteúdo direto (só para pastas): subpastas primeiro, depois arquivos, por nome.
     query = (
         select(DriveItem)
-        .where(DriveItem.parent_drive_id == item.drive_id)
+        .where(
+            DriveItem.company_id == item.company_id,
+            DriveItem.parent_drive_id == item.drive_id,
+        )
         .order_by(DriveItem.is_folder.desc(), DriveItem.name)
     )
     # Sem pedir os removidos, esconde o que saiu da pasta.
@@ -215,7 +243,10 @@ def browse(request: Request, owner: Owner, db: DB, item_id: int, removidos: bool
     while trail[0].parent_drive_id and len(trail) < _MAX_BREADCRUMB:
         # Pasta-mãe.
         parent = db.scalars(
-            select(DriveItem).where(DriveItem.drive_id == trail[0].parent_drive_id)
+            select(DriveItem).where(
+                DriveItem.company_id == item.company_id,
+                DriveItem.drive_id == trail[0].parent_drive_id,
+            )
         ).first()
         # Fora do que conhecemos: para.
         if parent is None:
@@ -225,7 +256,7 @@ def browse(request: Request, owner: Owner, db: DB, item_id: int, removidos: bool
     # Tags do item e de cada filho, de uma vez.
     tags = effective_tags(db, [item.id] + [c.id for c in children])
     # Todas as tags, para sugerir no campo de texto.
-    all_tags = [tag for tag, _ in list_tags(db)]
+    all_tags = [tag for tag, _ in list_tags(db, item.company_id)]
     # Monta a página.
     return templates.TemplateResponse(
         request,

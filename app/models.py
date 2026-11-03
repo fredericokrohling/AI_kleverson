@@ -1,5 +1,7 @@
 """Esquema do banco, organizado em camadas (modelo medallion).
 
+- Empresa: o cliente que você atende. É o nível mais alto: todo dado pertence a uma
+  Empresa, e os dados de uma Empresa nunca se misturam com os de outra.
 - Cadastro: projetos e stakeholders, editados por você no console.
 - Bronze: conteúdo bruto como chegou (e-mail, transcrição, mensagem). Nunca é editado.
 - Silver: fatos extraídos (tarefa, decisão, risco...), sempre com trecho literal da fonte.
@@ -43,6 +45,8 @@ from sqlalchemy import (
     Enum,
     # Chave estrangeira: aponta para a linha de outra tabela.
     ForeignKey,
+    # Índice do banco; aqui, o que impede dois nomes de Empresa iguais.
+    Index,
     # Inteiro comum.
     Integer,
     # Bytes brutos; usado para guardar dados criptografados.
@@ -147,6 +151,44 @@ class Timestamped:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+# --- Empresa ------------------------------------------------------------------
+
+
+# Um cliente que você atende. Projetos, pessoas, tags, pastas do Drive, a conta de e-mail
+# e todo o conteúdo coletado pertencem a uma Empresa.
+class Company(Timestamped, Base):
+    """Empresa (cliente). Os dados de uma não se misturam com os de outra.
+
+    Por que no banco, e não só nas telas: a coluna company_id é obrigatória nas tabelas
+    principais, e uma trava no banco (migração 0008) recusa ligar dados de Empresas
+    diferentes (ex.: uma tag da Empresa A num e-mail da Empresa B). Assim, nem um erro
+    de programação mistura clientes.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "companies"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Nome da Empresa; não se repete, nem com outras maiúsculas (índice logo abaixo).
+    name: Mapped[str] = mapped_column(String(200))
+    # Idioma padrão da transcrição das reuniões desta Empresa (ex.: "pt-BR", "en").
+    # Vazio = vale o idioma geral de Configurações.
+    transcription_language: Mapped[str | None] = mapped_column(String(20))
+
+
+# Nome único sem diferenciar maiúsculas: lower(name) não pode repetir.
+Index("uq_companies_name_lower", func.lower(Company.name), unique=True)
+
+
+# Coluna company_id: a Empresa dona da linha. Uma função para não repetir a mesma
+# definição em oito tabelas. Sem ondelete: o banco não deixa apagar uma Empresa que
+# ainda tem dados (o padrão do Postgres, RESTRICT).
+def _company(nullable: bool = False):
+    # index=True: filtrar por Empresa é a consulta mais comum de todas.
+    return mapped_column(ForeignKey("companies.id"), index=True, nullable=nullable)
+
+
 # --- Cadastro -----------------------------------------------------------------
 
 
@@ -154,13 +196,21 @@ class Timestamped:
 class Project(Timestamped, Base):
     # Nome da tabela no banco.
     __tablename__ = "projects"
+    # Nome e código não se repetem dentro da mesma Empresa (duas Empresas podem ter um
+    # projeto "Portal" cada uma).
+    __table_args__ = (
+        UniqueConstraint("company_id", "name"),
+        UniqueConstraint("company_id", "code"),
+    )
 
     # Identificador único, gerado automaticamente pelo banco (1, 2, 3...).
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Nome do projeto; unique=True impede dois projetos com o mesmo nome.
-    name: Mapped[str] = mapped_column(String(200), unique=True)
-    # Código curto opcional (ex.: "PRJ-042"), também sem repetição.
-    code: Mapped[str | None] = mapped_column(String(50), unique=True)
+    # Empresa do projeto (obrigatória).
+    company_id: Mapped[int] = _company()
+    # Nome do projeto; não repete na mesma Empresa (regra em __table_args__).
+    name: Mapped[str] = mapped_column(String(200))
+    # Código curto opcional (ex.: "PRJ-042"), também sem repetição na Empresa.
+    code: Mapped[str | None] = mapped_column(String(50))
     # Outros nomes pelos quais o projeto é chamado; "{}" é lista vazia no Postgres.
     aliases: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
     # Palavras que, se aparecem num e-mail, indicam este projeto.
@@ -179,22 +229,27 @@ class Project(Timestamped, Base):
 class Stakeholder(Timestamped, Base):
     # Nome da tabela no banco.
     __tablename__ = "stakeholders"
+    # O e-mail não se repete dentro da Empresa. Pessoas não são compartilhadas entre
+    # Empresas: o mesmo e-mail em duas Empresas são dois cadastros separados.
+    __table_args__ = (UniqueConstraint("company_id", "email"),)
 
     # Identificador único gerado pelo banco.
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa (cliente) a que a pessoa pertence (obrigatória).
+    company_id: Mapped[int] = _company()
     # Nome da pessoa.
     name: Mapped[str] = mapped_column(String(200))
-    # E-mail: a chave da pessoa (obrigatório, sem repetição, sempre em minúsculas).
+    # E-mail: a chave da pessoa na Empresa (obrigatório, sempre em minúsculas).
     # 320 é o tamanho máximo de um endereço de e-mail. O id numérico continua sendo a
     # chave interna das ligações, porque um e-mail pode mudar e o id não.
-    email: Mapped[str] = mapped_column(String(320), unique=True)
-    # Empresa ou área.
+    email: Mapped[str] = mapped_column(String(320))
+    # Organização ou área onde a pessoa trabalha (texto livre; não é a Empresa cliente).
     organization: Mapped[str | None] = mapped_column(String(200))
     # Cargo.
     role: Mapped[str | None] = mapped_column(String(200))
     # Outros nomes da pessoa ("Ana", "Ana S."): é como ela pode aparecer numa transcrição.
     aliases: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
-    # Liderança na empresa (diretoria, gerência): base das regras de alerta.
+    # Liderança na organização (diretoria, gerência): base das regras de alerta.
     is_leader: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
 
@@ -225,11 +280,15 @@ class ProjectStakeholder(Base):
 class BronzeItem(Base):
     # Nome da tabela no banco.
     __tablename__ = "bronze_items"
-    # Reprocessar a mesma mensagem não duplica nada.
-    __table_args__ = (UniqueConstraint("source", "external_id"),)
+    # Reprocessar a mesma mensagem não duplica nada (dentro da Empresa: o mesmo arquivo
+    # do Drive compartilhado com as contas de duas Empresas vira um item em cada uma).
+    __table_args__ = (UniqueConstraint("company_id", "source", "external_id"),)
 
     # Identificador interno; BigInteger porque esta tabela cresce rápido.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Empresa dona do conteúdo (obrigatória). E-mail e Drive: a da conta que coletou.
+    # Transcrição: a escolhida (pode ser corrigida, ver app/companies.py).
+    company_id: Mapped[int] = _company()
     # De onde veio (Gmail, agenda, transcrição...).
     source: Mapped[SourceKind] = mapped_column(_enum(SourceKind, "source_kind"))
     # Identificador do item na fonte (ex.: id da mensagem no Gmail).
@@ -342,6 +401,9 @@ class LiveMeeting(Base):
     title: Mapped[str | None] = mapped_column(Text)
     # Endereço da reunião (https://meet.google.com/abc-defg-hij).
     meeting_url: Mapped[str | None] = mapped_column(String(500))
+    # Empresa da reunião. Pode ficar vazia enquanto a reunião acontece (a extensão não
+    # sabe de quem é); a reunião só vai para o bronze depois de ter Empresa.
+    company_id: Mapped[int | None] = _company(nullable=True)
     # Quando a captura começou.
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Último trecho recebido: serve para saber se a reunião ainda está no ar.
@@ -548,11 +610,17 @@ class AISuggestion(Timestamped, Base):
 class OAuthToken(Base):
     # Nome da tabela no banco.
     __tablename__ = "oauth_tokens"
-    # Uma linha por serviço e conta; logar de novo atualiza em vez de duplicar.
-    __table_args__ = (UniqueConstraint("provider", "account_email"),)
+    # Uma linha por serviço e conta; logar de novo atualiza em vez de duplicar. E uma
+    # conta por Empresa (cada Empresa tem uma única conta de e-mail).
+    __table_args__ = (
+        UniqueConstraint("provider", "account_email"),
+        UniqueConstraint("provider", "company_id"),
+    )
 
     # Identificador interno.
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa desta conta: tudo o que ela coleta (e-mail, Drive, agenda) é dessa Empresa.
+    company_id: Mapped[int] = _company()
     # Qual serviço (ex.: "google").
     provider: Mapped[str] = mapped_column(String(50))
     # Qual conta foi conectada.
@@ -618,6 +686,8 @@ class IngestionRun(Base):
     source: Mapped[SourceKind] = mapped_column(_enum(SourceKind, "source_kind"), index=True)
     # Qual conta foi lida.
     account_email: Mapped[str | None] = mapped_column(String(320))
+    # Empresa da conta lida.
+    company_id: Mapped[int] = _company()
     # Quando a rodada começou.
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Quando terminou; vazio enquanto está rodando (ou se o processo morreu no meio).
@@ -666,11 +736,15 @@ class AppSetting(Base):
 class Tag(Timestamped, Base):
     # Nome da tabela no banco.
     __tablename__ = "tags"
+    # O nome não repete na Empresa; Empresas diferentes podem ter tags de mesmo nome.
+    __table_args__ = (UniqueConstraint("company_id", "name"),)
 
     # Identificador interno.
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Nome da tag; não pode repetir.
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    # Empresa da tag (tags não são compartilhadas entre Empresas).
+    company_id: Mapped[int] = _company()
+    # Nome da tag.
+    name: Mapped[str] = mapped_column(String(100))
 
 
 # Tag de um e-mail ou de uma transcrição, com a regra que a colocou.
@@ -717,11 +791,15 @@ class GmailLabelTag(Base):
 class DriveFolder(Base):
     # Nome da tabela no banco.
     __tablename__ = "drive_folders"
+    # A mesma pasta não entra duas vezes na mesma Empresa.
+    __table_args__ = (UniqueConstraint("company_id", "drive_id"),)
 
     # Identificador interno.
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Id da pasta no Google Drive; a mesma pasta não entra duas vezes.
-    drive_id: Mapped[str] = mapped_column(String(200), unique=True)
+    # Empresa da pasta: ela é lida com a conta Google dessa Empresa.
+    company_id: Mapped[int] = _company()
+    # Id da pasta no Google Drive.
+    drive_id: Mapped[str] = mapped_column(String(200))
     # Nome da pasta no Drive.
     name: Mapped[str] = mapped_column(String(1000))
     # Monitorando? Remover pelo console só desliga (os arquivos e as tags ficam).
@@ -739,11 +817,15 @@ class DriveFolder(Base):
 class DriveItem(Base):
     # Nome da tabela no banco.
     __tablename__ = "drive_items"
+    # Um id do Drive por Empresa.
+    __table_args__ = (UniqueConstraint("company_id", "drive_id"),)
 
     # Identificador interno.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # Id no Google Drive; sem repetição.
-    drive_id: Mapped[str] = mapped_column(String(200), unique=True)
+    # Empresa (a da pasta monitorada, ou a do e-mail que citou o arquivo por link).
+    company_id: Mapped[int] = _company()
+    # Id no Google Drive.
+    drive_id: Mapped[str] = mapped_column(String(200))
     # A pasta monitorada que o encontrou; vazio quando o arquivo chegou por link num e-mail.
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("drive_folders.id"), index=True)
     # Id do Drive da pasta-mãe; vazio na própria pasta monitorada. index: listar o
@@ -835,13 +917,27 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(100), index=True)
     # Em quê (ex.: id do item, e-mail da conta).
     target: Mapped[str | None] = mapped_column(String(500))
+    # Empresa a que a ação se refere; vazio nas ações gerais (ex.: trocar o modelo do
+    # Claude). É o filtro de Empresa do diário na página Processamento.
+    company_id: Mapped[int | None] = _company(nullable=True)
     # Detalhes livres em JSON.
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
 
 
 # **details junta todos os argumentos extras com nome num dicionário.
 # Ex.: audit(s, "sistema", "x", modelo="opus") gera details={"modelo": "opus"}.
-def audit(session, actor: str, action: str, target: str | None = None, **details: Any) -> None:
-    """Registra uma ação no log de auditoria (quem fez o quê, em quê)."""
+# company_id vem depois do "*": só pode ser passado pelo nome (company_id=3).
+def audit(
+    session,
+    actor: str,
+    action: str,
+    target: str | None = None,
+    *,
+    company_id: int | None = None,
+    **details: Any,
+) -> None:
+    """Registra uma ação no log de auditoria (quem fez o quê, em quê, de qual Empresa)."""
     # session.add só prepara a gravação; ela acontece quando quem chamou faz commit.
-    session.add(AuditLog(actor=actor, action=action, target=target, details=details))
+    session.add(
+        AuditLog(actor=actor, action=action, target=target, company_id=company_id, details=details)
+    )

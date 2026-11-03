@@ -14,3 +14,17 @@
 {% macro titulo(texto, ajuda=None) %}
 <h2>{{ texto }}{% if ajuda %} {{ dica(ajuda) }}{% endif %}</h2>
 {%- endmacro %}
+
+{# Combo de Empresa. empresas: lista de (id, nome) (na página: empresas_todas).
+   obrigatoria: começa em "Escolha a Empresa" e o navegador não envia sem escolher (o
+   servidor confere de novo). todas: primeira opção "Todas as Empresas" (filtro).
+   extra: atributos a mais no <select> (ex.: hx-get). #}
+{% macro combo_empresa(empresas, escolhida=None, nome="empresa", obrigatoria=true, todas=false, rotulo="Empresa", id=None, extra="") %}
+<select name="{{ nome }}" {% if id %}id="{{ id }}"{% endif %} aria-label="{{ rotulo }}" {{ 'required' if obrigatoria }} {{ extra | safe }}>
+  {% if todas %}<option value="">Todas as Empresas</option>
+  {% elif obrigatoria %}<option value="">Escolha a Empresa</option>{% endif %}
+  {% for cid, cnome in empresas %}
+    <option value="{{ cid }}" {{ 'selected' if escolhida is not none and cid == escolhida }}>{{ cnome }}</option>
+  {% endfor %}
+</select>
+{%- endmacro %}

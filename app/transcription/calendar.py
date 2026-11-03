@@ -86,8 +86,8 @@ class CalendarEvent:
         }
 
 
-# Cliente da API da Agenda com as credenciais gravadas (erro se o Google não estiver conectado).
-def calendar_client(session: Session, settings: Settings):
+# Cliente da API da Agenda da conta de uma Empresa (erro se ela não tiver conta conectada).
+def calendar_client(session: Session, settings: Settings, company_id: int):
     # Imports locais: só carregam quando a agenda é usada.
     from googleapiclient.discovery import build
 
@@ -97,8 +97,8 @@ def calendar_client(session: Session, settings: Settings):
     # Criptografia dos tokens.
     from app.security import get_cipher
 
-    # Credenciais (renova se tiverem expirado).
-    creds = load_credentials(session, get_cipher(), settings)
+    # Credenciais da conta da Empresa (renova se tiverem expirado).
+    creds = load_credentials(session, get_cipher(), settings, company_id=company_id)
     # Cliente da Agenda, versão 3.
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
 

@@ -19,6 +19,12 @@ cada um teria a sua lista e o console perderia trechos; aí seria preciso o LIST
 do Postgres. Os trechos definitivos são gravados no banco do mesmo jeito; a memória só
 leva o aviso até a tela.
 
+Empresa da reunião: cada reunião é de uma Empresa (cliente), porque a transcrição vai
+para o bronze dessa Empresa e as Pessoas que podem ser participantes são as dela. Ao
+começar, o servidor procura o endereço do Meet na agenda de cada Empresa (ver
+detect_company); se não achar, você escolhe no Início. Sem Empresa, a transcrição
+acontece e aparece ao vivo, mas só é salva no banco depois de você escolher.
+
 Quem é cada voz: o serviço de transcrição separa vozes ("Falante 1", "Falante 2"), mas
 não sabe nomes. Você cadastra os participantes da reunião (da página Pessoas, ou só o
 nome e o e-mail) e diz qual participante é cada falante. A troca vale para os trechos já
@@ -66,6 +72,8 @@ from app.people import normalize
 STALE_AFTER = timedelta(hours=3)
 # Reunião salva continua no Início por este tempo, para você ainda acertar os nomes.
 KEEP_FINISHED = timedelta(minutes=30)
+# Reunião encerrada sem Empresa continua no Início por este tempo, esperando a escolha.
+KEEP_PENDING = timedelta(days=7)
 # Sem trecho novo há mais que isto, a reunião aparece como "sem áudio".
 LIVE_GAP = timedelta(minutes=2)
 # Quantos trechos já gravados a área de cada reunião mostra ao abrir a página.
@@ -211,7 +219,8 @@ def get_meeting(session: Session, session_id: str) -> LiveMeeting | None:
 
 # Reuniões que aparecem no Início, da mais antiga para a mais nova.
 def visible_meetings(session: Session, now: datetime | None = None) -> list[LiveMeeting]:
-    """Ao vivo (com trecho nas últimas 3 h) ou salvas há menos de 30 min."""
+    """Ao vivo (com trecho nas últimas 3 h), salvas há menos de 30 min, ou encerradas sem
+    Empresa (esperando você escolher para salvar), por até 7 dias."""
     # Agora.
     now = now or utc_now()
     # Consulta.
@@ -225,6 +234,10 @@ def visible_meetings(session: Session, now: datetime | None = None) -> list[Live
             )
             # ... ou salva há pouco.
             | (LiveMeeting.finished_at > now - KEEP_FINISHED)
+            | (
+                (LiveMeeting.finished_at > now - KEEP_PENDING)
+                & LiveMeeting.bronze_item_id.is_(None)
+            )
         )
         # Ordem de início: a primeira reunião fica na área da esquerda.
         .order_by(LiveMeeting.started_at, LiveMeeting.id)
@@ -233,6 +246,10 @@ def visible_meetings(session: Session, now: datetime | None = None) -> list[Live
 
 # Situação de uma reunião para mostrar: "ao_vivo", "sem_audio" ou "salva".
 def status(meeting: LiveMeeting, now: datetime | None = None) -> str:
+    """ "ao_vivo", "sem_audio", "salva" ou "pendente" (encerrada, falta a Empresa)."""
+    # Encerrada sem item no bronze: falta escolher a Empresa.
+    if meeting.finished_at is not None and meeting.bronze_item_id is None:
+        return "pendente"
     # Já salva.
     if meeting.finished_at is not None:
         return "salva"
@@ -285,12 +302,16 @@ def add_participant(
     name: str = "",
     email: str = "",
 ) -> MeetingParticipant:
-    """Erros (nome vazio, nome ou e-mail repetido na reunião) viram ValueError."""
+    """Erros (nome vazio, nome ou e-mail repetido na reunião) viram ValueError.
+
+    A Pessoa escolhida precisa ser da Empresa da reunião; sem Empresa, só entram
+    participantes escritos à mão (a ligação pelo e-mail acontece quando a Empresa for
+    escolhida)."""
     # Pessoa escolhida na lista.
     person = session.get(Stakeholder, person_id) if person_id else None
-    # Id que não existe.
-    if person_id and person is None:
-        raise ValueError("Pessoa não encontrada.")
+    # Id que não existe, ou Pessoa de outra Empresa (formulário antigo ou adulterado).
+    if person_id and (person is None or person.company_id != meeting.company_id):
+        raise ValueError("Pessoa não encontrada nesta Empresa.")
     # Nome: o da pessoa, ou o escrito (espaços simples, até 200 caracteres).
     clean_name = person.name if person else " ".join(name.split())[:200]
     # E-mail: o da pessoa, ou o escrito, em minúsculas.
@@ -311,11 +332,14 @@ def add_participant(
     # E-mail repetido.
     if clean_email and any(p.email == clean_email for p in current):
         raise ValueError(f"O e-mail {clean_email} já é de outro participante desta reunião.")
-    # Sem pessoa escolhida, mas o e-mail é de alguém cadastrado: liga (o e-mail é a chave).
-    if person is None and clean_email:
-        # Procura.
+    # Sem pessoa escolhida, mas o e-mail é de alguém cadastrado na Empresa da reunião:
+    # liga (o e-mail é a chave).
+    if person is None and clean_email and meeting.company_id is not None:
+        # Procura, só nesta Empresa.
         person = session.scalars(
-            select(Stakeholder).where(Stakeholder.email == clean_email)
+            select(Stakeholder).where(
+                Stakeholder.company_id == meeting.company_id, Stakeholder.email == clean_email
+            )
         ).first()
     # Cria.
     participant = MeetingParticipant(

@@ -34,15 +34,29 @@ from app.web import DB, Owner, SameOrigin
 router = APIRouter()
 
 
-# Cliente do Drive, ou None se o Google não estiver conectado.
-def _drive_or_none(db):
-    # Tenta criar.
-    try:
-        # Cliente com as credenciais gravadas.
-        return drive_client(db, get_settings())
-    # Sem conta Google: as tentativas que precisam do Drive dizem isso na mensagem.
-    except RuntimeError:
-        return None
+# Função "Empresa → cliente do Drive da conta dela" (None se a Empresa não tem conta).
+# Cada arquivo é baixado de novo com a conta da Empresa dele, nunca com a de outra.
+def _drive_for(db):
+    # Clientes já montados nesta requisição.
+    cache: dict[int, object] = {}
+
+    # A função devolvida.
+    def get(company_id: int):
+        # Primeira vez desta Empresa: monta.
+        if company_id not in cache:
+            # Tenta.
+            try:
+                # Cliente da conta da Empresa.
+                cache[company_id] = drive_client(db, get_settings(), company_id)
+            # Empresa sem conta: a tentativa diz isso na mensagem.
+            except RuntimeError:
+                # Sem cliente.
+                cache[company_id] = None
+        # Devolve.
+        return cache[company_id]
+
+    # Devolve a função.
+    return get
 
 
 # Tenta de novo um arquivo.
@@ -60,11 +74,15 @@ def retry_one(
     settings = get_settings()
     # Tenta.
     try:
-        # O cliente do Drive só é criado para arquivos do Drive.
-        drive = _drive_or_none(db) if origem == "drive" else None
-        # Resultado: None = funcionou.
+        # Resultado: None = funcionou. O cliente do Drive só é criado se for preciso.
         error = retry(
-            db, FileStore(settings.data_dir), settings, origem, id, drive, vision_reader(settings)
+            db,
+            FileStore(settings.data_dir),
+            settings,
+            origem,
+            id,
+            vision=vision_reader(settings),
+            drive_for=_drive_for(db),
         )
         # Grava o resultado (texto novo ou erro novo).
         db.commit()
@@ -91,7 +109,11 @@ def retry_everything(request: Request, owner: Owner, db: DB):
     settings = get_settings()
     # Tenta todos.
     tried, fixed = retry_all(
-        db, FileStore(settings.data_dir), settings, _drive_or_none(db), vision_reader(settings)
+        db,
+        FileStore(settings.data_dir),
+        settings,
+        vision=vision_reader(settings),
+        drive_for=_drive_for(db),
     )
     # Grava.
     db.commit()

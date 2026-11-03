@@ -94,8 +94,11 @@ class AgendaDay:
 
 
 # Transcrições já ligadas a cada reunião: id do evento → id do item no bronze.
-def linked_transcripts(session: Session, event_ids: list[str]) -> dict[str, int]:
-    """A importação grava thread_id = "agenda:<id do evento>"; é por ele que se liga."""
+def linked_transcripts(session: Session, event_ids: list[str], company_id: int) -> dict[str, int]:
+    """A importação grava thread_id = "agenda:<id do evento>"; é por ele que se liga.
+
+    Só as transcrições da Empresa da agenda: o mesmo evento aparece na agenda das duas
+    Empresas quando as duas contas foram convidadas, e cada uma tem a sua transcrição."""
     # Sem reuniões, sem consulta.
     if not event_ids:
         return {}
@@ -106,7 +109,11 @@ def linked_transcripts(session: Session, event_ids: list[str]) -> dict[str, int]
         # Só as duas colunas usadas.
         select(BronzeItem.thread_id, BronzeItem.id)
         # Transcrições de reunião ligadas a um destes eventos.
-        .where(BronzeItem.source == SourceKind.MEET_TRANSCRIPT, BronzeItem.thread_id.in_(threads))
+        .where(
+            BronzeItem.company_id == company_id,
+            BronzeItem.source == SourceKind.MEET_TRANSCRIPT,
+            BronzeItem.thread_id.in_(threads),
+        )
         # Ordem estável.
         .order_by(BronzeItem.id)
     ).all()

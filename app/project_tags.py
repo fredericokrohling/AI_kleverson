@@ -17,6 +17,9 @@ Cuidados contra tag errada (falso positivo) na regra a):
 - termos com menos de 3 letras são ignorados (ex.: um projeto chamado "TI").
 
 Tag tirada à mão não volta: a linha fica marcada como removida e as regras a respeitam.
+
+Cada Empresa tem as suas regras: um e-mail só recebe tags de projetos da Empresa dele, e
+a equipe que conta é a da Empresa do e-mail (projetos e pessoas não se misturam).
 """
 
 # re: expressões regulares (padrões de texto).
@@ -125,13 +128,17 @@ def _pattern(term: str) -> re.Pattern | None:
     return re.compile(rf"(?<!\w){re.escape(plain)}(?!\w)")
 
 
-# Lê as regras de todos os projetos ativos que têm tag.
-def load_rules(session: Session) -> list[ProjectRule]:
+# Lê as regras dos projetos ativos com tag de uma Empresa.
+def load_rules(session: Session, company_id: int) -> list[ProjectRule]:
     # Resultado.
     rules: list[ProjectRule] = []
-    # Projetos ativos com tag.
+    # Projetos ativos com tag, só desta Empresa.
     projects = session.scalars(
-        select(Project).where(Project.active.is_(True), Project.tag_id.is_not(None))
+        select(Project).where(
+            Project.company_id == company_id,
+            Project.active.is_(True),
+            Project.tag_id.is_not(None),
+        )
     ).all()
     # Cada projeto.
     for project in projects:
@@ -234,8 +241,9 @@ def rule_tags(session: Session, item: BronzeItem, rules: list[ProjectRule]) -> d
 
 # Aplica as regras a um item. Devolve quantas tags novas foram colocadas.
 def apply_rules(session: Session, item: BronzeItem, rules: list[ProjectRule] | None = None) -> int:
-    # Regras (lidas do banco se quem chamou não passou).
-    rules = load_rules(session) if rules is None else rules
+    """rules: as regras da Empresa do item (lidas do banco se quem chamou não passou)."""
+    # Regras da Empresa do item.
+    rules = load_rules(session, item.company_id) if rules is None else rules
     # Tags que o item já tem ou que você tirou (as duas a regra não mexe).
     existing = set(
         session.scalars(select(TaggedItem.tag_id).where(TaggedItem.bronze_item_id == item.id))
@@ -256,26 +264,36 @@ def apply_rules(session: Session, item: BronzeItem, rules: list[ProjectRule] | N
 
 
 # Aplica as regras a todos os e-mails e transcrições (depois de mudar projeto ou equipe).
-def apply_rules_to_all(session: Session) -> int:
+def apply_rules_to_all(session: Session, company_id: int | None = None) -> int:
     """Só acrescenta: tags colocadas antes continuam (inclusive as que a regra não daria
-    mais), para nada sumir sem você ver. Devolve quantas tags novas."""
-    # Regras lidas uma vez.
-    rules = load_rules(session)
-    # Sem projeto com tag: nada a fazer.
-    if not rules:
-        return 0
+    mais), para nada sumir sem você ver. Devolve quantas tags novas.
+
+    company_id: só uma Empresa; None = todas, cada uma com as suas regras."""
+    # Empresas com projetos (as outras não têm regra nenhuma).
+    query = select(Project.company_id).distinct()
+    # Só uma, se pedido.
+    if company_id is not None:
+        query = query.where(Project.company_id == company_id)
     # Contador.
     added = 0
-    # Todos os e-mails e transcrições.
-    items = session.scalars(
-        select(BronzeItem).where(
-            BronzeItem.source.in_([SourceKind.GMAIL, SourceKind.MEET_TRANSCRIPT])
+    # Cada Empresa.
+    for company in session.scalars(query).all():
+        # Regras desta Empresa, lidas uma vez.
+        rules = load_rules(session, company)
+        # Sem projeto ativo com tag: nada a fazer nesta Empresa.
+        if not rules:
+            continue
+        # E-mails e transcrições desta Empresa.
+        items = session.scalars(
+            select(BronzeItem).where(
+                BronzeItem.company_id == company,
+                BronzeItem.source.in_([SourceKind.GMAIL, SourceKind.MEET_TRANSCRIPT]),
+            )
         )
-    )
-    # Cada item.
-    for item in items:
-        # Aplica.
-        added += apply_rules(session, item, rules)
+        # Cada item.
+        for item in items:
+            # Aplica.
+            added += apply_rules(session, item, rules)
     # Devolve.
     return added
 
@@ -307,10 +325,17 @@ def _label_message_ids(gmail, label_id: str) -> tuple[set[str], bool]:
 
 
 # Confere as pastas do Gmail ligadas a tags e acerta as tags dos e-mails coletados.
-def sync_label_tags(session: Session, gmail) -> tuple[int, int]:
-    """(tags colocadas, tags tiradas). Roda a cada coleta do Gmail."""
-    # Ligações pasta → tag.
-    links = session.scalars(select(GmailLabelTag)).all()
+def sync_label_tags(session: Session, gmail, company_id: int) -> tuple[int, int]:
+    """(tags colocadas, tags tiradas). Roda a cada coleta do Gmail.
+
+    gmail é o cliente da conta da Empresa: as pastas são as dessa caixa, e só as tags e
+    os e-mails dessa Empresa entram na conta."""
+    # Ligações pasta → tag, só das tags desta Empresa.
+    links = session.scalars(
+        select(GmailLabelTag)
+        .join(Tag, Tag.id == GmailLabelTag.tag_id)
+        .where(Tag.company_id == company_id)
+    ).all()
     # Nenhuma: nada a fazer.
     if not links:
         return 0, 0
@@ -334,6 +359,7 @@ def sync_label_tags(session: Session, gmail) -> tuple[int, int]:
         items = (
             session.execute(
                 select(BronzeItem.id, BronzeItem.external_id).where(
+                    BronzeItem.company_id == company_id,
                     BronzeItem.source == SourceKind.GMAIL,
                     BronzeItem.external_id.in_(message_ids),
                 )
@@ -482,6 +508,35 @@ def tag_names(session: Session, item_ids: list[int]) -> dict[int, list[str]]:
         result.setdefault(item_id, []).append(name)
     # Devolve, em ordem alfabética.
     return {k: sorted(set(v)) for k, v in result.items()}
+
+
+# Projetos de vários itens, pelas tags de projeto: id do item → [nomes dos projetos].
+def project_names(session: Session, item_ids: list[int]) -> dict[int, list[str]]:
+    """Um item é de um projeto quando tem a tag dele (regra, pasta do Gmail, à mão ou,
+    no Drive, a tag da pasta). Usado nas listas do Início."""
+    # Sem itens.
+    if not item_ids:
+        return {}
+    # E-mails e transcrições: tags valendo que são de projeto.
+    own = session.execute(
+        select(TaggedItem.bronze_item_id, Project.name)
+        .join(Project, Project.tag_id == TaggedItem.tag_id)
+        .where(TaggedItem.bronze_item_id.in_(item_ids), TaggedItem.removed_at.is_(None))
+    ).all()
+    # Versões do Drive: tags das pastas que são de projeto.
+    drive = session.execute(
+        select(_DRIVE_TAGS.c.bronze_item_id, Project.name)
+        .join(Project, Project.tag_id == _DRIVE_TAGS.c.tag_id)
+        .where(_DRIVE_TAGS.c.bronze_item_id.in_(item_ids))
+    ).all()
+    # Agrupa.
+    result: dict[int, set[str]] = {}
+    # Cada par.
+    for item_id, name in [*own, *drive]:
+        # Acrescenta.
+        result.setdefault(item_id, set()).add(name)
+    # Em ordem alfabética.
+    return {k: sorted(v) for k, v in result.items()}
 
 
 # Ids dos itens com uma tag, de qualquer fonte (para o filtro do Conteúdo coletado).
