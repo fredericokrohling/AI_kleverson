@@ -408,6 +408,8 @@ def add_manual(session: Session, item_id: int, tag: Tag) -> None:
     row.removed_at = None
     # Regra.
     row.rule = RULE_MANUAL
+    # Colocada de novo agora: a classificação por projeto vê a mudança e decide de novo.
+    row.created_at = datetime.now(UTC)
 
 
 # Tira uma tag à mão: a linha fica marcada, e as regras não a colocam de novo.

@@ -306,9 +306,63 @@ def cmd_reaplicar_tags(_: argparse.Namespace) -> None:
     print(f"{added} tag(s) nova(s).")
 
 
+# Classifica por projeto o que estiver pendente (o coletor já faz isso a cada 5 minutos).
+def cmd_classificar(args: argparse.Namespace) -> None:
+    """Classifica cada item por projeto: regras primeiro, Claude só no que sobrar."""
+    # Rodada, limpeza e cliente do Claude.
+    from app.classification import ClassifySummary, reset, run_pending
+
+    # Cliente do Claude e gasto do mês.
+    from app.llm import LLMClient, month_spend_usd
+
+    # Configuração.
+    settings = get_settings()
+    # Fábrica de sessões.
+    sessions = get_sessionmaker()
+    # --refazer: apaga as decisões automáticas antes (as escolhidas por você ficam).
+    if args.refazer:
+        # Uma sessão.
+        with sessions() as session:
+            # Apaga.
+            removed = reset(session)
+            # Grava.
+            session.commit()
+        # Mostra.
+        print(f"{removed} decisão(ões) automática(s) apagada(s); refazendo.")
+    # Teto do mês.
+    with sessions() as session:
+        # Já atingido?
+        over = month_spend_usd(session) >= settings.llm_monthly_budget_usd
+    # Cliente do Claude (sem chave ou com teto: só as regras).
+    llm = LLMClient(sessions, settings) if settings.anthropic_api_key and not over else None
+    # Totais de todas as rodadas.
+    total = ClassifySummary()
+    # Rodadas até não sobrar nada que o Claude possa decidir agora.
+    while True:
+        # Uma rodada (até CLASSIFY_LLM_PER_RUN chamadas ao Claude).
+        summary = run_pending(sessions, settings, llm)
+        # Soma os decididos pelas regras.
+        total.by_rules += summary.by_rules
+        # Os decididos pelo Claude.
+        total.by_claude += summary.by_claude
+        # Os que foram para a fila "A revisar".
+        total.to_review += summary.to_review
+        # Os revistos sem mudança.
+        total.kept += summary.kept
+        # O teto bateu em alguma rodada.
+        total.budget_hit = total.budget_hit or summary.budget_hit
+        # O que ficou esperando nesta rodada.
+        total.waiting = summary.waiting
+        # Para quando o Claude não decidiu nada novo (fila vazia, sem chave ou teto).
+        if summary.by_claude + summary.to_review == 0 or summary.budget_hit:
+            break
+    # Mostra.
+    print(total.describe())
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, Drive, leitura pelo Claude, saúde e medição do servidor."""
+    """Roda sem parar: Gmail, Drive, leitura e classificação pelo Claude, saúde e servidor."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -317,6 +371,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
 
     # Data e hora com fuso, e intervalos.
     from datetime import UTC, datetime, timedelta
+
+    # Rodada de classificação por projeto (bloco 3).
+    from app.classification import run_from_settings as run_classify
 
     # Testes de saúde.
     from app.health import run_checks
@@ -347,6 +404,7 @@ def cmd_agendador(_: argparse.Namespace) -> None:
         "gmail": None,
         "drive_falha": None,
         "visao": None,
+        "classificacao": None,
         "saude": None,
     }
 
@@ -406,6 +464,13 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             last["visao"] = now
             # Lê a fila.
             safe("Leitura pelo Claude", lambda: run_vision(settings))
+        # Classificação por projeto a cada 5 minutos, depois da leitura (um anexo lido
+        # agora já ajuda). Sem nada pendente, não faz nada nem escreve no log.
+        if due("classificacao", 5, now):
+            # Marca.
+            last["classificacao"] = now
+            # Classifica.
+            safe("Classificação por projeto", lambda: run_classify(settings))
         # Saúde a cada HEALTH_POLL_MINUTES.
         if due("saude", settings.health_poll_minutes, now):
             # Marca.
@@ -440,6 +505,8 @@ COMMANDS = {
     "extrair-falas": cmd_extrair_falas,
     # python -m app.cli reaplicar-tags
     "reaplicar-tags": cmd_reaplicar_tags,
+    # python -m app.cli classificar [--refazer]
+    "classificar": cmd_classificar,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
@@ -465,6 +532,14 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--desde", help="importa e-mails a partir desta data (AAAA-MM-DD)")
             # Modo contínuo: repete a cada GMAIL_POLL_MINUTES.
             command.add_argument("--continuo", action="store_true", help="repete sem parar")
+        # Opção do classificar: apaga as decisões automáticas e refaz.
+        if name == "classificar":
+            # As escolhidas por você no console não são apagadas.
+            command.add_argument(
+                "--refazer",
+                action="store_true",
+                help="refaz as decisões automáticas (as suas ficam)",
+            )
     # Lê o que foi digitado.
     args = parser.parse_args(argv)
     # Executa a função do comando escolhido.

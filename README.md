@@ -48,6 +48,7 @@ Siga na ordem:
 12. [Reuniões ao vivo no Início, participantes e pastas do Drive em Cadastros](docs/setup/12-reunioes-ao-vivo.md)
 13. [Empresas: cada cliente separado, com conta Google, projetos e pessoas próprios](docs/setup/13-empresas.md)
 14. [Uso do servidor: disco por projeto e gráficos de processador e memória](docs/setup/14-uso-do-servidor.md)
+15. [Classificação de cada item por projeto](docs/setup/15-classificacao.md)
 
 ## Desenvolvimento local
 
@@ -71,6 +72,7 @@ app/
   config.py        configuração (.env), escopos do Google, preços dos modelos
   models.py        esquema do banco (camadas medallion)
   llm.py           camada única de acesso ao Claude, com custo e teto
+  classification.py classificação de cada item por projeto (regras, depois Claude)
   google_auth.py   login Google e tokens criptografados
   security.py      criptografia e controle de acesso pelo Tailscale
   main.py          console web (FastAPI + HTMX)

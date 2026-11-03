@@ -19,6 +19,7 @@ consideradas e onde ela aparece no código.
 11. [Reuniões ao vivo no Início: duas reuniões, participantes e quem falou](11-reunioes-ao-vivo.md)
 12. [Empresas: separar os dados de cada cliente em todas as camadas](12-empresas.md)
 13. [Uso do servidor: disco por projeto e gargalos de processador e memória](13-uso-do-servidor.md)
+14. [Classificação por projeto: regras primeiro, Claude só no que sobrar](14-classificacao.md)
 
 ## Como ler o código
 
@@ -45,7 +46,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 9. `app/ingestion/`: a coleta de e-mail (comece pelo `__init__.py`).
 10. `app/people.py`, `app/project_tags.py` e `app/projects.py`: quem falou, tags e cadastros.
 11. `app/companies.py`: as Empresas e a correção de Empresa de uma transcrição.
-12. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+12. `app/classification.py`: a classificação de cada item por projeto (bloco 3).
+13. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 

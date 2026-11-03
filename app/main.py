@@ -58,6 +58,9 @@ from app.models import BronzeItem, OAuthToken, SourceKind
 # Projetos de cada item (para mostrar ao lado da Empresa).
 from app.project_tags import project_names
 
+# Rotas da página Classificação (fila "A revisar" e projeto de cada item).
+from app.routes_classification import router as classification_router
+
 # Rotas da página Configurações.
 from app.routes_config import router as config_router
 
@@ -119,6 +122,8 @@ app.include_router(import_router)
 app.include_router(transcription_router)
 # Rotas da página Cadastros.
 app.include_router(registry_router)
+# Rotas da página Classificação e do projeto de cada item.
+app.include_router(classification_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.
