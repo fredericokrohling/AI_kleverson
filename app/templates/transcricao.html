@@ -6,11 +6,18 @@
     <h1>Transcrição ao vivo</h1>
   </div>
 </div>
+{% if meeting %}
+<section>
+  <h2>Participantes e falantes</h2>
+  <p class="muted pequeno">Diga quem é cada voz. Se a reunião já foi salva, a transcrição salva é refeita com os nomes (recarregue a página para ver os nomes abaixo).</p>
+  <div hx-get="/ao-vivo/{{ session_id }}/participantes" hx-trigger="load" hx-swap="outerHTML"><span class="muted pequeno">carregando…</span></div>
+</section>
+{% endif %}
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
   <section>
     <h2>Serviço de transcrição ({{ audio|length }} trechos)</h2>
     {% for s in audio %}
-      <p><span class="muted">{{ s.speaker }}</span><br>{{ s.text }}</p>
+      <p><span class="muted">{{ names.get(s.channel ~ "|" ~ (s.speaker or ""), s.speaker) }}</span><br>{{ s.text }}</p>
     {% else %}
       <p class="muted">Nenhum trecho.</p>
     {% endfor %}

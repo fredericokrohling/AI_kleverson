@@ -1,0 +1,55 @@
+{# Participantes de uma reunião e quem é cada voz. Cada formulário troca só este bloco
+   (HTMX); depois de cada mudança o servidor avisa o Início para trocar os nomes nas falas.
+   data-chaves: falantes que este bloco já conhece; um falante novo nas falas faz o
+   Início pedir este bloco de novo. #}
+{% set usados = participantes | map(attribute="stakeholder_id") | select | list %}
+<div class="participantes" data-participantes="{{ m.session_id }}"
+     data-chaves="{{ chaves | tojson | forceescape }}">
+  {% if erro %}<p class="erro pequeno" role="alert">{{ erro }}</p>{% elif aviso %}<p class="ok pequeno">{{ aviso }}</p>{% endif %}
+
+  <table>
+    {% for f in falantes %}
+      <tr>
+        <td>{{ f.label }} <span class="muted pequeno">· {{ f.count }} fala(s){% if f.channel == "voce" %} · seu microfone{% endif %}</span></td>
+        <td>
+          <form hx-post="/ao-vivo/{{ m.session_id }}/falantes" hx-target="closest .participantes" hx-swap="outerHTML" hx-trigger="change">
+            <input type="hidden" name="canal" value="{{ f.channel }}">
+            <input type="hidden" name="rotulo" value="{{ f.label }}">
+            <select name="participante" aria-label="Quem é {{ f.label }}">
+              <option value="">— sem nome —</option>
+              {% for p in participantes %}<option value="{{ p.id }}" {{ 'selected' if p.id == f.participant_id }}>{{ p.name }}</option>{% endfor %}
+            </select>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  {% if participantes %}
+    <div class="chips">
+      {% for p in participantes %}
+        <span class="chip" title="{{ p.email or 'sem e-mail' }}{{ ' · em Pessoas' if p.stakeholder_id else '' }}">
+          {{ p.name }}{% if p.stakeholder_id %} <span class="tag">Pessoa</span>{% endif %}
+          <form hx-post="/ao-vivo/{{ m.session_id }}/participantes/{{ p.id }}/remover" hx-target="closest .participantes" hx-swap="outerHTML">
+            <button class="mini secundario" type="submit" title="Tirar da reunião" aria-label="Tirar {{ p.name }} da reunião">×</button>
+          </form>
+        </span>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted pequeno">Nenhum participante ainda. Inclua quem está na reunião e depois escolha quem é cada falante acima.</p>
+  {% endif %}
+
+  <form class="linha" hx-post="/ao-vivo/{{ m.session_id }}/participantes" hx-target="closest .participantes" hx-swap="outerHTML">
+    <select name="pessoa" aria-label="Pessoa cadastrada">
+      <option value="">Pessoa nova (escreva ao lado)</option>
+      {% for p in pessoas if p.id not in usados %}<option value="{{ p.id }}">{{ p.name }} · {{ p.email }}</option>{% endfor %}
+    </select>
+    <input name="nome" maxlength="200" placeholder="Nome" aria-label="Nome do participante">
+    <input name="email" type="email" maxlength="320" placeholder="E-mail (opcional)" aria-label="E-mail do participante">
+    <button class="mini" type="submit">Incluir</button>
+  </form>
+  <form hx-post="/ao-vivo/{{ m.session_id }}/convidados" hx-target="closest .participantes" hx-swap="outerHTML">
+    <button class="mini secundario" type="submit" title="Inclui os convidados do evento da agenda que tem este endereço do Meet">Trazer convidados da agenda</button>
+  </form>
+</div>

@@ -62,3 +62,23 @@ new MutationObserver(() => {
     observarRegiao(regiao);
   }
 }).observe(document.body, { childList: true, subtree: true });
+
+// Microfone aberto ou fechado no Meet desta aba. O botão do microfone do Meet tem o
+// atributo data-is-muted ("true" quando está mudo). Com duas reuniões ao mesmo tempo,
+// isso decide para qual delas o seu microfone vai. Se o Meet mudar a página e o botão não
+// for achado, nada é avisado e vale o botão do painel da extensão.
+// Repete o aviso a cada 5 s mesmo sem mudança: uma captura que começou depois do último
+// aviso também fica sabendo.
+let mudoAtual = null;
+let voltas = 0;
+setInterval(() => {
+  const botao = [...document.querySelectorAll("[data-is-muted]")].find((b) =>
+    /microfone|microphone/i.test(b.getAttribute("aria-label") || ""),
+  );
+  if (!botao) return;
+  const mudo = botao.getAttribute("data-is-muted") === "true";
+  voltas = (voltas + 1) % 5;
+  if (mudo === mudoAtual && voltas !== 0) return;
+  mudoAtual = mudo;
+  chrome.runtime.sendMessage({ alvo: "extensao", tipo: "mudo", mudo }).catch(() => {});
+}, 1000);

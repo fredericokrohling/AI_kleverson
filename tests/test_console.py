@@ -76,9 +76,13 @@ def test_config_forms(sessions):
     # Página abre com as seções.
     page = client.get("/config", headers=OWNER).text
     # Seções.
-    for title in ("Contas conectadas", "Claude", "Transcrição", "Pastas do Drive", "Tags"):
+    for title in ("Contas conectadas", "Claude", "Transcrição"):
         # Cada uma.
         assert title in page
+    # As pastas do Drive saíram daqui (estão em Cadastros); só sobra o link.
+    assert 'action="/cadastros/drive/pastas"' not in page and 'href="/cadastros#drive"' in page
+    # Em Cadastros, a seção com o formulário.
+    assert 'action="/cadastros/drive/pastas"' in client.get("/cadastros", headers=OWNER).text
     # Salva modelo e esforço.
     response = client.post(
         "/config/claude",

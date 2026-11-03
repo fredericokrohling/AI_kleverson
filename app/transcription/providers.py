@@ -69,6 +69,8 @@ class StreamingProvider(Protocol):
     async def send_audio(self, chunk: bytes) -> None: ...
     # Avisa que o áudio acabou.
     async def finish(self) -> None: ...
+    # Mantém a conexão aberta sem mandar áudio (microfone mudo nesta reunião).
+    async def keep_alive(self) -> None: ...
     # Entrega os trechos de texto conforme chegam.
     def results(self) -> AsyncIterator[Segment]: ...
 
@@ -138,6 +140,13 @@ class DeepgramStream:
     async def send_audio(self, chunk: bytes) -> None:
         # Envia os bytes pela conexão.
         await self._ws.send(chunk)
+
+    # Mantém a conexão aberta sem áudio. O Deepgram fecha a conexão depois de uns 10 s
+    # sem receber nada; o KeepAlive evita isso sem mandar silêncio (silêncio também é
+    # áudio cobrado; com o KeepAlive, o microfone mudo numa reunião não custa nada).
+    async def keep_alive(self) -> None:
+        # Mensagem de controle em JSON definida pela API do Deepgram.
+        await self._ws.send(json.dumps({"type": "KeepAlive"}))
 
     # Avisa o Deepgram que o áudio terminou.
     async def finish(self) -> None:

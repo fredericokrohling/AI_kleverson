@@ -48,7 +48,7 @@ docker compose ps -a
 
 ## 6.2 Cadastrar uma pasta do Drive
 
-**Onde:** no **navegador**, no console → **Configurações → Pastas do Drive monitoradas**.
+**Onde:** no **navegador**, no console → **Cadastros → Pastas do Drive** (até a versão do guia 12, ficava em Configurações).
 
 1. No Google Drive, crie a pasta (ou use uma existente) e abra-a. Copie o endereço da barra
    do navegador (algo como `https://drive.google.com/drive/folders/1AbC...`).

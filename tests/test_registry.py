@@ -267,10 +267,20 @@ def test_imported_transcript_links_people(sessions, atlas, monkeypatch, tmp_path
     assert "liderança na empresa" in detail and "liderança no Projeto Atlas" in detail
     # O desconhecido aparece como não reconhecido.
     assert "não reconhecida" in detail
-    # Cadastrar o desconhecido liga as falas antigas na hora.
+    # Sem e-mail (a chave da pessoa), o cadastro é recusado.
     client.post(
         "/cadastros/pessoas",
         data={"nome": "José Silva", "outros_nomes": "Zé Desconhecido"},
+        headers=SAME,
+        # Sem seguir o redirecionamento, para o aviso ser lido pela página abaixo.
+        follow_redirects=False,
+    )
+    # O aviso diz o motivo.
+    assert "Informe o e-mail" in client.get("/cadastros", headers=OWNER).text
+    # Cadastrar o desconhecido, com e-mail, liga as falas antigas na hora.
+    client.post(
+        "/cadastros/pessoas",
+        data={"nome": "José Silva", "email": "jose@x.com", "outros_nomes": "Zé Desconhecido"},
         headers=SAME,
     )
     # Agora as três falas têm pessoa.

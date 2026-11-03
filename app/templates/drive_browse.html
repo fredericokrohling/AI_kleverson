@@ -2,7 +2,7 @@
 {% import "_macros.html" as m %}
 {% block title %}{{ item.name }} · Kleverson A.I.{% endblock %}
 {% macro tag_form(target) %}
-  <form class="linha" style="margin:4px 0 0" method="post" action="/config/drive/itens/{{ target.id }}/tags">
+  <form class="linha" style="margin:4px 0 0" method="post" action="/cadastros/drive/itens/{{ target.id }}/tags">
     <input name="nome" required maxlength="100" list="sugestoes" placeholder="tag" size="14" aria-label="Tag para {{ target.name }}">
     <input type="hidden" name="voltar" value="{{ here }}">
     <button class="mini" type="submit">+ tag</button>
@@ -14,7 +14,7 @@
       <span class="tag herdada" title="Herdada de uma pasta acima; retire-a lá">{{ t.name }}</span>
     {% else %}
       <span class="tag">{{ t.name }}
-        <form class="inline" method="post" action="/config/drive/itens/{{ target.id }}/tags/{{ t.tag_id }}/retirar">
+        <form class="inline" method="post" action="/cadastros/drive/itens/{{ target.id }}/tags/{{ t.tag_id }}/retirar">
           <input type="hidden" name="voltar" value="{{ here }}">
           <button class="mini" type="submit" title="Retirar a tag" aria-label="Retirar {{ t.name }}">×</button>
         </form>
@@ -23,8 +23,8 @@
   {% endfor %}
 {% endmacro %}
 {% block content %}
-<p class="muted pequeno"><a href="/config#drive">Pastas do Drive</a>
-  {% for t in trail %} / {% if not loop.last %}<a href="/config/drive/itens/{{ t.id }}">{{ t.name }}</a>{% else %}<strong>{{ t.name }}</strong>{% endif %}{% endfor %}
+<p class="muted pequeno"><a href="/cadastros#drive">Pastas do Drive</a>
+  {% for t in trail %} / {% if not loop.last %}<a href="/cadastros/drive/itens/{{ t.id }}">{{ t.name }}</a>{% else %}<strong>{{ t.name }}</strong>{% endif %}{% endfor %}
 </p>
 <datalist id="sugestoes">{% for t in all_tags %}<option value="{{ t.name }}">{% endfor %}</datalist>
 
@@ -48,8 +48,8 @@
       {% for c in children %}
         <tr>
           <td>
-            {% if c.is_folder %}📁 <a href="/config/drive/itens/{{ c.id }}">{{ c.name }}</a>
-            {% else %}📄 <a href="/config/drive/itens/{{ c.id }}">{{ c.name }}</a>{% endif %}
+            {% if c.is_folder %}📁 <a href="/cadastros/drive/itens/{{ c.id }}">{{ c.name }}</a>
+            {% else %}📄 <a href="/cadastros/drive/itens/{{ c.id }}">{{ c.name }}</a>{% endif %}
           </td>
           <td>{{ tag_list(c) }}{{ tag_form(c) }}</td>
           <td>{{ c.modified_time | local("%d/%m/%Y %H:%M") }}</td>

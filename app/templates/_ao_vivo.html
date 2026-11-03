@@ -1,0 +1,50 @@
+{# Reuniões ao vivo no Início: uma área por reunião, sempre pelo menos duas (a dona pode
+   estar em duas reuniões ao mesmo tempo). O script /static/ao-vivo.js mantém um canal de
+   eventos aberto e põe cada trecho na área da reunião dele, pelo id da captura
+   (data-sessao). Este pedaço é pedido de novo (GET /ao-vivo) quando uma reunião começa
+   ou é salva. #}
+{% import "_macros.html" as m %}
+<section id="ao-vivo">
+  <div class="secao-topo">
+    {{ m.titulo("Reuniões ao vivo", "Clique no ícone da extensão numa aba do Meet: a transcrição aparece aqui enquanto a reunião acontece. Duas reuniões ao mesmo tempo ficam em áreas separadas. Em Participantes e falantes, diga quem é cada voz (\"Falante 2\" vira o nome); vale para o que já foi dito e para o resto da reunião, e vai para o banco ao salvar.") }}
+    <span class="muted pequeno" id="ao-vivo-conexao" aria-live="polite"></span>
+  </div>
+  <div class="ao-vivo-grade">
+    {% for v in ao_vivo %}
+      {% set mt = v.m %}
+      <article class="reuniao-viva" data-sessao="{{ mt.session_id }}" data-nomes="{{ v.names | tojson | forceescape }}">
+        <header>
+          <strong>{{ mt.title or "Reunião sem título" }}</strong>
+          <span class="estado-vivo {{ v.status }}" data-estado>{{ {"ao_vivo": "ao vivo", "sem_audio": "sem áudio agora", "salva": "salva"}[v.status] }}</span>
+        </header>
+        <div class="muted pequeno">
+          Desde {{ mt.started_at | local("%H:%M") }}
+          {% if mt.bronze_item_id %} · <a href="/conteudo/{{ mt.bronze_item_id }}">ver transcrição salva</a>{% endif %}
+          {% if mt.meeting_url %} · <a href="{{ mt.meeting_url }}" target="_blank" rel="noopener">abrir o Meet</a>{% endif %}
+        </div>
+        <div class="falas-vivas" data-falas data-rolar-fim>
+          {% for s in v.lines %}
+            {% set chave = s.channel ~ "|" ~ (s.speaker or "") %}
+            {% set sec = (s.start_ms or 0) // 1000 %}
+            <div class="fala {{ '' if chave in v.names else 'sem-nome' }}" data-chave="{{ chave }}" data-rotulo="{{ s.speaker or '' }}"><span class="quando">{{ "%02d:%02d" | format(sec // 60, sec % 60) }}</span><b class="quem">{{ v.names.get(chave, s.speaker) }}</b><span>{{ s.text }}</span></div>
+          {% else %}
+            <p class="vazio" data-sem-falas>Aguardando a primeira fala.</p>
+          {% endfor %}
+          <div class="fala parcial" data-parcial="voce" hidden></div>
+          <div class="fala parcial" data-parcial="outros" hidden></div>
+        </div>
+        <details class="participantes-caixa">
+          <summary>Participantes e falantes</summary>
+          {# Carrega quando a página abre, para a área aparecer sem esperar a consulta. #}
+          <div hx-get="/ao-vivo/{{ mt.session_id }}/participantes" hx-trigger="load" hx-swap="outerHTML"><span class="muted pequeno">carregando…</span></div>
+        </details>
+      </article>
+    {% endfor %}
+    {% for _ in range(2 - (ao_vivo | length)) %}
+      <article class="reuniao-viva vazia">
+        <div>Área livre para {{ "uma reunião" if ao_vivo else "a primeira reunião" }}.<br>
+          Abra o Meet e clique no ícone da extensão para transcrever aqui.</div>
+      </article>
+    {% endfor %}
+  </div>
+</section>

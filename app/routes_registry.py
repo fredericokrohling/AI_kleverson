@@ -1,8 +1,8 @@
-"""Página Cadastros (lâmpada no menu): projetos, pessoas e tags.
+"""Página Cadastros (lâmpada no menu): projetos, pessoas, pastas do Drive e tags.
 
 Pedido da dona: o cadastro fica numa página própria, separada de Configurações. Em
-Configurações ficam as contas, o Claude, a transcrição e as pastas do Drive (onde as
-tags são aplicadas às pastas).
+Configurações ficam as contas, o Claude e a transcrição. As pastas do Drive vieram para
+cá em 03/11/2026 (rotas em app/routes_drive.py).
 
 Todo POST volta para uma página (padrão "POST, redireciona, GET"): apertar F5 não repete
 o cadastro, e o resultado aparece como aviso no topo.
@@ -51,6 +51,9 @@ from app.projects import (
     team_of,
     update_project,
 )
+
+# Seção das pastas do Drive.
+from app.routes_drive import folders_context
 
 # Tags.
 from app.tags import create_tag, delete_tag, list_tags, rename_tag
@@ -158,6 +161,8 @@ def registry_page(request: Request, owner: Owner, db: DB):
             "tags": list_tags(db),
             # Ids das tags que são de projeto (não podem ser apagadas aqui).
             "project_tags": {p.tag_id for p, _, _ in projects if p.tag_id},
+            # Pastas do Drive monitoradas (folders, roots, root_tags).
+            **folders_context(db),
         },
     )
 

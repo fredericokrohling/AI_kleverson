@@ -16,6 +16,7 @@ consideradas e onde ela aparece no código.
 8. [Leitura de imagens e PDFs digitalizados pelo Claude](08-leitura-pelo-claude.md)
 9. [Importar transcrições do Teams e do Meet: ligação com a agenda](09-importar-transcricoes.md)
 10. [Projetos, equipe, quem falou e tags nos e-mails](10-projetos-equipe-falas-tags.md)
+11. [Reuniões ao vivo no Início: duas reuniões, participantes e quem falou](11-reunioes-ao-vivo.md)
 
 ## Como ler o código
 

@@ -3,8 +3,8 @@
 Regras:
 - criar um projeto cria a tag de mesmo nome (ou usa a tag que já existe com esse nome);
   renomear o projeto renomeia a tag;
-- uma pessoa é única pelo e-mail: a mesma pessoa pode estar em vários projetos, com uma
-  função e uma marca de liderança diferentes em cada um;
+- uma pessoa é única pelo e-mail, que é obrigatório (a chave dela): a mesma pessoa pode
+  estar em vários projetos, com uma função e uma marca de liderança diferentes em cada um;
 - "liderança na empresa" é da pessoa; "liderança no projeto" é da pessoa naquele projeto;
 - depois de qualquer mudança, as falas sem pessoa são reconhecidas de novo e as regras de
   tag rodam de novo (um nome novo pode reconhecer falas e e-mails antigos).
@@ -190,16 +190,15 @@ def save_person(
     if not clean_name:
         raise ValueError("Informe o nome da pessoa.")
     # E-mail em minúsculas.
-    clean_email = (_clean(email, 320) or "").lower() or None
+    clean_email = (_clean(email, 320) or "").lower()
+    # O e-mail é a chave da pessoa: sem ele, não cadastra.
+    if not clean_email:
+        raise ValueError("Informe o e-mail da pessoa: é por ele que o sistema a identifica.")
     # E-mail obviamente inválido.
-    if clean_email and "@" not in clean_email:
+    if "@" not in clean_email:
         raise ValueError(f"E-mail inválido: {clean_email}")
-    # Pessoa com esse e-mail.
-    same_email = (
-        session.scalar(select(Stakeholder).where(func.lower(Stakeholder.email) == clean_email))
-        if clean_email
-        else None
-    )
+    # Pessoa com esse e-mail (já guardados em minúsculas).
+    same_email = session.scalar(select(Stakeholder).where(Stakeholder.email == clean_email))
     # Pessoa pedida pelo id.
     person = session.get(Stakeholder, person_id) if person_id else same_email
     # Id informado e inexistente.

@@ -5,10 +5,10 @@
 <div class="cabecalho">
   <div>
     <h1>Cadastros</h1>
-    <div class="sub">Projetos, pessoas e tags que organizam tudo o que chega.</div>
+    <div class="sub">Projetos, pessoas, pastas do Drive e tags que organizam tudo o que chega.</div>
   </div>
 </div>
-<nav class="abas" aria-label="Seções"><a href="#projetos">Projetos</a><a href="#pessoas">Pessoas</a><a href="#tags">Tags</a></nav>
+<nav class="abas" aria-label="Seções"><a href="#projetos">Projetos</a><a href="#pessoas">Pessoas</a><a href="#drive">Pastas do Drive</a><a href="#tags">Tags</a></nav>
 
 <section id="projetos">
   {{ m.titulo("Projetos", "Cada projeto tem uma tag de mesmo nome. E-mails e reuniões recebem a tag sozinhos quando citam o projeto (nome, código, outros nomes ou palavras-chave), quando vêm de alguém da equipe ou quando estão numa pasta do Gmail ligada ao projeto. Separe os termos por vírgula.") }}
@@ -26,7 +26,7 @@
         <tr>
           <td><a href="/cadastros/projetos/{{ p.id }}">{{ p.name }}</a></td>
           <td>{{ p.code or "" }}</td>
-          <td>{% if tag %}<a href="/conteudo?tag={{ tag.id }}" class="tag">{{ tag.name }}</a>{% endif %}</td>
+          <td>{% if tag %}<a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a>{% endif %}</td>
           <td>{{ team }} pessoa(s)</td>
           <td>{{ "ativo" if p.active else "desativado" }}</td>
         </tr>
@@ -39,14 +39,14 @@
 
 <section id="pessoas">
   <div class="secao-topo">
-    {{ m.titulo("Pessoas", "A mesma pessoa pode estar em vários projetos. \"Outros nomes\" é como ela aparece nas reuniões (ex.: \"Ana\", \"Ana S.\"): serve para reconhecer quem falou. A função e a liderança em cada projeto ficam na página do projeto.") }}
+    {{ m.titulo("Pessoas", "O e-mail é a chave da pessoa: é obrigatório e não se repete. A mesma pessoa pode estar em vários projetos. \"Outros nomes\" é como ela aparece nas reuniões (ex.: \"Ana\", \"Ana S.\"): serve para reconhecer quem falou. A função e a liderança em cada projeto ficam na página do projeto.") }}
     <form method="post" action="/cadastros/reaplicar">
       <button class="mini secundario" type="submit" title="Religa as falas sem pessoa e aplica as regras de tag em tudo">Conferir falas e tags de novo</button>
     </form>
   </div>
   <form class="linha" method="post" action="/cadastros/pessoas">
     <input name="nome" required maxlength="200" placeholder="Nome" aria-label="Nome">
-    <input name="email" type="email" maxlength="320" placeholder="E-mail" aria-label="E-mail">
+    <input name="email" type="email" required maxlength="320" placeholder="E-mail (obrigatório)" aria-label="E-mail">
     <input name="cargo" maxlength="200" placeholder="Cargo" aria-label="Cargo">
     <input name="empresa" maxlength="200" placeholder="Empresa" aria-label="Empresa">
     <input name="outros_nomes" placeholder="Outros nomes" aria-label="Outros nomes">
@@ -60,7 +60,7 @@
         <tr>
           <td><a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a>
             {% if person.is_leader %}<span class="tag">liderança na empresa</span>{% endif %}</td>
-          <td>{{ person.email or "" }}</td>
+          <td>{{ person.email }}</td>
           <td>{{ person.role or "" }}{% if person.role and person.organization %} · {% endif %}{{ person.organization or "" }}</td>
           <td>
             {% for project, link in memberships.get(person.id, []) %}
@@ -75,9 +75,51 @@
   {% endif %}
 </section>
 
+<section id="drive">
+  {{ m.titulo("Pastas do Drive monitoradas", "Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco. Clique no nome da pasta para colocar tags.") }}
+  <form class="linha" method="post" action="/cadastros/drive/pastas">
+    <input name="link" required size="50" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta">
+    <button type="submit">Monitorar pasta</button>
+  </form>
+  {% if folders %}
+    <div class="tabela"><table>
+      <tr><th>Pasta</th><th>Tags</th><th>Última varredura</th><th></th></tr>
+      {% for f in folders %}
+        {% set root = roots.get(f.drive_id) %}
+        <tr>
+          <td>
+            {% if root %}<a href="/cadastros/drive/itens/{{ root.id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}
+            {% if not f.active %}<span class="muted">(desligada)</span>{% endif %}
+          </td>
+          <td>
+            {% if root %}
+              {% for t in root_tags.get(root.id, []) %}<span class="tag {{ 'herdada' if t.inherited }}">{{ t.name }}</span>{% endfor %}
+            {% endif %}
+          </td>
+          <td>
+            {% if f.last_error %}<span class="erro" title="{{ f.last_error }}">erro: {{ f.last_error[:80] }}</span>
+            {% elif f.last_scan_at %}{{ f.last_scan_at | local }}
+            {% elif f.active %}<span class="muted">aguardando a primeira</span>{% endif %}
+          </td>
+          <td>
+            {% if f.active %}
+              <form class="inline" method="post" action="/cadastros/drive/pastas/{{ f.id }}/remover">
+                <button class="perigo mini" type="submit" title="Para de monitorar; nada é apagado">Parar</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+    <form method="post" action="/cadastros/drive/varrer" style="margin-top: 12px"><button class="secundario" type="submit">Varrer agora</button></form>
+  {% else %}
+    <p class="muted">Nenhuma pasta cadastrada.</p>
+  {% endif %}
+</section>
+
 <section id="tags">
   <h2>Tags {% call m.dica() %}Uma tag diz a que o conteúdo se refere. A tag de um projeto acompanha o projeto: para renomear,
-    renomeie o projeto. Para colocar uma tag numa pasta do Drive, use <a href="/config#drive">Configurações → Pastas do Drive</a>.{% endcall %}</h2>
+    renomeie o projeto. Para colocar uma tag numa pasta do Drive, clique no nome da pasta em <a href="#drive">Pastas do Drive</a>.{% endcall %}</h2>
   <form class="linha" method="post" action="/cadastros/tags">
     <input name="nome" required maxlength="100" placeholder="Nome da nova tag" aria-label="Nome da nova tag">
     <button type="submit">Criar tag</button>
@@ -87,7 +129,7 @@
       <tr><th>Tag</th><th>Pastas e arquivos do Drive</th><th></th></tr>
       {% for tag, count in tags %}
         <tr>
-          <td><a href="/conteudo?tag={{ tag.id }}" class="tag">{{ tag.name }}</a>{% if tag.id in project_tags %} <span class="muted">(projeto)</span>{% endif %}</td>
+          <td><a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a>{% if tag.id in project_tags %} <span class="muted">(projeto)</span>{% endif %}</td>
           <td>{{ count }}</td>
           <td>
             {% if tag.id not in project_tags %}

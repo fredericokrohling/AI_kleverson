@@ -5,15 +5,14 @@
 <div class="cabecalho">
   <div>
     <h1>Configurações</h1>
-    <div class="sub">Contas, modelo do Claude, transcrição e pastas monitoradas.</div>
+    <div class="sub">Contas, modelo do Claude e transcrição. As pastas do Drive e as tags ficam em <a href="/cadastros#drive">Cadastros</a>.</div>
   </div>
 </div>
 <nav class="abas" aria-label="Seções">
   <a href="#contas">Contas conectadas</a><a href="#claude">Claude</a><a href="#transcricao">Transcrição</a>
-  <a href="#drive">Pastas do Drive</a><a href="#tags">Tags</a>
 </nav>
 
-{# Cartões pequenos lado a lado; os grandes (Drive) ocupam a largura toda. #}
+{# Cartões pequenos lado a lado. #}
 <div class="grade" style="margin-bottom: 16px">
 <section id="contas">
   {{ m.titulo("Contas conectadas", "Contas Google com acesso de leitura ao Gmail, ao Drive e à Agenda. Nada é enviado nem alterado nelas.") }}
@@ -74,51 +73,4 @@
 </section>
 </div>
 
-<section id="drive">
-  {{ m.titulo("Pastas do Drive monitoradas", "Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco. Clique no nome da pasta para colocar tags.") }}
-  <form class="linha" method="post" action="/config/drive/pastas">
-    <input name="link" required size="50" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta">
-    <button type="submit">Monitorar pasta</button>
-  </form>
-  {% if folders %}
-    <div class="tabela"><table>
-      <tr><th>Pasta</th><th>Tags</th><th>Última varredura</th><th></th></tr>
-      {% for f in folders %}
-        {% set root = roots.get(f.drive_id) %}
-        <tr>
-          <td>
-            {% if root %}<a href="/config/drive/itens/{{ root.id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}
-            {% if not f.active %}<span class="muted">(desligada)</span>{% endif %}
-          </td>
-          <td>
-            {% if root %}
-              {% for t in root_tags.get(root.id, []) %}<span class="tag {{ 'herdada' if t.inherited }}">{{ t.name }}</span>{% endfor %}
-            {% endif %}
-          </td>
-          <td>
-            {% if f.last_error %}<span class="erro" title="{{ f.last_error }}">erro: {{ f.last_error[:80] }}</span>
-            {% elif f.last_scan_at %}{{ f.last_scan_at | local }}
-            {% elif f.active %}<span class="muted">aguardando a primeira</span>{% endif %}
-          </td>
-          <td>
-            {% if f.active %}
-              <form class="inline" method="post" action="/config/drive/pastas/{{ f.id }}/remover">
-                <button class="perigo mini" type="submit" title="Para de monitorar; nada é apagado">Parar</button>
-              </form>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-    </table></div>
-    <form method="post" action="/config/drive/varrer" style="margin-top: 12px"><button class="secundario" type="submit">Varrer agora</button></form>
-  {% else %}
-    <p class="muted">Nenhuma pasta cadastrada.</p>
-  {% endif %}
-</section>
-
-<section id="tags">
-  <h2>Tags</h2>
-  <p class="muted pequeno">O cadastro de tags (criar, renomear, apagar) fica em <a href="/cadastros#tags">Cadastros</a>, junto com
-    projetos e pessoas. Para colocar uma tag numa pasta do Drive, clique no nome da pasta acima.</p>
-</section>
 {% endblock %}
