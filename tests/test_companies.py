@@ -44,6 +44,8 @@ from app.models import (
     LiveMeeting,
     Project,
     SourceKind,
+    Stakeholder,
+    Tag,
     TaggedItem,
     TranscriptSegment,
     Utterance,
@@ -330,7 +332,7 @@ def test_registry_requires_company(sessions):
         assert s.scalars(select(Project)).first() is None
 
 
-# Nova Empresa pela tela; o filtro "Mostrar" separa os cadastros.
+# Nova Empresa pela tela; o combo único de Empresa separa os cadastros.
 def test_new_company_and_filter(sessions):
     # Cadastra.
     client.post("/cadastros/empresas", data={"nome": "Cliente C"}, headers=SAME)
@@ -345,16 +347,61 @@ def test_new_company_and_filter(sessions):
     page = client.get("/cadastros?empresa=2", headers=OWNER).text
     # Só o dela.
     assert "Projeto Dois" in page and "Projeto Um" not in page
-    # Todas: os dois, com a coluna Empresa.
+    # Sem ?empresa=: abre na última escolhida (a 2, guardada no cookie de sessão).
     page = client.get("/cadastros", headers=OWNER).text
-    # Os dois.
-    assert "Projeto Dois" in page and "Projeto Um" in page and "<th>Empresa</th>" in page
+    # Continua só a nova; não existe mais a visão "Todas" misturando as Empresas.
+    assert "Projeto Dois" in page and "Projeto Um" not in page
+    # Volta para a primeira.
+    page = client.get(f"/cadastros?empresa={EMPRESA}", headers=OWNER).text
+    # Só a dela.
+    assert "Projeto Um" in page and "Projeto Dois" not in page
     # Nome repetido (sem diferenciar maiúsculas): recusado.
     client.post(
         "/cadastros/empresas", data={"nome": "cliente c"}, headers=SAME, follow_redirects=False
     )
     # Aviso.
     assert "já existe" in client.get("/cadastros", headers=OWNER).text
+
+
+# Cadastros tem um combo de Empresa só, que vale para Projetos, Pessoas, Pastas e Tags.
+def test_registry_single_company_choice(sessions):
+    # Segunda Empresa.
+    client.post("/cadastros/empresas", data={"nome": "Cliente C"}, headers=SAME)
+    # Página na Empresa 2.
+    page = client.get("/cadastros?empresa=2", headers=OWNER).text
+    # Um combo só (antes eram cinco: "Mostrar" e um por formulário).
+    assert page.count('name="empresa" id="empresa-cadastros"') == 1
+    assert page.count('<select name="empresa"') == 1
+    # Sem a opção "Todas" (com todas, o cadastro não saberia onde gravar).
+    assert "Todas as Empresas" not in page
+    # Os quatro formulários e o "Conferir falas e tags" levam a Empresa 2 escondida.
+    assert page.count('<input type="hidden" name="empresa" value="2">') == 5
+    # Cadastra uma tag e uma pessoa como o navegador mandaria (campo escondido).
+    client.post("/cadastros/tags", data={"empresa": "2", "nome": "Portal"}, headers=SAME)
+    client.post(
+        "/cadastros/pessoas",
+        data={"empresa": "2", "nome": "Ana", "email": "ana@x.com"},
+        headers=SAME,
+    )
+    # As duas entraram na Empresa 2.
+    with sessions() as s:
+        # Empresas das tags e pessoas gravadas.
+        assert set(s.scalars(select(Tag.company_id))) == {2}
+        assert set(s.scalars(select(Stakeholder.company_id))) == {2}
+
+
+# Sem nenhuma Empresa, as quatro seções ficam escondidas, com o motivo.
+def test_registry_without_companies(sessions):
+    # Apaga a Empresa de teste (o banco começa com ela).
+    with sessions() as s:
+        # Apaga.
+        s.query(Company).delete()
+        # Grava.
+        s.commit()
+    # Página.
+    page = client.get("/cadastros", headers=OWNER).text
+    # Aviso, e nenhum formulário de projeto.
+    assert "Cadastre uma Empresa acima" in page and 'action="/cadastros/projetos"' not in page
 
 
 # Processamento filtra o conteúdo pela Empresa.

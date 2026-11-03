@@ -486,6 +486,29 @@ def make_png(width: int = 800, height: int = 600, mode: str = "RGB") -> bytes:
     return buffer.getvalue()
 
 
+# "Foto" de exemplo: pixels aleatórios, que o PNG não consegue comprimir. Serve para os
+# testes de e-mail, porque imagens de e-mail com menos de 70 KB são ignoradas na coleta
+# (o PNG branco de make_png tem poucos KB). Semente fixa: o mesmo tamanho dá os mesmos
+# bytes, e o teste de "mesmo anexo em dois e-mails" continua valendo.
+def make_photo(width: int = 400, height: int = 300) -> bytes:
+    # Gerador de números aleatórios com semente (repetível).
+    import random
+
+    # Biblioteca de imagens.
+    from PIL import Image
+
+    # Bytes aleatórios suficientes para largura x altura pixels de 3 cores (RGB).
+    noise = random.Random(width * 10_000 + height).randbytes(width * height * 3)
+    # Monta a imagem a partir desses bytes.
+    image = Image.frombytes("RGB", (width, height), noise)
+    # Grava em PNG na memória.
+    buffer = io.BytesIO()
+    # Formato PNG.
+    image.save(buffer, format="PNG")
+    # Bytes.
+    return buffer.getvalue()
+
+
 # Imita client.beta.messages do SDK da Anthropic: guarda os pedidos, devolve a resposta.
 class FakeClaude:
     # Texto da resposta, motivo de parada e um erro opcional para levantar.

@@ -44,6 +44,9 @@ from app.ingestion import vision_queue
 # Varredura do Drive.
 from app.ingestion.drive_sync import add_folder, retry_drive_item, sync_drive
 
+# Desmontagem do e-mail (o anexo desmontado, para testar o filtro direto).
+from app.ingestion.email_parser import ParsedAttachment
+
 # Imagens embutidas em PowerPoint e Word.
 from app.ingestion.embedded import ORIGIN, backfill, find_images
 
@@ -53,8 +56,14 @@ from app.ingestion.extractors import detect_kind, extract_text, split_error
 # Lista e "Tentar de novo".
 from app.ingestion.failures import dismiss, list_failures, retry
 
-# Coleta do Gmail e recuperação das imagens descartadas pelo filtro antigo.
-from app.ingestion.gmail import collect_gmail, recover_email_images
+# Coleta do Gmail, recuperação das imagens descartadas pelo filtro antigo e o filtro de
+# imagens de e-mail (com o tamanho mínimo de 70 KB).
+from app.ingestion.gmail import (
+    MIN_EMAIL_IMAGE_BYTES,
+    _worth_keeping,
+    collect_gmail,
+    recover_email_images,
+)
 
 # Guarda dos originais.
 from app.ingestion.storage import FileStore
@@ -80,6 +89,7 @@ from tests.fakes import (
     make_docx_with_image,
     make_email,
     make_pdf,
+    make_photo,
     make_png,
     make_pptx_with_images,
 )
@@ -247,13 +257,13 @@ def test_reader_pdf_and_errors(sessions, settings, reader, claude):
 # Fila: o mesmo anexo em dois e-mails é lido uma vez; aviso dispensado não é lido.
 def test_queue_reads_email_images(sessions, store, settings, reader, claude):
     # O mesmo diagrama em dois e-mails, e uma foto diferente num terceiro.
-    diagram = make_png(900, 700)
+    diagram = make_photo(900, 700)
     # Três e-mails.
     gmail = FakeGmail(
         {
             "m1": {"raw": make_email(attachments=[("fluxo.png", "image/png", diagram)])},
             "m2": {"raw": make_email("Re: fluxo", [("fluxo.png", "image/png", diagram)])},
-            "m3": {"raw": make_email("Foto", [("foto.png", "image/png", make_png(1200, 900))])},
+            "m3": {"raw": make_email("Foto", [("foto.png", "image/png", make_photo(1200, 900))])},
         }
     )
     # Coleta: as imagens entram na fila.
@@ -313,7 +323,9 @@ def test_queue_stops_at_budget(sessions, store, settings, reader, claude, monkey
 # Erro inesperado num arquivo: sai da fila com o motivo e não trava as rodadas seguintes.
 def test_queue_unexpected_error(sessions, store, settings, reader, monkeypatch):
     # Um e-mail com uma imagem.
-    gmail = FakeGmail({"m1": {"raw": make_email(attachments=[("a.png", "image/png", make_png())])}})
+    gmail = FakeGmail(
+        {"m1": {"raw": make_email(attachments=[("a.png", "image/png", make_photo())])}}
+    )
     # Coleta.
     collect_gmail(sessions, gmail, store, settings, now=NOW, company_id=EMPRESA)
 
@@ -391,7 +403,7 @@ def test_retry_with_claude(sessions, store, settings, reader, claude, monkeypatc
     gmail = FakeGmail(
         {
             "m1": {"raw": make_email(attachments=[("a.pdf", "application/pdf", make_pdf())])},
-            "m2": {"raw": make_email("Outro", [("b.png", "image/png", make_png(700, 500))])},
+            "m2": {"raw": make_email("Outro", [("b.png", "image/png", make_photo(700, 500))])},
             # O mesmo PDF encaminhado: uma cópia que também espera o Claude.
             "m3": {"raw": make_email("Fwd", [("a.pdf", "application/pdf", make_pdf())])},
         }
@@ -549,7 +561,7 @@ def _gmail_style_email() -> bytes:
     html = msg.get_payload()[1]
     # Print grande colado no corpo.
     html.add_related(
-        make_png(1200, 800),
+        make_photo(1200, 800),
         "image",
         "png",
         cid="<ii_1>",
@@ -567,7 +579,7 @@ def _gmail_style_email() -> bytes:
     )
     # Anexo pelo clipe, com Content-ID, como o Gmail faz.
     msg.add_attachment(
-        make_png(900, 1300), maintype="image", subtype="png", filename="certidao.png"
+        make_photo(900, 1300), maintype="image", subtype="png", filename="certidao.png"
     )
     # A parte do anexo.
     attached = list(msg.iter_attachments())[-1]
@@ -623,3 +635,49 @@ def test_recover_email_images(sessions, store, settings):
         codes = {split_error(e)[0] for e in s.scalars(select(Attachment.extraction_error))}
     # As duas aguardando o Claude.
     assert codes == {"IMAGEM_SEM_OCR"}
+
+
+# Imagens de e-mail com menos de 70 KB (logo, assinatura) não são importadas, coladas no
+# corpo ou anexadas pelo clipe; arquivos que não são imagem não passam por esse filtro.
+def test_gmail_ignores_small_images(sessions, store, settings):
+    # Logo de assinatura: largo em pixels (passa no teste de pixels), mas com poucos KB.
+    logo = make_png(600, 200)
+    # Confere a premissa do teste: o logo tem menos de 70 KB e a foto, mais.
+    assert len(logo) < MIN_EMAIL_IMAGE_BYTES < len(make_photo(900, 700))
+    # Um e-mail com: logo anexado, foto anexada, PNG pequeno mandado como "octet-stream"
+    # (alguns programas fazem isso) e um texto pequeno (não é imagem: entra).
+    raw = make_email(
+        attachments=[
+            ("assinatura.png", "image/png", logo),
+            ("print.png", "image/png", make_photo(900, 700)),
+            ("selo.png", "application/octet-stream", logo),
+            ("ata.txt", "text/plain", b"Ata curta da reuniao."),
+        ]
+    )
+    # Coleta.
+    collect_gmail(
+        sessions, FakeGmail({"m1": {"raw": raw}}), store, settings, now=NOW, company_id=EMPRESA
+    )
+    # Nomes gravados.
+    with sessions() as s:
+        # Arquivos do e-mail.
+        names = set(s.scalars(select(Attachment.filename)).all())
+    # Só a foto e o texto; o logo e o selo ficaram de fora.
+    assert names == {"print.png", "ata.txt"}
+    # A recuperação (que relê o .eml) também não traz o logo de volta.
+    assert recover_email_images(sessions, store) == 0
+
+
+# O limite exato: 70 KB entra; um byte a menos, não.
+def test_small_image_boundary():
+    # Anexo pelo clipe com um tamanho dado (o conteúdo não importa para esta regra).
+    def attached(size: int) -> ParsedAttachment:
+        # Imagem anexada (inline=False não passa pelo teste de pixels).
+        return ParsedAttachment("a.jpg", "image/jpeg", b"x" * size)
+
+    # Exatamente 70 KB: importa.
+    assert _worth_keeping(attached(MIN_EMAIL_IMAGE_BYTES))
+    # Um byte a menos: ignora.
+    assert not _worth_keeping(attached(MIN_EMAIL_IMAGE_BYTES - 1))
+    # PDF pequeno não é imagem: importa sempre.
+    assert _worth_keeping(ParsedAttachment("a.pdf", "application/pdf", b"%PDF-1.4"))

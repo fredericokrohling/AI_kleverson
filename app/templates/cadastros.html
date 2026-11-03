@@ -1,17 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Cadastros · Kleverson A.I.{% endblock %}
 {% import "_macros.html" as m %}
+{% block head %}
+<style>
+  /* Barra da Empresa: fica presa no topo enquanto a página rola pelas quatro seções, para
+     a Empresa em uso estar sempre à vista (é ela que recebe o cadastro novo). */
+  .empresa-fixa { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+                  background: var(--cartao-2); border: 1px solid var(--linha-forte); border-radius: var(--raio);
+                  padding: 10px 16px; margin-bottom: 16px; box-shadow: var(--sombra); }
+  .empresa-fixa label { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  /* O atalho das abas não pode esconder o título da seção atrás da barra presa. */
+  .por-empresa section { scroll-margin-top: 76px; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="cabecalho">
   <div>
     <h1>Cadastros</h1>
     <div class="sub">Empresas, projetos, pessoas, pastas do Drive e tags que organizam tudo o que chega.</div>
   </div>
-  {# Filtro: mostra só uma Empresa; os formulários abaixo já vêm com ela escolhida. #}
-  <form class="acoes linha" method="get" action="/cadastros">
-    <label>Mostrar {{ m.combo_empresa(empresas_todas, filtro, obrigatoria=false, todas=true, rotulo="Mostrar a Empresa", extra='onchange="this.form.submit()"') }}</label>
-    <noscript><button class="mini" type="submit">Filtrar</button></noscript>
-  </form>
 </div>
 <nav class="abas" aria-label="Seções"><a href="#empresas">Empresas</a><a href="#projetos">Projetos</a><a href="#pessoas">Pessoas</a><a href="#drive">Pastas do Drive</a><a href="#tags">Tags</a></nav>
 
@@ -50,10 +57,27 @@
   {% endif %}
 </section>
 
+{% if filtro is none %}
+<section>
+  <p class="muted">Cadastre uma Empresa acima para liberar Projetos, Pessoas, Pastas do Drive e Tags.</p>
+</section>
+{% else %}
+{# Um combo só para as quatro seções abaixo: filtra as listas e decide em que Empresa o
+   cadastro novo entra (cada formulário leva a Empresa num campo escondido). Trocar a
+   Empresa recarrega a página na mesma seção (o "#" do endereço vai junto). #}
+{% set troca = 'onchange="this.form.action=' ~ "'/cadastros'" ~ '+location.hash;this.form.submit()"' %}
+<div class="por-empresa">
+<form class="empresa-fixa" method="get" action="/cadastros">
+  <label for="empresa-cadastros">Empresa
+    {{ m.combo_empresa(empresas_todas, filtro, obrigatoria=false, rotulo="Empresa dos cadastros", id="empresa-cadastros", extra=troca) }}</label>
+  <noscript><button class="mini" type="submit">Trocar</button></noscript>
+  <span class="muted pequeno">Vale para Projetos, Pessoas, Pastas do Drive e Tags: as listas mostram só esta Empresa e o que você cadastrar entra nela.</span>
+</form>
+
 <section id="projetos">
   {{ m.titulo("Projetos", "Cada projeto tem uma tag de mesmo nome. E-mails e reuniões recebem a tag sozinhos quando citam o projeto (nome, código, outros nomes ou palavras-chave), quando vêm de alguém da equipe ou quando estão numa pasta do Gmail ligada ao projeto. Separe os termos por vírgula.") }}
   <form class="linha" method="post" action="/cadastros/projetos">
-    {{ m.combo_empresa(empresas_todas, filtro) }}
+    <input type="hidden" name="empresa" value="{{ filtro }}">
     <input name="nome" required maxlength="200" placeholder="Nome do projeto" aria-label="Nome do projeto">
     <input name="codigo" maxlength="50" size="10" placeholder="Código (opcional)" aria-label="Código">
     <input name="outros_nomes" size="24" placeholder="Outros nomes (ex.: CRM, Atlas)" aria-label="Outros nomes">
@@ -62,11 +86,10 @@
   </form>
   {% if projects %}
     <div class="tabela"><table>
-      <tr><th>Projeto</th>{% if filtro is none %}<th>Empresa</th>{% endif %}<th>Código</th><th>Tag</th><th>Equipe</th><th>Situação</th></tr>
+      <tr><th>Projeto</th><th>Código</th><th>Tag</th><th>Equipe</th><th>Situação</th></tr>
       {% for p, tag, team in projects %}
         <tr>
           <td><a href="/cadastros/projetos/{{ p.id }}">{{ p.name }}</a></td>
-          {% if filtro is none %}<td>{{ nomes_empresa.get(p.company_id, "") }}</td>{% endif %}
           <td>{{ p.code or "" }}</td>
           <td>{% if tag %}<a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a>{% endif %}</td>
           <td>{{ team }} pessoa(s)</td>
@@ -83,12 +106,12 @@
   <div class="secao-topo">
     {{ m.titulo("Pessoas", "O e-mail é a chave da pessoa: é obrigatório e não se repete dentro da Empresa. Pessoas não são compartilhadas entre Empresas. A mesma pessoa pode estar em vários projetos da Empresa dela. \"Outros nomes\" é como ela aparece nas reuniões (ex.: \"Ana\", \"Ana S.\"): serve para reconhecer quem falou. A função e a liderança em cada projeto ficam na página do projeto.") }}
     <form method="post" action="/cadastros/reaplicar">
-      {% if filtro is not none %}<input type="hidden" name="empresa" value="{{ filtro }}">{% endif %}
+      <input type="hidden" name="empresa" value="{{ filtro }}">
       <button class="mini secundario" type="submit" title="Religa as falas sem pessoa e aplica as regras de tag em tudo">Conferir falas e tags de novo</button>
     </form>
   </div>
   <form class="linha" method="post" action="/cadastros/pessoas">
-    {{ m.combo_empresa(empresas_todas, filtro) }}
+    <input type="hidden" name="empresa" value="{{ filtro }}">
     <input name="nome" required maxlength="200" placeholder="Nome" aria-label="Nome">
     <input name="email" type="email" required maxlength="320" placeholder="E-mail (obrigatório)" aria-label="E-mail">
     <input name="cargo" maxlength="200" placeholder="Cargo" aria-label="Cargo">
@@ -99,12 +122,11 @@
   </form>
   {% if people %}
     <div class="tabela"><table>
-      <tr><th>Nome</th>{% if filtro is none %}<th>Empresa</th>{% endif %}<th>E-mail</th><th>Cargo · organização</th><th>Projetos</th></tr>
+      <tr><th>Nome</th><th>E-mail</th><th>Cargo · organização</th><th>Projetos</th></tr>
       {% for person in people %}
         <tr>
           <td><a href="/cadastros/pessoas/{{ person.id }}">{{ person.name }}</a>
             {% if person.is_leader %}<span class="tag">liderança na organização</span>{% endif %}</td>
-          {% if filtro is none %}<td>{{ nomes_empresa.get(person.company_id, "") }}</td>{% endif %}
           <td>{{ person.email }}</td>
           <td>{{ person.role or "" }}{% if person.role and person.organization %} · {% endif %}{{ person.organization or "" }}</td>
           <td>
@@ -121,15 +143,15 @@
 </section>
 
 <section id="drive">
-  {{ m.titulo("Pastas do Drive monitoradas", "Escolha a Empresa: a pasta é lida com a conta Google dela. Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco. Clique no nome da pasta para colocar tags.") }}
+  {{ m.titulo("Pastas do Drive monitoradas", "A pasta é lida com a conta Google da Empresa escolhida no topo. Crie a pasta no Google Drive, abra-a e copie o endereço do navegador. Tudo dentro dela (arquivos e subpastas) passa a ser lido a cada 30 minutos; cada alteração de conteúdo vira uma versão nova no banco. Clique no nome da pasta para colocar tags.") }}
   <form class="linha" method="post" action="/cadastros/drive/pastas">
-    {{ m.combo_empresa(empresas_todas, filtro) }}
+    <input type="hidden" name="empresa" value="{{ filtro }}">
     <input name="link" required size="50" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta">
     <button type="submit">Monitorar pasta</button>
   </form>
   {% if folders %}
     <div class="tabela"><table>
-      <tr><th>Pasta</th>{% if filtro is none %}<th>Empresa</th>{% endif %}<th>Tags</th><th>Última varredura</th><th></th></tr>
+      <tr><th>Pasta</th><th>Tags</th><th>Última varredura</th><th></th></tr>
       {% for f in folders %}
         {% set root = roots.get((f.company_id, f.drive_id)) %}
         <tr>
@@ -137,7 +159,6 @@
             {% if root %}<a href="/cadastros/drive/itens/{{ root.id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}
             {% if not f.active %}<span class="muted">(desligada)</span>{% endif %}
           </td>
-          {% if filtro is none %}<td>{{ nomes_empresa.get(f.company_id, "") }}</td>{% endif %}
           <td>
             {% if root %}
               {% for t in root_tags.get(root.id, []) %}<span class="tag {{ 'herdada' if t.inherited }}">{{ t.name }}</span>{% endfor %}
@@ -159,7 +180,7 @@
       {% endfor %}
     </table></div>
     <form method="post" action="/cadastros/drive/varrer" style="margin-top: 12px">
-      {% if filtro is not none %}<input type="hidden" name="empresa" value="{{ filtro }}">{% endif %}
+      <input type="hidden" name="empresa" value="{{ filtro }}">
       <button class="secundario" type="submit">Varrer agora</button></form>
   {% else %}
     <p class="muted">Nenhuma pasta cadastrada.</p>
@@ -170,17 +191,16 @@
   <h2>Tags {% call m.dica() %}Uma tag diz a que o conteúdo se refere e pertence a uma Empresa (duas Empresas podem ter tags de mesmo nome, separadas). A tag de um projeto acompanha o projeto: para renomear,
     renomeie o projeto. Para colocar uma tag numa pasta do Drive, clique no nome da pasta em <a href="#drive">Pastas do Drive</a>.{% endcall %}</h2>
   <form class="linha" method="post" action="/cadastros/tags">
-    {{ m.combo_empresa(empresas_todas, filtro) }}
+    <input type="hidden" name="empresa" value="{{ filtro }}">
     <input name="nome" required maxlength="100" placeholder="Nome da nova tag" aria-label="Nome da nova tag">
     <button type="submit">Criar tag</button>
   </form>
   {% if tags %}
     <div class="tabela"><table>
-      <tr><th>Tag</th>{% if filtro is none %}<th>Empresa</th>{% endif %}<th>Pastas e arquivos do Drive</th><th></th></tr>
+      <tr><th>Tag</th><th>Pastas e arquivos do Drive</th><th></th></tr>
       {% for tag, count in tags %}
         <tr>
           <td><a href="/conteudo?tag={{ tag.id }}&amp;dia=#conteudo" class="tag">{{ tag.name }}</a>{% if tag.id in project_tags %} <span class="muted">(projeto)</span>{% endif %}</td>
-          {% if filtro is none %}<td>{{ nomes_empresa.get(tag.company_id, "") }}</td>{% endif %}
           <td>{{ count }}</td>
           <td>
             {% if tag.id not in project_tags %}
@@ -201,4 +221,6 @@
     <p class="muted">Nenhuma tag ainda.</p>
   {% endif %}
 </section>
+</div>
+{% endif %}
 {% endblock %}

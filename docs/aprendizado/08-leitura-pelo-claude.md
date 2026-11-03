@@ -55,6 +55,9 @@ Cada leitura custa dinheiro, então a fila tem regras que um OCR gratuito não p
 - **O mesmo arquivo é lido uma vez.** Um diagrama encaminhado em cinco e-mails tem a mesma
   impressão digital (SHA-256). A fila lê o primeiro e copia o texto para os outros.
 - **Só a versão atual de um arquivo do Drive.** Versões antigas não são lidas.
+- **Imagem de e-mail com menos de 70 KB é ignorada** (desde 03/11/2026), colada no corpo
+  ou anexada pelo clipe: nem vira linha, continua só no `.eml` guardado. Veja "O limite de
+  70 KB" abaixo.
 - **Ícone não é conteúdo.** Imagem anexada com o lado maior abaixo de 200 pixels vira
   `IMAGEM_PEQUENA` e não é enviada. Imagem pequena **colada no corpo** do e-mail (logo e
   ícones da assinatura) nem vira linha: continua só no `.eml` guardado.
@@ -124,6 +127,36 @@ pixels e formatos que não abrem são ignorados sem aviso (num deck corporativo 
 dezenas de linhas inúteis na lista); no Word, só o corpo do documento (cabeçalho e rodapé
 guardam o logo); e no máximo 20 imagens por arquivo, para um deck de prints não consumir o
 teto do mês de uma vez.
+
+## O limite de 70 KB nas imagens de e-mail (03/11/2026)
+
+O filtro por pixels (200 no lado maior) não bastava: o logo de uma assinatura costuma ter
+de 300 a 600 pixels de largura, passava no teste e ia para a fila do Claude. Você pediu um
+limite pelo **tamanho do arquivo**: toda imagem de e-mail com menos de 70 KB é ignorada na
+coleta, seja colada no corpo, seja anexada pelo clipe.
+
+Por que o tamanho do arquivo funciona: logo e ícone são imagens simples (poucas cores,
+fundo liso), que o PNG e o JPEG comprimem muito; quase nunca passam de 30 KB. Um print de
+tela ou uma foto de documento tem muito mais detalhe e passa de 70 KB com folga.
+
+Como fica a regra completa, na ordem:
+
+1. É imagem (pelo tipo ou pela extensão, porque há programas que mandam PNG como
+   `application/octet-stream`) e tem menos de 70 KB (70 x 1024 bytes)? Ignorada.
+2. Anexada pelo clipe? Entra (se tiver menos de 200 pixels no lado maior, entra como
+   `IMAGEM_PEQUENA`, sem ir ao Claude).
+3. Colada no corpo? Entra só se tiver 200 pixels ou mais no lado maior.
+
+**O preço, com franqueza:** um print pequeno de verdade (três linhas de uma tabela, um
+trecho de cronograma) pode ter menos de 70 KB e será ignorado sem aviso. Se isso
+acontecer com algo importante, o original continua no `.eml`; mande o arquivo para uma
+pasta do Drive monitorada (lá não há limite de tamanho). Se acontecer com frequência, o
+número fica em `MIN_EMAIL_IMAGE_BYTES`, em `app/ingestion/gmail.py`.
+
+O que o limite **não** pega: imagens das pastas do Drive e imagens de dentro de PowerPoint
+e Word anexados (essas têm a regra própria: a repetida vira uma, ícones e cabeçalho do
+Word ficam de fora). E não mexe no que já foi coletado: as imagens pequenas já gravadas
+continuam onde estão.
 
 ## O erro do filtro de assinatura (corrigido em 02/11/2026)
 

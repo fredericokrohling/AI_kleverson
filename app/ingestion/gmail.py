@@ -29,6 +29,15 @@ rápida: um arquivo grande ou um Drive lento não atrasa a gravação dos e-mail
 Links do Lucid e do Canva: o diagrama fica nos servidores desses serviços, fora do
 Google. O link é registrado com o erro LINK_EXTERNO_NAO_LIDO, para aparecer na lista de
 arquivos sem texto da página inicial, com o remetente e a data do e-mail.
+
+Imagens pequenas (pedido de 03/11/2026): toda imagem do e-mail, colada no corpo ou
+anexada pelo clipe, com menos de 70 KB é ignorada (não vira linha em attachments, não vai
+para a fila do Claude e não aparece no console). Quase sempre é logo, assinatura, ícone de
+rede social ou selo. Por que pelo tamanho do arquivo, e não só pelos pixels (a regra que já
+existia para a imagem colada): o logo de assinatura costuma ter 300 a 600 pixels de largura,
+passa no teste de pixels e chegava ao Claude, mas raramente passa de 30 KB. O preço: um
+print pequeno de verdade (poucas linhas de uma tabela) também pode ficar abaixo de 70 KB e
+será ignorado. Nada se perde: o .eml original continua guardado com todas as imagens.
 """
 
 # base64 decodifica o e-mail bruto, que o Gmail entrega em base64 "para URL".
@@ -61,8 +70,8 @@ from app.ingestion.email_parser import ParsedAttachment, parse_email
 # Imagens de dentro dos PowerPoint e Word anexados.
 from app.ingestion.embedded import embedded_rows
 
-# Extração de texto.
-from app.ingestion.extractors import Extraction, coded, extract_text
+# Extração de texto e detecção do formato pelo nome e pelo tipo MIME.
+from app.ingestion.extractors import Extraction, coded, detect_kind, extract_text
 
 # Guardar os originais.
 from app.ingestion.storage import FileStore, safe_suffix, sha256_hex
@@ -87,6 +96,9 @@ _LOCK_KEY = 20_002
 _PAGE_SIZE = 500
 # Quantos erros de mensagem guardar em detalhe por rodada (o total é sempre contado).
 _MAX_ERROR_DETAILS = 20
+# Tamanho mínimo, em bytes, de uma imagem de e-mail para ser importada: 70 KB (70 x 1024
+# bytes, o "KB" que o Windows e o Gmail mostram). Abaixo disso é logo ou assinatura.
+MIN_EMAIL_IMAGE_BYTES = 70 * 1024
 
 
 # Resumo de uma rodada, para o terminal e para os testes.
@@ -347,7 +359,7 @@ def _ingest_message(
     rows: list[Attachment] = []
     # Anexos de dentro do e-mail.
     for att in parsed.attachments:
-        # Imagem colada no corpo que não vale leitura (logo, ícone): nem vira linha.
+        # Imagem com menos de 70 KB ou colada no corpo sem valer leitura: nem vira linha.
         if not _worth_keeping(att):
             continue
         # Monta a linha.
@@ -620,10 +632,17 @@ def _finish(run: IngestionRun, summary: RunSummary, errors: list[str]) -> None:
     run.error_detail = "\n".join(errors) or None
 
 
-# Diz se um anexo vira linha. Só filtra imagem colada no corpo: a pequena (logo e ícones
-# da assinatura) ou ilegível é descartada sem aviso; ela continua guardada no .eml.
+# Diz se um anexo vira linha. Só filtra imagens: a com menos de 70 KB (colada ou anexada)
+# e a colada no corpo que é pequena em pixels ou ilegível são descartadas sem aviso; elas
+# continuam guardadas no .eml.
 def _worth_keeping(att: ParsedAttachment) -> bool:
-    # Anexo pelo clipe (ou qualquer outro arquivo): sempre.
+    # É imagem? Pelo tipo MIME ou pela extensão (há programas que mandam PNG como
+    # "application/octet-stream").
+    is_image = detect_kind(att.filename, att.mime_type) == "imagem"
+    # Imagem com menos de 70 KB: logo, assinatura, ícone. Ignorada, colada ou anexada.
+    if is_image and len(att.data) < MIN_EMAIL_IMAGE_BYTES:
+        return False
+    # Anexo pelo clipe (ou qualquer arquivo que não é imagem): sempre.
     if not att.inline:
         return True
     # Colada no corpo: só se for para a fila do Claude.
@@ -660,9 +679,10 @@ def recover_email_images(sessions: sessionmaker[Session], store: FileStore) -> i
             parsed = parse_email(store.read(eml))
             # Cada imagem do e-mail.
             for att in parsed.attachments:
-                # Só imagens que ainda não têm linha e que valem a leitura.
+                # Só imagens que ainda não têm linha e que valem a leitura (a regra dos
+                # 70 KB vale aqui também: a recuperação não traz o logo de volta).
                 if (
-                    not att.mime_type.startswith("image/")
+                    detect_kind(att.filename, att.mime_type) != "imagem"
                     or sha256_hex(att.data) in known
                     or not _worth_keeping(att)
                 ):
