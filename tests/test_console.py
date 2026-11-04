@@ -612,13 +612,13 @@ def test_auto_refresh(sessions):
     page = client.get("/", headers=OWNER).text
     # Vigia com a marca atual.
     assert f'hx-get="/novidades?marca={before}"' in page
-    # Coração do menu e bloco de dados escutando o evento.
-    assert 'id="inicio-dados"' in page and page.count('hx-trigger="novidades from:body"') == 2
-    # Na página Processamento: coração, números e coleta, diário de hoje e conteúdo de hoje.
+    # Coração e Alertas do menu e bloco de dados escutando o evento.
+    assert 'id="inicio-dados"' in page and page.count('hx-trigger="novidades from:body"') == 3
+    # Na página Processamento: coração, Alertas, números e coleta, diário e conteúdo de hoje.
     page = client.get("/conteudo", headers=OWNER).text
-    # Os quatro escutam o evento.
+    # Os cinco escutam o evento.
     assert (
-        'id="processamento-dados"' in page and page.count('hx-trigger="novidades from:body"') == 4
+        'id="processamento-dados"' in page and page.count('hx-trigger="novidades from:body"') == 5
     )
     # Sem novidade: sem aviso.
     assert "HX-Trigger" not in client.get(f"/novidades?marca={before}", headers=OWNER).headers

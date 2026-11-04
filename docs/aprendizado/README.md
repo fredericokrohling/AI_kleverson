@@ -22,6 +22,7 @@ consideradas e onde ela aparece no código.
 14. [Classificação por projeto: regras primeiro, Claude só no que sobrar](14-classificacao.md)
 15. [Reuniões: a reunião como uma coisa só, acima das transcrições](15-reunioes.md)
 16. [Extração de fatos: o Claude lê, o código confere](16-fatos.md)
+17. [Alertas de liderança: regras são filtros, não perguntas à IA](17-alertas.md)
 
 ## Como ler o código
 
@@ -50,7 +51,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 11. `app/companies.py`: as Empresas e a correção de Empresa de uma transcrição.
 12. `app/classification.py`: a classificação de cada item por projeto (bloco 3).
 13. `app/facts.py`: a extração de fatos com o trecho conferido (bloco 3).
-14. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+14. `app/alerts.py`: os alertas de liderança, regras como filtros sobre os fatos (bloco 3).
+15. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 

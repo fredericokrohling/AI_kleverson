@@ -414,9 +414,27 @@ def cmd_extrair_fatos(args: argparse.Namespace) -> None:
     print(total.describe())
 
 
+# Aplica as regras de alerta de liderança agora (o coletor também faz, a cada 5 minutos).
+def cmd_gerar_alertas(_: argparse.Namespace) -> None:
+    """Aplica as regras de alerta aos fatos (sem custo de IA) e mostra quantos nasceram."""
+    # Rodada dos alertas.
+    from app.alerts import generate
+
+    # Configuração.
+    settings = get_settings()
+    # Uma sessão.
+    with get_sessionmaker()() as session:
+        # Aplica todas as regras ligadas.
+        summary = generate(session, settings)
+        # Grava.
+        session.commit()
+    # Mostra.
+    print(summary.describe())
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, Drive, leitura, classificação e fatos, saúde e servidor."""
+    """Roda sem parar: Gmail, Drive, leitura, classificação, fatos, alertas, saúde e servidor."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -425,6 +443,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
 
     # Data e hora com fuso, e intervalos.
     from datetime import UTC, datetime, timedelta
+
+    # Rodada dos alertas de liderança (bloco 3).
+    from app.alerts import run_from_settings as run_alerts
 
     # Rodada de classificação por projeto (bloco 3).
     from app.classification import run_from_settings as run_classify
@@ -463,6 +484,7 @@ def cmd_agendador(_: argparse.Namespace) -> None:
         "visao": None,
         "classificacao": None,
         "fatos": None,
+        "alertas": None,
         "saude": None,
     }
 
@@ -536,6 +558,13 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             last["fatos"] = now
             # Extrai.
             safe("Extração de fatos", lambda: run_facts(settings))
+        # Alertas a cada 5 minutos, depois dos fatos (um pedido lido agora já avisa). Só
+        # consultas SQL, sem custo; sem alerta novo, não escreve no log.
+        if due("alertas", 5, now):
+            # Marca.
+            last["alertas"] = now
+            # Aplica as regras.
+            safe("Alertas de liderança", lambda: run_alerts(settings))
         # Saúde a cada HEALTH_POLL_MINUTES.
         if due("saude", settings.health_poll_minutes, now):
             # Marca.
@@ -574,6 +603,8 @@ COMMANDS = {
     "classificar": cmd_classificar,
     # python -m app.cli extrair-fatos [--refazer]
     "extrair-fatos": cmd_extrair_fatos,
+    # python -m app.cli gerar-alertas
+    "gerar-alertas": cmd_gerar_alertas,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)

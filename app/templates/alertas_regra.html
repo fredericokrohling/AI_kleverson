@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ rule.name if rule else "Nova regra" }} · Alertas{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <div class="sub"><a href="/alertas#regras">&larr; Alertas</a></div>
+    <h1>{{ rule.name if rule else "Nova regra" }} {{ m.dica("Uma regra é um filtro: um fato vira alerta quando passa em todas as condições. Ao gravar, a regra já é aplicada aos itens recentes e os alertas aparecem na hora.") }}</h1>
+  </div>
+</div>
+
+{% if erro %}<div class="aviso-caixa erro" role="alert">{{ erro }}</div>{% endif %}
+
+<section>
+  <form method="post" action="{{ '/alertas/regras/' ~ rule.id if rule else '/alertas/regras' }}">
+    <p class="linha">
+      <label>Nome <input name="nome" required maxlength="120" size="40" value="{{ rule.name if rule else '' }}" placeholder="Ex.: Pedido da diretoria sem dono"></label>
+      <label>Empresa {{ m.combo_empresa(empresas_todas, rule.company_id if rule else none, obrigatoria=false, todas=true, rotulo="Empresa da regra") }}</label>
+    </p>
+
+    <h3>Tipos de fato {{ m.dica("Nenhum marcado = todos os tipos.") }}</h3>
+    <p class="linha" style="flex-wrap: wrap">
+      {% for k, rotulo in tipos.items() %}
+        <label><input type="checkbox" name="tipos" value="{{ k.value }}" {{ 'checked' if rule and k.value in rule.fact_kinds }}> {{ rotulo }}</label>
+      {% endfor %}
+    </p>
+
+    <h3>Quem disse {{ m.dica("Liderança na empresa é a marca na Pessoa (Cadastros → Pessoas). Liderança no projeto é a marca na equipe do projeto do fato (Cadastros → projeto → Equipe). Quem disse precisa ter sido reconhecido: remetente do e-mail cadastrado, ou fala ligada à Pessoa.") }}</h3>
+    <p class="linha">
+      <select name="lideranca" aria-label="Que liderança conta">
+        {% for v, rotulo in liderancas.items() %}<option value="{{ v }}" {{ 'selected' if (rule.leadership if rule else 'qualquer') == v }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </p>
+
+    <h3>Responsável {{ m.dica("“O responsável sou eu”: a Pessoa responsável tem o seu e-mail (o login do Tailscale ou a conta Google conectada na Empresa). Cadastre-se como Pessoa em cada Empresa para esta opção funcionar.") }}</h3>
+    <p class="linha">
+      <select name="responsavel" aria-label="Condição do responsável">
+        {% for v, rotulo in responsaveis.items() %}<option value="{{ v }}" {{ 'selected' if (rule.owner_rule if rule else 'qualquer') == v }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </p>
+
+    <h3>Prazo {{ m.dica("Vazio = o prazo não importa. Um número N = só fatos com prazo em até N dias a partir de hoje, incluindo os já vencidos. 0 = vence hoje ou já venceu.") }}</h3>
+    <p class="linha">
+      <label>Em até <input name="prazo" inputmode="numeric" pattern="[0-9]*" size="4" maxlength="2" value="{{ rule.due_within_days if rule and rule.due_within_days is not none else '' }}"> dia(s) (de 0 a {{ max_dias }})</label>
+    </p>
+
+    <h3>Peso</h3>
+    <p class="linha">
+      <select name="peso" aria-label="Peso do alerta">
+        {% for v, rotulo in pesos.items() %}<option value="{{ v }}" {{ 'selected' if (rule.severity if rule else 'media') == v }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+      <label><input type="checkbox" name="ativa" value="1" {{ 'checked' if not rule or rule.active }}> Ligada</label>
+    </p>
+
+    <p class="linha"><button type="submit">Gravar regra</button></p>
+  </form>
+</section>
+
+{% if rule %}
+<section>
+  {{ m.titulo("Apagar", "Apaga a regra e todos os alertas dela. Para só parar de receber, desligue a regra.") }}
+  <form method="post" action="/alertas/regras/{{ rule.id }}/apagar">
+    <button class="perigo" type="submit">Apagar regra e alertas</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

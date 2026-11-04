@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Alertas · Kleverson A.I.{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Alertas {{ m.dica("Tarefas, decisões, riscos e prazos ditos por lideranças (marcadas em Cadastros: liderança na empresa, na Pessoa; liderança no projeto, na equipe). Cada alerta nasce de uma regra lá embaixo. Só entram fatos com o trecho conferido e com quem disse reconhecido: um alerta com a pessoa errada é pior que nenhum. O coletor aplica as regras a cada 5 minutos, sem custo de IA.") }}</h1>
+    <div class="sub">O que as lideranças pediram, decidiram ou apontaram, com a prova no texto.</div>
+  </div>
+  <form class="acoes linha" method="get" action="/alertas">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <label>Situação
+      <select name="situacao" aria-label="Situação dos alertas" onchange="this.form.submit()">
+        {% for v, rotulo in vistas.items() %}<option value="{{ v }}" {{ 'selected' if v == situacao }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if regra %}<input type="hidden" name="regra" value="{{ regra }}">{% endif %}
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
+</div>
+
+<div class="kpis" style="margin-bottom: 16px">
+  <a class="kpi {{ 'alerta' if resumo.por_situacao.novo }}" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}situacao=novo">
+    <div class="rotulo-kpi">Novos</div>
+    <div class="valor">{{ resumo.por_situacao.novo }}</div>
+    <div class="detalhe">{{ resumo.alta }} de peso alto</div>
+  </a>
+  <a class="kpi" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}situacao=visto">
+    <div class="rotulo-kpi">Vistos</div>
+    <div class="valor">{{ resumo.por_situacao.visto }}</div>
+    <div class="detalhe">lidos, ainda sem solução</div>
+  </a>
+  <a class="kpi" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}situacao=resolvido">
+    <div class="rotulo-kpi">Resolvidos</div>
+    <div class="valor">{{ resumo.por_situacao.resolvido }}</div>
+    <div class="detalhe">o fato foi fechado junto</div>
+  </a>
+  <a class="kpi" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}situacao=descartado">
+    <div class="rotulo-kpi">Descartados</div>
+    <div class="valor">{{ resumo.por_situacao.descartado }}</div>
+    <div class="detalhe">não procediam</div>
+  </a>
+</div>
+
+<section>
+  {{ m.titulo("Lista", "Até 200 alertas, os novos e de peso alto primeiro, um fato por linha (quando duas regras disparam para o mesmo fato, a outra aparece em “também”, e os botões valem para as duas). “Resolvido” fecha a tarefa, o prazo ou o risco (as outras regras param de avisar sobre ele). “Descartar” serve para o que não procede, por exemplo quem disse reconhecido errado: corrija a Pessoa em Cadastros.") }}
+  {% if regra %}<p class="muted pequeno">Só a regra escolhida. <a href="/alertas{% if empresa is not none %}?empresa={{ empresa }}{% endif %}">Ver todas</a></p>{% endif %}
+  {% if alertas %}
+    <div class="tabela"><table>
+      <tr><th>Peso</th><th>Alerta</th><th>Quem disse</th><th>Projeto</th><th>Responsável</th><th>Prazo</th><th>Origem</th><th>Situação</th></tr>
+      {% for (a, r, f, item, projeto_f, quem, dono), outras in alertas %}
+        <tr>
+          <td><span class="{{ 'erro' if a.severity == 'alta' else ('aviso' if a.severity == 'media' else 'muted') }}">{{ pesos.get(a.severity, a.severity) }}</span></td>
+          <td><strong>{{ r.name }}</strong> · {{ tipos.get(f.kind, f.kind) }}
+            {% if outras %}<div class="muted pequeno">também: {{ outras | join(", ") }}</div>{% endif %}
+            <div>{{ f.title }}</div>
+            <div class="muted">“{{ f.source_quote }}”</div>
+            <div class="muted pequeno">desde {{ a.created_at | local("%d/%m %H:%M") }}</div>
+          </td>
+          <td>{{ porque(a, quem) }}</td>
+          <td>{{ projeto_f.name if projeto_f else "—" }}</td>
+          <td>{% if dono %}{{ dono.name }}{% elif f.owner_text %}{{ f.owner_text }} <span class="muted">(não cadastrada)</span>{% else %}<span class="muted">ninguém</span>{% endif %}</td>
+          <td>{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}</td>
+          <td><a href="/conteudo/{{ item.id }}">{{ labels.get(item.source, item.source) }}</a><div class="muted">{{ item.subject or "(sem assunto)" }}</div><div class="muted pequeno">{{ item.occurred_at | local("%d/%m %H:%M") }}</div></td>
+          <td>
+            <div>{{ situacoes.get(a.status, a.status) }}</div>
+            <form class="linha" style="margin:0; flex-wrap: wrap; gap: 2px" method="post" action="/alertas/{{ a.id }}/situacao">
+              <input type="hidden" name="volta" value="{{ aqui }}">
+              {% if a.status == "novo" %}<button class="mini" type="submit" name="situacao" value="visto">Visto</button>{% endif %}
+              {% if a.status in ("novo", "visto") %}
+                <button class="mini" type="submit" name="situacao" value="resolvido">Resolvido</button>
+                <button class="mini secundario" type="submit" name="situacao" value="descartado">Descartar</button>
+              {% else %}
+                <button class="mini secundario" type="submit" name="situacao" value="novo">Reabrir</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhum alerta nestes filtros.</p>
+  {% endif %}
+</section>
+
+<section id="regras">
+  {{ m.titulo("Regras", "Cada regra é um filtro sobre os fatos: tipos, que liderança disse, condição do responsável e prazo. Regra nova ou editada olha os itens dos últimos " ~ janela ~ " dias (ALERTS_LOOKBACK_DAYS); as de prazo olham a data do prazo. Desligar não apaga os alertas já criados; apagar, sim.") }}
+  <div class="tabela"><table>
+    <tr><th>Regra</th><th>Filtro</th><th>Empresa</th><th>Peso</th><th>Abertos</th><th></th></tr>
+    {% for r, abertos in regras %}
+      <tr class="{{ 'muted' if not r.active }}">
+        <td><a href="/alertas/regras/{{ r.id }}">{{ r.name }}</a>{% if not r.active %} <span class="tag herdada">desligada</span>{% endif %}</td>
+        <td>{{ descrever(r) }}</td>
+        <td>{{ nomes_empresa.get(r.company_id, "") if r.company_id else "Todas" }}</td>
+        <td>{{ pesos.get(r.severity, r.severity) }}</td>
+        <td><a href="/alertas?regra={{ r.id }}{% if empresa is not none %}&amp;empresa={{ empresa }}{% endif %}">{{ abertos }}</a></td>
+        <td><a class="botao" href="/alertas/regras/{{ r.id }}">Editar</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Nenhuma regra. Sem regra, nenhum alerta nasce.</td></tr>
+    {% endfor %}
+  </table></div>
+  <p><a class="botao primario" href="/alertas/regras/nova">Nova regra</a></p>
+</section>
+{% endblock %}

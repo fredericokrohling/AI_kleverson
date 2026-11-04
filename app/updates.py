@@ -29,7 +29,7 @@ from app.config import Settings
 from app.health import has_problem
 
 # Tabelas consultadas.
-from app.models import Attachment, AuditLog, BronzeItem, DriveItem, IngestionRun
+from app.models import Alert, Attachment, AuditLog, BronzeItem, DriveItem, IngestionRun
 
 # Intervalo entre as perguntas do navegador, em segundos.
 REFRESH_SECONDS = 30
@@ -60,6 +60,8 @@ def stamp(session: Session, settings: Settings) -> str:
         session.scalar(select(func.extract("epoch", func.max(IngestionRun.finished_at)))),
         # Coração vermelho (1) ou normal (0).
         int(has_problem(session, settings)),
+        # Último alerta criado (o número do menu se atualiza sozinho).
+        session.scalar(select(func.max(Alert.id))),
     ]
     # Junta com "-" (ex.: "120-45-30-2-0-1761900000-0").
     return "-".join(str(int(p or 0)) for p in parts)

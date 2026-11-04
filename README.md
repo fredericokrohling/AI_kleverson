@@ -51,6 +51,7 @@ Siga na ordem:
 15. [Classificação de cada item por projeto](docs/setup/15-classificacao.md)
 16. [Reuniões: uma linha por reunião, com data, participantes e as transcrições dela](docs/setup/16-reunioes.md)
 17. [Extração de fatos com trecho conferido](docs/setup/17-fatos.md)
+18. [Alertas de liderança](docs/setup/18-alertas.md)
 
 ## Desenvolvimento local
 
@@ -76,6 +77,7 @@ app/
   llm.py           camada única de acesso ao Claude, com custo e teto
   classification.py classificação de cada item por projeto (regras, depois Claude)
   facts.py         extração de fatos (tarefa, decisão, risco...) com trecho conferido
+  alerts.py        alertas sobre o que lideranças pediram, decidiram ou apontaram
   google_auth.py   login Google e tokens criptografados
   security.py      criptografia e controle de acesso pelo Tailscale
   main.py          console web (FastAPI + HTMX)
@@ -95,7 +97,7 @@ docs/aprendizado/  por que cada escolha foi feita
 | 0. Fundação | Em operação |
 | 1. Teste de transcrição em tempo real | Em operação; avaliação de qualidade pendente |
 | 2. E-mail para bronze | Código pronto; falta instalar e importar um mês |
-| 3. Silver: classificação e extração | Classificação e extração de fatos prontas; alertas de liderança a desenhar |
+| 3. Silver: classificação e extração | Classificação, extração de fatos e alertas de liderança prontos |
 | 4. Console: cadastro, fila, fatos, busca | A fazer |
 | 5. Ações: rascunhos, agenda, briefing | A fazer |
 | 6. Transcrição em produção | A fazer |
