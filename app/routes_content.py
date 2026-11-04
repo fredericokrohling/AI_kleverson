@@ -50,6 +50,10 @@ from app.companies import filter_id, move_item, parse_company
 # Configuração (fuso do console).
 from app.config import get_settings
 
+# Fatos extraídos do item (tarefa, decisão, risco...) e o registro da extração.
+from app.facts import KIND_LABELS
+from app.facts import of_item as facts_of_item
+
 # Resumo da coleta de e-mail.
 from app.ingestion.gmail import collection_overview
 
@@ -462,6 +466,10 @@ def content_item(request: Request, owner: Owner, db: DB, item_id: int):
             "projetos_empresa": list(active_projects(db, item.company_id).values()),
             # Nome de cada método da classificação.
             "metodos": METHOD_LABELS,
+            # Fatos do item e o registro da extração (lido, quando, quantos conferidos).
+            "fatos": facts_of_item(db, item.id),
+            # Nome de cada tipo de fato.
+            "tipos_fato": KIND_LABELS,
             # Reunião da transcrição: data, horário, organizador.
             "reuniao": reuniao,
             # Participantes dela, com a Pessoa de cada um.

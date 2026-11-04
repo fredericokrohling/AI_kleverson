@@ -35,6 +35,7 @@ from app.models import (
     BronzeItem,
     Company,
     Fact,
+    FactExtraction,
     ItemClassification,
     LiveMeeting,
     MeetingParticipant,
@@ -267,6 +268,8 @@ def move_item(session: Session, item: BronzeItem, company: Company, actor: str) 
     session.execute(delete(ItemClassification).where(ItemClassification.bronze_item_id == item.id))
     # Fatos extraídos desta transcrição.
     session.execute(delete(Fact).where(Fact.source_item_id == item.id))
+    # Registro da extração: os fatos são lidos de novo, com as Pessoas da Empresa nova.
+    session.execute(delete(FactExtraction).where(FactExtraction.bronze_item_id == item.id))
     # A Empresa nova.
     item.company_id = company.id
     # Reunião ao vivo que gerou esta transcrição, se houver.

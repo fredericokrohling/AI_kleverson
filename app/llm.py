@@ -159,6 +159,9 @@ class LLMClient:
         effort: str | None = None,
         # Modelo para esta chamada. None = o escolhido no console.
         model: str | None = None,
+        # Esquema JSON da resposta (saída estruturada). Com ele, a API garante que a
+        # resposta é um JSON válido nesse formato; None = texto livre.
+        json_schema: dict | None = None,
     ) -> LLMResult:
         """Uma pergunta, uma resposta em texto. `purpose` identifica a chamada no log."""
         # Teto mensal configurado.
@@ -196,6 +199,10 @@ class LLMClient:
         if system:
             # Adiciona a chave "system" ao dicionário.
             params["system"] = system
+        # Saída estruturada: o formato vai junto do esforço, em output_config.
+        if json_schema:
+            # "json_schema" é o tipo de formato que a API aceita para um esquema próprio.
+            params["output_config"]["format"] = {"type": "json_schema", "schema": json_schema}
         # Liga o fallback do servidor apenas nos modelos que o aceitam.
         if model in _SERVER_FALLBACK_MODELS:
             # Pede o recurso beta.
