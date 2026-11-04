@@ -99,6 +99,16 @@ class Settings(BaseSettings):
     # Quantos caracteres do texto do item vão ao Claude (o começo é o que mais diz).
     classify_max_chars: int = 4000
 
+    # Extração de fatos (bloco 3, app/facts.py): tarefa, decisão, risco, prazo...
+    # Modelo. Haiku: cada fato vem com o trecho literal conferido pelo código, o que pega
+    # o fato inventado; e ele cabe no teto de US$ 10 (o Sonnet, não). Ver o guia 16.
+    facts_model: str = "claude-haiku-5-5"
+    # Quantos itens o coletor manda ao Claude por rodada (uma rodada a cada 5 minutos).
+    facts_llm_per_run: int = 20
+    # Máximo de caracteres lidos de um item (cerca de 15 mil tokens, uma reunião de
+    # 1h30). Acima disso o texto é cortado e o corte fica registrado na extração.
+    facts_max_chars: int = 60000
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.

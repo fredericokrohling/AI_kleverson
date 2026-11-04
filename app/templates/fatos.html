@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Fatos · Kleverson A.I.{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Fatos {{ m.dica("Tarefas, decisões, riscos, problemas, premissas, dependências, prazos e definições que o Claude achou nos e-mails, transcrições e arquivos do Drive. Cada fato traz o trecho literal do texto, e o código procura esse trecho no original: achou, o fato é “conferido”; não achou, é “suspeito”. A cada 5 minutos o coletor lê os itens que já têm projeto.") }}</h1>
+    <div class="sub">O que foi pedido, decidido e combinado, com a prova no texto.</div>
+  </div>
+  <form class="acoes linha" method="get" action="/fatos">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <label>Projeto
+      <select name="projeto" aria-label="Projeto mostrado" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for p in projetos %}<option value="{{ p.id }}" {{ 'selected' if p.id == projeto }}>{{ p.name }}{% if empresa is none %} · {{ nomes_empresa.get(p.company_id, "") }}{% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Tipo
+      <select name="tipo" aria-label="Tipo de fato" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        {% for k, rotulo in tipos.items() %}<option value="{{ k.value }}" {{ 'selected' if k == tipo }}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="linha"><input type="checkbox" name="suspeitos" value="1" {{ 'checked' if suspeitos }} onchange="this.form.submit()"> só suspeitos</label>
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
+</div>
+
+<div class="kpis" style="margin-bottom: 16px">
+  <div class="kpi">
+    <div class="rotulo-kpi">Fatos</div>
+    <div class="valor">{{ resumo.total }}</div>
+    <div class="detalhe">{% if resumo.conferidos_pct is not none %}{{ resumo.conferidos_pct }}% com trecho conferido{% else %}nenhum ainda{% endif %}</div>
+  </div>
+  <a class="kpi {{ 'alerta' if resumo.suspeitos }}" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}suspeitos=1">
+    <div class="rotulo-kpi">Suspeitos</div>
+    <div class="valor">{{ resumo.suspeitos }}</div>
+    <div class="detalhe">trecho não achado no texto</div>
+  </a>
+  <div class="kpi">
+    <div class="rotulo-kpi">Itens lidos</div>
+    <div class="valor">{{ resumo.lidos }}</div>
+    <div class="detalhe">{% if resumo.problemas %}{{ resumo.problemas }} com recusa ou resposta ilegível{% else %}e-mails, reuniões e arquivos{% endif %}</div>
+  </div>
+  <div class="kpi">
+    <div class="rotulo-kpi">Esperando</div>
+    <div class="valor">{{ resumo.esperando }}</div>
+    <div class="detalhe">com projeto, ainda não lidos</div>
+  </div>
+  <div class="kpi">
+    <div class="rotulo-kpi">Custo no mês</div>
+    <div class="valor">US$ {{ "%.2f" | format(resumo.custo_mes) }}</div>
+    <div class="detalhe">Claude, só fatos</div>
+  </div>
+</div>
+
+<section>
+  {{ m.titulo("Por tipo", "Quantos fatos de cada tipo, nos filtros de Empresa escolhidos. Clique num tipo para ver só ele.") }}
+  <div class="linha" style="flex-wrap: wrap; gap: 6px">
+    {% for k, rotulo, n in resumo.por_tipo %}
+      <a class="tag" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}tipo={{ k.value }}">{{ rotulo }} · {{ n }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  {{ m.titulo("Lista", "Os 200 mais recentes nos filtros escolhidos. “Suspeito” não quer dizer errado: o Claude pode ter mudado uma palavra do trecho. Abra o item para conferir no texto original; “Extrair de novo” fica na página do item.") }}
+  {% if fatos %}
+    <div class="tabela"><table>
+      <tr><th>Data</th><th>Tipo</th><th>Fato</th><th>Projeto</th><th>Responsável</th><th>Prazo</th><th>Quem disse</th><th>Origem</th></tr>
+      {% for f, item, projeto_f, dono, quem in fatos %}
+        <tr>
+          <td>{{ item.occurred_at | local("%d/%m %H:%M") }}</td>
+          <td>{{ tipos.get(f.kind, f.kind) }}</td>
+          <td>{{ f.title }}
+            <div class="muted">“{{ f.source_quote }}”</div>
+            <div class="{{ 'ok' if f.quote_verified else 'aviso' }}">{{ "trecho conferido" if f.quote_verified else "suspeito" }}</div>
+          </td>
+          <td>{{ projeto_f.name if projeto_f else "—" }}</td>
+          <td>{% if dono %}{{ dono.name }}{% elif f.owner_text %}{{ f.owner_text }} <span class="muted">(não cadastrada)</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}</td>
+          <td>{% if quem %}{{ quem.name }}{% if quem.is_leader %} <span class="tag">liderança</span>{% endif %}{% elif f.said_by_text %}<span class="muted">{{ f.said_by_text }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td><a href="/conteudo/{{ item.id }}">{{ labels.get(item.source, item.source) }}</a><div class="muted">{{ item.subject or "(sem assunto)" }}</div></td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhum fato nestes filtros.</p>
+  {% endif %}
+</section>
+{% endblock %}

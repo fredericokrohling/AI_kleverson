@@ -70,6 +70,9 @@ from app.routes_content import router as content_router
 # Pastas do Drive monitoradas (em Cadastros) e a navegação pelas pastas.
 from app.routes_drive import router as drive_router
 
+# Página Fatos e "Extrair de novo" (bloco 3).
+from app.routes_facts import router as facts_router
+
 # Botões "Tentar de novo" dos arquivos sem texto.
 from app.routes_failures import router as failures_router
 
@@ -124,6 +127,8 @@ app.include_router(transcription_router)
 app.include_router(registry_router)
 # Rotas da página Classificação e do projeto de cada item.
 app.include_router(classification_router)
+# Fatos.
+app.include_router(facts_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.

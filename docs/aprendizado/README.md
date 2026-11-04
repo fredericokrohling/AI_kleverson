@@ -21,6 +21,7 @@ consideradas e onde ela aparece no código.
 13. [Uso do servidor: disco por projeto e gargalos de processador e memória](13-uso-do-servidor.md)
 14. [Classificação por projeto: regras primeiro, Claude só no que sobrar](14-classificacao.md)
 15. [Reuniões: a reunião como uma coisa só, acima das transcrições](15-reunioes.md)
+16. [Extração de fatos: o Claude lê, o código confere](16-fatos.md)
 
 ## Como ler o código
 
@@ -48,7 +49,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 10. `app/people.py`, `app/project_tags.py` e `app/projects.py`: quem falou, tags e cadastros.
 11. `app/companies.py`: as Empresas e a correção de Empresa de uma transcrição.
 12. `app/classification.py`: a classificação de cada item por projeto (bloco 3).
-13. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+13. `app/facts.py`: a extração de fatos com o trecho conferido (bloco 3).
+14. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 

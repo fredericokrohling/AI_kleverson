@@ -671,6 +671,44 @@ class Fact(Timestamped, Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     # Um fato corrigido não é apagado: aponta para o fato que o substituiu.
     superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("facts.id"))
+    # Pessoa que disse ou escreveu o trecho (remetente do e-mail, quem falou na reunião).
+    # É a base dos alertas sobre o que lideranças pediram ou decidiram.
+    said_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stakeholders.id", ondelete="SET NULL"), index=True
+    )
+    # Quem disse, como apareceu ("Falante 2", "ana@cliente.com"), cadastrada ou não.
+    said_by_text: Mapped[str | None] = mapped_column(String(200))
+    # Responsável como está escrito no texto ("o João"), mesmo sem Pessoa cadastrada.
+    owner_text: Mapped[str | None] = mapped_column(String(200))
+
+
+# Registro de que um item já foi lido pela extração de fatos, com ou sem fatos.
+class FactExtraction(Base):
+    """Sem este registro, um item sem fato nenhum voltaria ao Claude a cada rodada."""
+
+    # Nome da tabela no banco.
+    __tablename__ = "fact_extractions"
+
+    # O item lido; é a chave primária (um item, um registro).
+    bronze_item_id: Mapped[int] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Quando foi lido.
+    extracted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Resultado: "ok", "sem_texto" (nada a ler), "recusa" ou "ilegivel" (resposta sem JSON).
+    status: Mapped[str] = mapped_column(String(20))
+    # Modelo que leu (vazio quando não houve chamada).
+    model: Mapped[str | None] = mapped_column(String(100))
+    # Quantos fatos o Claude devolveu.
+    facts_found: Mapped[int] = mapped_column(Integer, server_default="0")
+    # Quantos tiveram o trecho conferido pelo código.
+    facts_verified: Mapped[int] = mapped_column(Integer, server_default="0")
+    # True quando o texto foi cortado no limite (FACTS_MAX_CHARS).
+    truncated: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Observação (motivo da recusa, erro na resposta).
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 # --- Sugestões da IA ----------------------------------------------------------

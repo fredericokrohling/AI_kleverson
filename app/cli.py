@@ -360,9 +360,63 @@ def cmd_classificar(args: argparse.Namespace) -> None:
     print(total.describe())
 
 
+# Extrai os fatos (tarefa, decisão, risco...) do que estiver pendente (o coletor também faz).
+def cmd_extrair_fatos(args: argparse.Namespace) -> None:
+    """Extrai tarefas, decisões, riscos e prazos dos itens com projeto, com trecho conferido."""
+    # Rodada, limpeza e resumo.
+    from app.facts import ExtractSummary, reset, run_pending
+
+    # Cliente do Claude e gasto do mês.
+    from app.llm import LLMClient, month_spend_usd
+
+    # Configuração.
+    settings = get_settings()
+    # Fábrica de sessões.
+    sessions = get_sessionmaker()
+    # --refazer: apaga os fatos e os registros antes (todos os itens são lidos de novo).
+    if args.refazer:
+        # Uma sessão.
+        with sessions() as session:
+            # Apaga.
+            removed = reset(session)
+            # Grava.
+            session.commit()
+        # Mostra.
+        print(f"{removed} item(ns) voltaram para a fila; lendo de novo.")
+    # Teto do mês.
+    with sessions() as session:
+        # Já atingido?
+        over = month_spend_usd(session) >= settings.llm_monthly_budget_usd
+    # Cliente do Claude (sem chave ou com teto: nada é lido).
+    llm = LLMClient(sessions, settings) if settings.anthropic_api_key and not over else None
+    # Totais de todas as rodadas.
+    total = ExtractSummary()
+    # Rodadas até não sobrar nada que o Claude possa ler agora.
+    while True:
+        # Uma rodada (até FACTS_LLM_PER_RUN itens).
+        summary = run_pending(sessions, settings, llm)
+        # Soma os itens lidos.
+        total.items += summary.items
+        # Os fatos.
+        total.facts += summary.facts
+        # Os conferidos.
+        total.verified += summary.verified
+        # Os registrados sem chamada.
+        total.skipped += summary.skipped
+        # O teto bateu em alguma rodada.
+        total.budget_hit = total.budget_hit or summary.budget_hit
+        # O que ficou esperando nesta rodada.
+        total.waiting = summary.waiting
+        # Para quando nada novo foi lido (fila vazia, sem chave ou teto).
+        if summary.items + summary.skipped == 0 or summary.budget_hit:
+            break
+    # Mostra.
+    print(total.describe())
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, Drive, leitura e classificação pelo Claude, saúde e servidor."""
+    """Roda sem parar: Gmail, Drive, leitura, classificação e fatos, saúde e servidor."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -374,6 +428,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
 
     # Rodada de classificação por projeto (bloco 3).
     from app.classification import run_from_settings as run_classify
+
+    # Rodada de extração de fatos (bloco 3).
+    from app.facts import run_from_settings as run_facts
 
     # Testes de saúde.
     from app.health import run_checks
@@ -405,6 +462,7 @@ def cmd_agendador(_: argparse.Namespace) -> None:
         "drive_falha": None,
         "visao": None,
         "classificacao": None,
+        "fatos": None,
         "saude": None,
     }
 
@@ -471,6 +529,13 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             last["classificacao"] = now
             # Classifica.
             safe("Classificação por projeto", lambda: run_classify(settings))
+        # Extração de fatos a cada 5 minutos, depois da classificação (só lê itens que já
+        # têm projeto). Sem nada pendente, não faz nada nem escreve no log.
+        if due("fatos", 5, now):
+            # Marca.
+            last["fatos"] = now
+            # Extrai.
+            safe("Extração de fatos", lambda: run_facts(settings))
         # Saúde a cada HEALTH_POLL_MINUTES.
         if due("saude", settings.health_poll_minutes, now):
             # Marca.
@@ -507,6 +572,8 @@ COMMANDS = {
     "reaplicar-tags": cmd_reaplicar_tags,
     # python -m app.cli classificar [--refazer]
     "classificar": cmd_classificar,
+    # python -m app.cli extrair-fatos [--refazer]
+    "extrair-fatos": cmd_extrair_fatos,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
@@ -539,6 +606,14 @@ def main(argv: list[str] | None = None) -> int:
                 "--refazer",
                 action="store_true",
                 help="refaz as decisões automáticas (as suas ficam)",
+            )
+        # Opção do extrair-fatos: apaga os fatos e lê tudo de novo.
+        if name == "extrair-fatos":
+            # Custa de novo: cada item volta a ir ao Claude.
+            command.add_argument(
+                "--refazer",
+                action="store_true",
+                help="apaga os fatos e lê todos os itens de novo (custa de novo)",
             )
     # Lê o que foi digitado.
     args = parser.parse_args(argv)

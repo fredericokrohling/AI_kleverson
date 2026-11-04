@@ -95,6 +95,42 @@
       </form>
     {% endif %}
   </div>
+  {# Fatos extraídos pelo Claude, com o trecho conferido pelo código (app/facts.py). #}
+  {% set lista_fatos, extracao = fatos %}
+  <h2 style="margin-top: 18px">Fatos {{ m.dica("Tarefas, decisões, riscos, problemas, premissas, dependências, prazos e definições que o Claude achou no texto. Cada fato traz o trecho literal do texto; o código procura esse trecho no original. Achou: “trecho conferido”. Não achou: “suspeito”, porque o Claude pode ter reescrito ou inventado. Só itens com projeto (e fora da fila A revisar) são lidos.") }}</h2>
+  {% if extracao %}
+    <p class="muted">
+      Lido em {{ extracao.extracted_at | local("%d/%m %H:%M") }}{% if extracao.model %} · {{ extracao.model }}{% endif %}
+      {% if extracao.status == "ok" %} · {{ lista_fatos | length }} fato(s), {{ extracao.facts_verified }} com trecho conferido{% if extracao.truncated %} · <span class="aviso">texto cortado no limite</span>{% endif %}
+      {% elif extracao.status == "sem_texto" %} · sem texto para ler
+      {% elif extracao.status == "duplicada" %} · {{ extracao.note }}
+      {% else %} · <span class="erro">{{ extracao.note }}</span>{% endif %}
+    </p>
+    {% if lista_fatos %}
+      <div class="tabela"><table>
+        <tr><th>Tipo</th><th>Fato</th><th>Responsável</th><th>Prazo</th><th>Quem disse</th><th>Trecho</th></tr>
+        {% for f, dono, quem in lista_fatos %}
+          <tr>
+            <td>{{ tipos_fato.get(f.kind, f.kind) }}</td>
+            <td>{{ f.title }}{% if f.description %}<div class="muted">{{ f.description }}</div>{% endif %}</td>
+            <td>{% if dono %}<a href="/cadastros/pessoas/{{ dono.id }}">{{ dono.name }}</a>{% elif f.owner_text %}{{ f.owner_text }} <span class="muted">(não cadastrada)</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}</td>
+            <td>{% if quem %}{{ quem.name }}{% if quem.is_leader %} <span class="tag">liderança</span>{% endif %}{% elif f.said_by_text %}<span class="muted">{{ f.said_by_text }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>“{{ f.source_quote }}”<div class="{{ 'ok' if f.quote_verified else 'aviso' }}">{{ "trecho conferido" if f.quote_verified else "suspeito: trecho não achado no texto" }}</div></td>
+          </tr>
+        {% endfor %}
+      </table></div>
+    {% endif %}
+    <form class="linha" method="post" action="/conteudo/{{ item.id }}/fatos/refazer"
+          onsubmit='return confirm("Apagar os fatos deste item e ler de novo pelo Claude? Custa uma chamada nova.")'>
+      <button class="mini secundario" type="submit">Extrair de novo</button>
+      {{ m.dica("Apaga os fatos deste item; o coletor lê de novo em até 5 minutos. Útil depois de cadastrar pessoas ou corrigir o projeto.") }}
+    </form>
+  {% elif cl and cl.project_id and not cl.needs_review %}
+    <p class="muted">Ainda não lido: o coletor extrai os fatos em até 5 minutos.</p>
+  {% else %}
+    <p class="muted">Os fatos são extraídos depois que o item tem projeto (e sai da fila A revisar).</p>
+  {% endif %}
   {% if speakers %}
     <h2 style="margin-top: 18px">Quem falou</h2>
     <div class="tabela"><table>
