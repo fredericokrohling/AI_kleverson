@@ -78,7 +78,8 @@
           </td>
           <td>{{ projeto_f.name if projeto_f else "—" }}</td>
           <td>{% if dono %}{{ dono.name }}{% elif f.owner_text %}{{ f.owner_text }} <span class="muted">(não cadastrada)</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-          <td>{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}</td>
+          <td style="white-space:nowrap">{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}
+            {% if f.due_date and f.quote_verified and f.status != "concluido" %}<div>{{ m.botao_agenda(f.id, na_agenda, aqui) }}</div>{% endif %}</td>
           <td>{% if quem %}{{ quem.name }}{% if quem.is_leader %} <span class="tag">liderança</span>{% endif %}{% elif f.said_by_text %}<span class="muted">{{ f.said_by_text }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td><a href="/conteudo/{{ item.id }}">{{ labels.get(item.source, item.source) }}</a><div class="muted">{{ item.subject or "(sem assunto)" }}</div></td>
         </tr>

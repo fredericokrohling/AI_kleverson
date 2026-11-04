@@ -82,6 +82,9 @@ from app.routes_content import router as content_router
 # Pastas do Drive monitoradas (em Cadastros) e a navegação pelas pastas.
 from app.routes_drive import router as drive_router
 
+# Página Na agenda e os botões "Pôr na agenda" (bloco 5).
+from app.routes_events import router as events_router
+
 # Página Fatos e "Extrair de novo" (bloco 3).
 from app.routes_facts import router as facts_router
 
@@ -145,6 +148,8 @@ app.include_router(facts_router)
 app.include_router(alerts_router)
 # Briefing diário.
 app.include_router(briefing_router)
+# Eventos que o assistente pôs na agenda.
+app.include_router(events_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.

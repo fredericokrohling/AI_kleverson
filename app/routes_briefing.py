@@ -28,6 +28,9 @@ from app.alerts import today_local
 # Montagem, consulta e leitura dos briefings.
 from app.briefing import generate, mark_viewed, neighbor_days, of_day
 
+# Eventos já criados na agenda (para o botão "Pôr na agenda" de cada prazo).
+from app.calendar_events import active_by_fact
+
 # Filtro de Empresa vindo da URL e a lista das Empresas.
 from app.companies import filter_id, list_companies
 
@@ -89,6 +92,14 @@ def briefing_page(
         for c in list_companies(db)
         if c.id not in with_briefing and (company_id is None or c.id == company_id)
     ]
+    # Fatos dos prazos de todos os briefings mostrados (para os botões "Pôr na agenda").
+    deadline_facts = {
+        p["fato_id"]
+        for b in briefings
+        for group in b.sections["prazos"].values()
+        for p in group
+        if p.get("fato_id")
+    }
     # Página.
     return templates.TemplateResponse(
         request,
@@ -107,6 +118,10 @@ def briefing_page(
             "seguinte": after,
             # Os briefings do dia.
             "briefings": briefings,
+            # Fato → evento já criado na agenda.
+            "na_agenda": active_by_fact(db, deadline_facts),
+            # Endereço atual (o botão "Pôr na agenda" volta para cá).
+            "aqui": str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""),
             # Empresas sem o briefing do dia.
             "faltando": missing,
             # Hora em que o coletor monta.

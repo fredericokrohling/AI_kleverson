@@ -22,6 +22,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 # Consulta dos projetos para o filtro.
 from sqlalchemy import select
 
+# Eventos já criados na agenda (o botão "Pôr na agenda" vira "na agenda ✓").
+from app.calendar_events import active_by_fact
+
 # Filtro de Empresa vindo da URL.
 from app.companies import filter_id
 
@@ -67,6 +70,8 @@ def facts_page(
     # Só os da Empresa.
     if company_id is not None:
         query = query.where(Project.company_id == company_id)
+    # Lista (até 200, mais recentes primeiro).
+    facts = list_facts(db, company_id, project_id, kind, suspeitos == "1")
     # Página.
     return templates.TemplateResponse(
         request,
@@ -83,8 +88,12 @@ def facts_page(
             "suspeitos": suspeitos == "1",
             # Números.
             "resumo": overview(db, company_id),
-            # Lista (até 200, mais recentes primeiro).
-            "fatos": list_facts(db, company_id, project_id, kind, suspeitos == "1"),
+            # Lista.
+            "fatos": facts,
+            # Fato → evento já criado na agenda.
+            "na_agenda": active_by_fact(db, {row[0].id for row in facts}),
+            # Endereço atual (o botão "Pôr na agenda" volta para cá, com os filtros).
+            "aqui": str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""),
             # Projetos do combo.
             "projetos": db.scalars(query).all(),
             # Nome de cada tipo.

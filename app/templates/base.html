@@ -386,6 +386,10 @@
         <span class="rotulo">Alertas</span>
         {% if alertas_novos %}<span class="contador" aria-label="{{ alertas_novos }} alerta(s) novo(s)">{{ alertas_novos if alertas_novos < 100 else "99+" }}</span>{% endif %}
       </a>
+      <a href="/eventos" title="Na agenda: os prazos que o assistente pôs na sua agenda do Google, e como tirar" class="{{ 'ativo' if menu == 'eventos' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8.5 3v4M15.5 3v4"/><path d="m9 15 2 2 4-4"/></svg>
+        <span class="rotulo">Na agenda</span>
+      </a>
 
       <div class="menu-grupo">Organização</div>
       <a href="/cadastros" title="Cadastros: projetos, pessoas e tags" class="{{ 'ativo' if menu == 'cadastros' }}">

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Na agenda · Kleverson A.I.{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Na agenda {{ m.dica("Os prazos que você pôs na agenda do Google pelo botão “Pôr na agenda” (em Fatos, Briefing e Alertas). Cada um vira um evento de dia inteiro na agenda da conta Google da Empresa, sem convidados (ninguém recebe aviso), livre (não bloqueia horário), privado e com uma marca invisível do assistente. O assistente nunca cria evento sozinho e só apaga evento que tenha a marca.") }}</h1>
+    <div class="sub">O que o assistente escreveu na sua agenda, e como tirar.</div>
+  </div>
+  <form class="acoes linha" method="get" action="/eventos">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <label class="linha"><input type="checkbox" name="apagados" value="1" {{ 'checked' if com_apagados }} onchange="this.form.submit()"> mostrar apagados</label>
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
+</div>
+
+<div class="kpis" style="margin-bottom: 16px">
+  <div class="kpi">
+    <div class="rotulo-kpi">Na agenda</div>
+    <div class="valor">{{ resumo.ativos }}</div>
+    <div class="detalhe">criados pelo assistente</div>
+  </div>
+  <div class="kpi">
+    <div class="rotulo-kpi">Próximos 7 dias</div>
+    <div class="valor">{{ resumo.proximos }}</div>
+    <div class="detalhe">de hoje em diante</div>
+  </div>
+  <a class="kpi" href="?{% if empresa is not none %}empresa={{ empresa }}&amp;{% endif %}apagados=1">
+    <div class="rotulo-kpi">Apagados</div>
+    <div class="valor">{{ resumo.apagados }}</div>
+    <div class="detalhe">pelo console ou pelo Google</div>
+  </a>
+</div>
+
+<section>
+  {{ m.titulo("Eventos", "Até 200, os que estão na agenda primeiro, pelo dia. O registro é o que o console sabe: se você apagou ou moveu um evento direto no Google, “Conferir com a agenda” acerta a lista. “Apagar da agenda” lê o evento antes e só apaga se ele tiver a marca do assistente.") }}
+  {% if eventos %}
+    <div class="tabela"><table>
+      <tr><th>Dia</th><th>Evento</th><th>Projeto</th><th>Empresa</th><th>Criado</th><th>Situação</th><th></th></tr>
+      {% for ev, fato, projeto_f in eventos %}
+        <tr class="{{ 'muted' if ev.removed_at }}">
+          <td style="white-space:nowrap">{{ ev.day.strftime("%d/%m/%Y") }}{% if not ev.removed_at %}{% set dias = (ev.day - hoje).days %}<div class="muted pequeno">{% if dias < 0 %}há {{ -dias }} dia(s){% elif dias == 0 %}hoje{% else %}em {{ dias }} dia(s){% endif %}</div>{% endif %}</td>
+          <td>{{ ev.title }}
+            {% if fato %}<div class="muted pequeno">{{ tipos.get(fato.kind, fato.kind) }} · <a href="/conteudo/{{ fato.source_item_id }}">origem</a>{% if fato.due_date and fato.due_date != ev.day %} · prazo no fato: {{ fato.due_date.strftime("%d/%m") }}{% endif %}</div>
+            {% else %}<div class="muted pequeno">o fato foi extraído de novo; o evento continua na agenda</div>{% endif %}
+          </td>
+          <td>{{ projeto_f.name if projeto_f else "—" }}</td>
+          <td>{{ nomes_empresa.get(ev.company_id, "") }}</td>
+          <td>{{ ev.created_at | local("%d/%m %H:%M") }}<div class="muted pequeno">{{ ev.created_by }}</div></td>
+          <td>{% if ev.removed_at %}apagado {{ ev.removed_at | local("%d/%m %H:%M") }}<div class="muted pequeno">{{ ev.removed_note or ev.removed_by }}</div>{% else %}<span class="ok">na agenda</span>{% endif %}</td>
+          <td>{% if not ev.removed_at %}
+            <form class="inline" method="post" action="/eventos/{{ ev.id }}/apagar" style="margin:0">
+              <input type="hidden" name="volta" value="{{ aqui }}">
+              <button class="mini secundario" type="submit" style="white-space:nowrap">Apagar da agenda</button>
+            </form>
+          {% endif %}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhum evento {{ "nestes filtros" if com_apagados else "na agenda" }}. Use “Pôr na agenda” num prazo em Fatos, Briefing ou Alertas.</p>
+  {% endif %}
+</section>
+
+<section>
+  {{ m.titulo("Por Empresa", "Cada Empresa tem a sua conta Google, então estes botões valem para uma por vez. “Conferir com a agenda” procura no Google os eventos com a marca e acerta a lista (o que você apagou ou moveu por lá). “Apagar todos” tira da agenda todos os eventos com a marca, inclusive os que não aparecem na lista (por exemplo, depois de restaurar o banco de um backup). Não toca em nenhum outro evento.") }}
+  {% for c in empresas %}
+    <div class="linha" style="gap: 8px; margin-bottom: 8px; flex-wrap: wrap">
+      <strong style="min-width: 160px">{{ c.name }}</strong>
+      <form class="inline" method="post" action="/eventos/conferir" style="margin:0">
+        <input type="hidden" name="empresa" value="{{ c.id }}">
+        <button class="mini" type="submit">Conferir com a agenda</button>
+      </form>
+      <form class="inline" method="post" action="/eventos/apagar-todos" style="margin:0"
+            onsubmit='return confirm({{ ("Apagar da agenda de " ~ c.name ~ " todos os eventos criados pelo assistente? Só os que têm a marca do assistente saem; os seus eventos não são tocados.") | tojson }})'>
+        <input type="hidden" name="empresa" value="{{ c.id }}">
+        <button class="mini secundario" type="submit">Apagar todos</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted">Nenhuma Empresa cadastrada.</p>
+  {% endfor %}
+</section>
+{% endblock %}

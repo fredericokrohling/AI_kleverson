@@ -42,6 +42,9 @@ from app.alerts import (
     why,
 )
 
+# Eventos já criados na agenda (para o botão "Pôr na agenda" de cada prazo).
+from app.calendar_events import active_by_fact
+
 # Filtro de Empresa vindo da URL.
 from app.companies import filter_id
 
@@ -95,6 +98,8 @@ def alerts_page(
     view = situacao if situacao in VIEWS else "abertos"
     # Regra do filtro (só dígitos contam).
     rule_id = int(regra) if regra and regra.isdigit() else None
+    # Lista, uma linha por fato (com as outras regras que dispararam para ele).
+    alerts = group_by_fact(list_alerts(db, company_id, None if view == "todos" else view, rule_id))
     # Página.
     return templates.TemplateResponse(
         request,
@@ -112,10 +117,10 @@ def alerts_page(
             "aqui": str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""),
             # Números.
             "resumo": overview(db, company_id),
-            # Lista, uma linha por fato (com as outras regras que dispararam para ele).
-            "alertas": group_by_fact(
-                list_alerts(db, company_id, None if view == "todos" else view, rule_id)
-            ),
+            # Lista.
+            "alertas": alerts,
+            # Fato → evento já criado na agenda (o botão "Pôr na agenda" vira "na agenda ✓").
+            "na_agenda": active_by_fact(db, {row[2].id for row, _ in alerts}),
             # Regras com os abertos de cada uma.
             "regras": list_rules(db, company_id),
             # Textos.

@@ -478,6 +478,47 @@ def cmd_gerar_briefing(args: argparse.Namespace) -> None:
     print(summary.describe())
 
 
+# Tira da agenda todos os eventos que o assistente criou (o "desfazer em lote").
+def cmd_apagar_eventos_criados(args: argparse.Namespace) -> None:
+    """Apaga da agenda todos os eventos com a marca do assistente (--empresa: só de uma)."""
+    # Apagamento pela marca.
+    from app.calendar_events import EventError, sync_company
+
+    # Lista das Empresas.
+    from app.companies import list_companies
+
+    # Configuração.
+    settings = get_settings()
+    # Uma sessão.
+    with get_sessionmaker()() as session:
+        # Empresas: a escolhida, ou todas.
+        companies = [
+            c for c in list_companies(session) if args.empresa is None or c.id == args.empresa
+        ]
+        # Nenhuma.
+        if not companies:
+            print("Nenhuma Empresa com esse id.")
+            return
+        # Cada uma.
+        for company in companies:
+            # Tenta.
+            try:
+                # Apaga tudo o que tem a marca na agenda da conta da Empresa.
+                summary = sync_company(session, settings, company.id, "terminal", remove_all=True)
+            # Sem conta ou agenda fora do ar: avisa e segue para a próxima.
+            except EventError as exc:
+                # Mostra o motivo.
+                print(f"{company.name}: {exc}")
+                # Desfaz o que estiver pendente desta Empresa.
+                session.rollback()
+                # Próxima.
+                continue
+            # Grava o desta Empresa.
+            session.commit()
+            # Mostra.
+            print(f"{company.name}: {summary.describe()}")
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
     """Roda sem parar: Gmail, Drive, leitura, classificação, fatos, alertas, briefing,
@@ -665,6 +706,8 @@ COMMANDS = {
     "gerar-alertas": cmd_gerar_alertas,
     # python -m app.cli gerar-briefing [--refazer]
     "gerar-briefing": cmd_gerar_briefing,
+    # python -m app.cli apagar-eventos-criados [--empresa ID]
+    "apagar-eventos-criados": cmd_apagar_eventos_criados,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
@@ -714,6 +757,10 @@ def main(argv: list[str] | None = None) -> int:
                 action="store_true",
                 help="monta de novo também o das Empresas que já têm o de hoje",
             )
+        # Opção do apagar-eventos-criados: só uma Empresa.
+        if name == "apagar-eventos-criados":
+            # Id da Empresa (em Cadastros); sem ela, todas.
+            command.add_argument("--empresa", type=int, help="id da Empresa (sem: todas)")
     # Lê o que foi digitado.
     args = parser.parse_args(argv)
     # Executa a função do comando escolhido.
