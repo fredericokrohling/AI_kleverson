@@ -432,9 +432,56 @@ def cmd_gerar_alertas(_: argparse.Namespace) -> None:
     print(summary.describe())
 
 
+# Monta o briefing de hoje agora (o coletor também monta, a partir de BRIEFING_HOUR).
+def cmd_gerar_briefing(args: argparse.Namespace) -> None:
+    """Monta o briefing de hoje das Empresas que ainda não têm (--refazer: de todas)."""
+    # Data e hora (o "hoje" no fuso do console).
+    from datetime import UTC, datetime
+
+    # Consulta ao banco.
+    from sqlalchemy import select
+
+    # Hoje no fuso do console.
+    from app.alerts import today_local
+
+    # Montagem do briefing.
+    from app.briefing import BriefingSummary, generate
+
+    # Lista das Empresas.
+    from app.companies import list_companies
+
+    # Tabela, para saber quais já têm o de hoje.
+    from app.models import Briefing
+
+    # Configuração.
+    settings = get_settings()
+    # Resumo.
+    summary = BriefingSummary()
+    # Uma sessão.
+    with get_sessionmaker()() as session:
+        # Hoje.
+        today = today_local(settings, datetime.now(UTC))
+        # Empresas que já têm o de hoje.
+        done = set(session.scalars(select(Briefing.company_id).where(Briefing.day == today)))
+        # Cada Empresa.
+        for company in list_companies(session):
+            # Já tem e não pediu para refazer: pula.
+            if company.id in done and not args.refazer:
+                continue
+            # Monta (a hora do coletor não importa: foi você quem pediu).
+            generate(session, settings, company.id, trigger="manual", actor="terminal")
+            # Conta.
+            summary.generated.append(company.name)
+        # Grava.
+        session.commit()
+    # Mostra.
+    print(summary.describe())
+
+
 # O serviço "coletor": um laço que dispara cada tarefa no seu intervalo.
 def cmd_agendador(_: argparse.Namespace) -> None:
-    """Roda sem parar: Gmail, Drive, leitura, classificação, fatos, alertas, saúde e servidor."""
+    """Roda sem parar: Gmail, Drive, leitura, classificação, fatos, alertas, briefing,
+    saúde e servidor."""
     # logging mostra o andamento em `docker compose logs coletor`.
     import logging
 
@@ -446,6 +493,9 @@ def cmd_agendador(_: argparse.Namespace) -> None:
 
     # Rodada dos alertas de liderança (bloco 3).
     from app.alerts import run_from_settings as run_alerts
+
+    # Briefing diário (bloco 5).
+    from app.briefing import run_from_settings as run_briefing
 
     # Rodada de classificação por projeto (bloco 3).
     from app.classification import run_from_settings as run_classify
@@ -485,6 +535,7 @@ def cmd_agendador(_: argparse.Namespace) -> None:
         "classificacao": None,
         "fatos": None,
         "alertas": None,
+        "briefing": None,
         "saude": None,
     }
 
@@ -565,6 +616,13 @@ def cmd_agendador(_: argparse.Namespace) -> None:
             last["alertas"] = now
             # Aplica as regras.
             safe("Alertas de liderança", lambda: run_alerts(settings))
+        # Briefing a cada 5 minutos, depois dos alertas (o das 7h já sai com os alertas
+        # da madrugada). Só monta quando deu a hora e a Empresa ainda não tem o de hoje.
+        if due("briefing", 5, now):
+            # Marca.
+            last["briefing"] = now
+            # Monta o que falta.
+            safe("Briefing diário", lambda: run_briefing(settings))
         # Saúde a cada HEALTH_POLL_MINUTES.
         if due("saude", settings.health_poll_minutes, now):
             # Marca.
@@ -605,6 +663,8 @@ COMMANDS = {
     "extrair-fatos": cmd_extrair_fatos,
     # python -m app.cli gerar-alertas
     "gerar-alertas": cmd_gerar_alertas,
+    # python -m app.cli gerar-briefing [--refazer]
+    "gerar-briefing": cmd_gerar_briefing,
     # python -m app.cli verificar-saude
     "verificar-saude": cmd_verificar_saude,
     # python -m app.cli agendador (o serviço "coletor" do Docker Compose roda este)
@@ -645,6 +705,14 @@ def main(argv: list[str] | None = None) -> int:
                 "--refazer",
                 action="store_true",
                 help="apaga os fatos e lê todos os itens de novo (custa de novo)",
+            )
+        # Opção do gerar-briefing: monta de novo também o das Empresas que já têm.
+        if name == "gerar-briefing":
+            # Substitui a foto de hoje pelos dados de agora.
+            command.add_argument(
+                "--refazer",
+                action="store_true",
+                help="monta de novo também o das Empresas que já têm o de hoje",
             )
     # Lê o que foi digitado.
     args = parser.parse_args(argv)

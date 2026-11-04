@@ -776,6 +776,60 @@ class Alert(Timestamped, Base):
     status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+# --- Ações (bloco 5) ----------------------------------------------------------
+
+
+# O briefing de um dia de uma Empresa: uma "foto" do que precisa de você, tirada de manhã.
+class Briefing(Timestamped, Base):
+    """Briefing diário: agenda, alertas novos, prazos, o que mudou e pendências.
+
+    Por que guardar uma foto (o conteúdo em JSON), e não montar a página na hora: o
+    "o que mudou desde o último briefing" precisa de uma janela fixa; a agenda vem do
+    Google, que pode estar fora do ar na hora em que você abre a página; e a foto deixa
+    ver depois o que você sabia naquela manhã. Os números continuam vindo de SQL, sem IA.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "briefings"
+    # Um briefing por Empresa por dia ("Gerar de novo" substitui o do dia).
+    __table_args__ = (UniqueConstraint("company_id", "day"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa do briefing (obrigatória): os dados de um cliente não entram no de outro.
+    company_id: Mapped[int] = _company()
+    # Dia do briefing, no fuso do console.
+    day: Mapped[date] = mapped_column(Date, index=True)
+    # Quando o conteúdo foi montado (pelo coletor de manhã, ou pelo botão "Gerar agora").
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Início da janela de "o que mudou": o briefing anterior que você abriu.
+    since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Conteúdo das seções (agenda, alertas, prazos, mudanças, pendências) em JSON.
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    # "agendado" (coletor) ou "manual" (botão ou comando).
+    trigger: Mapped[str] = mapped_column(String(20), server_default="agendado")
+    # Quando você abriu este briefing pela primeira vez (vazio = ainda não abriu).
+    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # O conteúdo com todas as seções, mesmo num briefing antigo que não tenha alguma (uma
+    # seção nova no futuro não quebra a página dos dias passados).
+    @property
+    def sections(self) -> dict[str, Any]:
+        # Seções vazias, no formato que a página espera.
+        empty: dict[str, Any] = {
+            "agenda": [],
+            "agenda_erro": None,
+            "alertas": [],
+            "alertas_total": 0,
+            "alertas_chegaram": 0,
+            "prazos": {"vencidos": [], "hoje": [], "proximos": []},
+            "mudancas": [],
+            "pendencias": {"revisar": 0, "suspeitos": 0, "sem_texto": 0},
+        }
+        # O que foi gravado por cima das vazias.
+        return {**empty, **(self.content or {})}
+
+
 # --- Sugestões da IA ----------------------------------------------------------
 
 

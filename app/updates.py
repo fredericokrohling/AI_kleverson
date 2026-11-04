@@ -13,7 +13,7 @@ cada seção que escuta esse evento se busca de novo, sozinha:
 
 O que muda a marca: um e-mail ou versão do Drive nova, um anexo novo, um arquivo que
 ganhou texto (ou perdeu), uma linha nova no Processamento, uma rodada de coleta que
-terminou e o coração mudar de cor.
+terminou, o coração mudar de cor, um alerta novo e um briefing montado.
 """
 
 # Consultas: max, count.
@@ -29,7 +29,7 @@ from app.config import Settings
 from app.health import has_problem
 
 # Tabelas consultadas.
-from app.models import Alert, Attachment, AuditLog, BronzeItem, DriveItem, IngestionRun
+from app.models import Alert, Attachment, AuditLog, Briefing, BronzeItem, DriveItem, IngestionRun
 
 # Intervalo entre as perguntas do navegador, em segundos.
 REFRESH_SECONDS = 30
@@ -62,6 +62,8 @@ def stamp(session: Session, settings: Settings) -> str:
         int(has_problem(session, settings)),
         # Último alerta criado (o número do menu se atualiza sozinho).
         session.scalar(select(func.max(Alert.id))),
+        # Último briefing montado (o quadro do Início e o ponto do menu aparecem às 7h).
+        session.scalar(select(func.extract("epoch", func.max(Briefing.generated_at)))),
     ]
     # Junta com "-" (ex.: "120-45-30-2-0-1761900000-0").
     return "-".join(str(int(p or 0)) for p in parts)

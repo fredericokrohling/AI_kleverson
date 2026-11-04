@@ -114,6 +114,15 @@ class Settings(BaseSettings):
     # criada daqui a seis meses dispararia de uma vez centenas de alertas antigos.
     alerts_lookback_days: int = 30
 
+    # Briefing diário (bloco 5, app/briefing.py). Sem custo de IA: são consultas SQL e a
+    # leitura da agenda.
+    # Hora (no fuso do console) a partir da qual o coletor monta o briefing do dia. Se o
+    # coletor estiver parado nessa hora, ele monta assim que voltar, no mesmo dia.
+    briefing_hour: int = 7
+    # Quantos dias à frente a seção Prazos olha (os vencidos aparecem sempre, até
+    # ALERTS_LOOKBACK_DAYS para trás).
+    briefing_due_days: int = 7
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.

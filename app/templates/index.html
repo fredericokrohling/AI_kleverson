@@ -45,6 +45,34 @@
     </div>
   </section>
 
+  {# Briefing de hoje: só os números de cada Empresa; o detalhe fica na página Briefing. #}
+  <section id="briefing-hoje">
+    <div class="secao-topo">
+      {{ m.titulo("Briefing de hoje", "O resumo do dia de cada Empresa: reuniões, alertas novos, prazos vencidos e que vencem em breve. O coletor monta a partir das " ~ briefing_hora ~ "h; antes disso, use “Gerar agora”.") }}
+      <a class="pequeno" href="/briefing">Abrir o briefing</a>
+    </div>
+    {% if briefings_hoje %}
+      <ul class="lista">
+        {% for b in briefings_hoje %}
+          {% set c = b.sections %}
+          {# Um só bloco de texto: a lista distribui os filhos do item pela linha. #}
+          <li><span><a href="/briefing?empresa={{ b.company_id }}"><span class="tag empresa">{{ nomes_empresa.get(b.company_id, "") }}</span></a>
+            {{ c.agenda | length }} reunião(ões) ·
+            <span class="{{ 'aviso' if c.alertas_total }}">{{ c.alertas_total }} alerta(s) novo(s)</span> ·
+            <span class="{{ 'erro' if c.prazos.vencidos }}">{{ c.prazos.vencidos | length }} prazo(s) vencido(s)</span> ·
+            {{ (c.prazos.hoje | length) + (c.prazos.proximos | length) }} vencem em breve</span>
+            <span class="quando">{{ "ainda não aberto" if not b.viewed_at else "aberto às " ~ (b.viewed_at | local("%H:%M")) }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="linha" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <span class="vazio" style="margin:0">O briefing de hoje sai a partir das {{ briefing_hora }}h.</span>
+        <form class="inline" method="post" action="/briefing/gerar"><button class="mini" type="submit">Gerar agora</button></form>
+      </div>
+    {% endif %}
+  </section>
+
   <section id="reunioes">
       <div class="secao-topo">
         {{ m.titulo("Transcrições recentes", "As últimas transcrições de reunião que entraram no sistema: importadas do Teams ou do Meet, ou feitas pela extensão do navegador. Ao lado, a Empresa e os projetos (pelas tags de projeto). Empresa errada: abra a transcrição e corrija lá.") }}

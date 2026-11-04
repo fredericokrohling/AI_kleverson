@@ -52,6 +52,7 @@ Siga na ordem:
 16. [Reuniões: uma linha por reunião, com data, participantes e as transcrições dela](docs/setup/16-reunioes.md)
 17. [Extração de fatos com trecho conferido](docs/setup/17-fatos.md)
 18. [Alertas de liderança](docs/setup/18-alertas.md)
+19. [Briefing diário](docs/setup/19-briefing.md)
 
 ## Desenvolvimento local
 
@@ -78,6 +79,7 @@ app/
   classification.py classificação de cada item por projeto (regras, depois Claude)
   facts.py         extração de fatos (tarefa, decisão, risco...) com trecho conferido
   alerts.py        alertas sobre o que lideranças pediram, decidiram ou apontaram
+  briefing.py      briefing diário: agenda, alertas novos, prazos e o que mudou
   google_auth.py   login Google e tokens criptografados
   security.py      criptografia e controle de acesso pelo Tailscale
   main.py          console web (FastAPI + HTMX)
@@ -99,7 +101,7 @@ docs/aprendizado/  por que cada escolha foi feita
 | 2. E-mail para bronze | Código pronto; falta instalar e importar um mês |
 | 3. Silver: classificação e extração | Classificação, extração de fatos e alertas de liderança prontos |
 | 4. Console: cadastro, fila, fatos, busca | A fazer |
-| 5. Ações: rascunhos, agenda, briefing | A fazer |
+| 5. Ações: rascunhos, agenda, briefing | Briefing diário pronto; criar eventos e rascunhos a fazer |
 | 6. Transcrição em produção | A fazer |
 | 7. Servidor MCP | A fazer |
 | 8. MD de auditoria no Git | A fazer |
