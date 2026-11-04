@@ -246,8 +246,9 @@ def delete_rule(session: Session, rule_id: int, actor: str) -> None:
     session.delete(rule)
 
 
-# Condição "o responsável sou eu": a Pessoa do fato tem o e-mail da dona.
-def _owner_is_me(settings: Settings):
+# Condição "o responsável sou eu": a Pessoa do fato tem o e-mail da dona. Pública porque
+# o briefing diário (app/briefing.py) usa a mesma regra para marcar os prazos que são seus.
+def owner_is_me(settings: Settings):
     """O e-mail da dona é o login do Tailscale ou a conta Google conectada na Empresa."""
     # Login do Tailscale (o console só abre para ele), em minúsculas.
     login = (settings.allowed_tailscale_login or "").strip().lower()
@@ -320,7 +321,7 @@ def matching(session: Session, rule: AlertRule, settings: Settings, now: datetim
         )
     # Responsável: a dona.
     elif rule.owner_rule == "eu":
-        query = query.where(_owner_is_me(settings))
+        query = query.where(owner_is_me(settings))
     # Janela de dias para trás.
     lookback = timedelta(days=settings.alerts_lookback_days)
     # Regra de prazo: vence em até N dias (ou venceu há menos que a janela).

@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Briefing · Kleverson A.I.{% endblock %}
+{% block head %}
+<style>
+  /* Faixa com o nome da Empresa: separa um briefing do outro na mesma página. */
+  .briefing-empresa { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+                      margin: 26px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--linha-forte); }
+  .briefing-empresa:first-of-type { margin-top: 6px; }
+  .briefing-empresa h2 { margin: 0; font-size: 18px; }
+  /* Reunião da agenda: hora à esquerda, título e detalhes à direita. */
+  .reuniao-linha { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--linha-fraca); }
+  .reuniao-linha:last-child { border-bottom: 0; }
+  .reuniao-linha .hora { font-variant-numeric: tabular-nums; color: var(--fg-2); }
+  /* Cartões de projeto em "O que mudou". */
+  .projeto-mudanca { border: 1px solid var(--linha); border-radius: var(--raio-p); padding: 12px 14px; background: var(--cartao-2); }
+  .projeto-mudanca h3 { margin: 0 0 6px; color: var(--fg); font-size: 14px; }
+  .projeto-mudanca ul { margin: 6px 0 0; padding-left: 18px; }
+  /* Selo "meu" e "chegou agora". */
+  .selo { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+          padding: 1px 6px; border-radius: 6px; background: var(--accent-suave); color: var(--accent); vertical-align: 1px; }
+  .selo.aviso-selo { background: rgba(240,183,84,.14); color: var(--aviso); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Briefing {{ m.dica("O que precisa de você hoje, por Empresa: as reuniões da agenda (com as lideranças presentes e o que está aberto com quem vai estar), os alertas ainda não vistos, os prazos, o que mudou em cada projeto desde o último briefing que você abriu e as pendências do sistema. O coletor monta a partir das " ~ hora ~ "h (BRIEFING_HOUR). É uma foto da manhã: “Gerar de novo” refaz com os dados de agora. Tudo vem do banco e da agenda, sem custo de IA.") }}</h1>
+    <div class="sub">{% if dia == hoje %}Hoje{% else %}{{ dia.strftime("%d/%m/%Y") }}{% endif %}: agenda, alertas, prazos e o que mudou.</div>
+  </div>
+  <form class="acoes linha" method="get" action="/briefing">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <label>Dia <input type="date" name="data" value="{{ dia.isoformat() }}" max="{{ hoje.isoformat() }}" aria-label="Dia do briefing" onchange="this.form.submit()"></label>
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
+</div>
+
+<nav class="paginas" aria-label="Outros dias">
+  {% set emp = ("&empresa=" ~ empresa) if empresa is not none else "" %}
+  {% if anterior %}<a href="/briefing?data={{ anterior.isoformat() }}{{ emp }}">← {{ anterior.strftime("%d/%m") }}</a>{% else %}<span class="muted">← nenhum antes</span>{% endif %}
+  {% if dia != hoje %}<a href="/briefing{{ ('?empresa=' ~ empresa) if empresa is not none else '' }}">Hoje</a>{% endif %}
+  {% if seguinte %}<a href="/briefing?data={{ seguinte.isoformat() }}{{ emp }}">{{ seguinte.strftime("%d/%m") }} →</a>{% endif %}
+</nav>
+
+{% if dia == hoje and faltando %}
+  <div class="aviso-caixa" style="margin-top: 12px">
+    Ainda sem o briefing de hoje: {{ faltando | map(attribute="name") | join(", ") }}. O coletor monta a partir das {{ hora }}h.
+    <form class="inline" method="post" action="/briefing/gerar">
+      {% if empresa is not none %}<input type="hidden" name="empresa" value="{{ empresa }}">{% endif %}
+      <button class="mini" type="submit">Gerar agora</button>
+    </form>
+  </div>
+{% elif not briefings %}
+  <p class="vazio">Nenhum briefing neste dia.</p>
+{% endif %}
+
+{% for b in briefings %}
+  {% set c = b.sections %}
+  {% set pz = c.prazos %}
+  {% set q = "empresa=" ~ b.company_id %}
+  <div class="briefing-empresa">
+    <h2>{{ nomes_empresa.get(b.company_id, "") }}</h2>
+    <div class="linha muted pequeno" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <span>Montado às {{ b.generated_at | local("%H:%M") }}{% if b.trigger == "manual" %} (à mão){% endif %} · mudanças desde {{ b.since | local("%d/%m %H:%M") }}</span>
+      {% if dia == hoje %}
+        <form class="inline" method="post" action="/briefing/gerar">
+          <input type="hidden" name="empresa" value="{{ b.company_id }}">
+          <button class="mini secundario" type="submit" title="Monta de novo com os dados de agora (a janela de mudanças continua a mesma)">Gerar de novo</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="kpis" style="margin-bottom: 16px">
+    <a class="kpi" href="#agenda-{{ b.company_id }}">
+      <div class="rotulo-kpi">Reuniões</div>
+      <div class="valor">{{ c.agenda | length }}</div>
+      <div class="detalhe">{% if c.agenda_erro %}agenda não lida{% else %}na agenda do dia{% endif %}</div>
+    </a>
+    <a class="kpi {{ 'alerta' if c.alertas_total }}" href="/alertas?{{ q }}&amp;situacao=novo">
+      <div class="rotulo-kpi">Alertas novos</div>
+      <div class="valor">{{ c.alertas_total }}</div>
+      <div class="detalhe">{{ c.alertas_chegaram }} desde o último briefing</div>
+    </a>
+    <a class="kpi {{ 'alerta' if pz.vencidos }}" href="#prazos-{{ b.company_id }}">
+      <div class="rotulo-kpi">Prazos vencidos</div>
+      <div class="valor">{{ pz.vencidos | length }}</div>
+      <div class="detalhe">ainda abertos</div>
+    </a>
+    <a class="kpi" href="#prazos-{{ b.company_id }}">
+      <div class="rotulo-kpi">Vencem em breve</div>
+      <div class="valor">{{ (pz.hoje | length) + (pz.proximos | length) }}</div>
+      <div class="detalhe">{{ pz.hoje | length }} hoje · até {{ dias_prazo }} dias</div>
+    </a>
+    <a class="kpi" href="#mudancas-{{ b.company_id }}">
+      <div class="rotulo-kpi">Projetos com novidade</div>
+      <div class="valor">{{ c.mudancas | selectattr("projeto_id") | list | length }}</div>
+      <div class="detalhe">desde {{ b.since | local("%d/%m %H:%M") }}</div>
+    </a>
+  </div>
+
+  <div class="duas-colunas">
+    <section id="agenda-{{ b.company_id }}">
+      {{ m.titulo("Agenda", "Reuniões com horário na agenda da conta Google desta Empresa (eventos de dia inteiro ficam de fora). Lideranças: convidados cadastrados como liderança na empresa ou em algum projeto. “Abertos com quem vai estar”: fatos com alerta novo ou visto ditos por um convidado ou com ele como responsável; bom para levar à reunião.") }}
+      {% if c.agenda_erro %}<p class="erro pequeno">{{ c.agenda_erro }}</p>{% endif %}
+      {% for r in c.agenda %}
+        <div class="reuniao-linha">
+          <div class="hora">{{ r.inicio }}–{{ r.fim }}</div>
+          <div>
+            <strong>{{ r.titulo }}</strong>
+            {% if r.plataforma %}<span class="tag">{{ "Meet" if r.plataforma == "meet" else ("Teams" if r.plataforma == "teams" else r.plataforma) }}</span>{% endif %}
+            <div class="muted pequeno">{{ r.participantes }} convidado(s){% if r.liderancas %} · lideranças: {{ r.liderancas | join(", ") }}{% endif %}</div>
+            {% if r.alertas_abertos %}<div class="pequeno"><a class="aviso" href="/alertas?{{ q }}">{{ r.alertas_abertos }} aberto(s) com quem vai estar</a></div>{% endif %}
+          </div>
+        </div>
+      {% else %}
+        {% if not c.agenda_erro %}<p class="vazio">Nenhuma reunião com horário hoje.</p>{% endif %}
+      {% endfor %}
+    </section>
+
+    <section id="prazos-{{ b.company_id }}">
+      {{ m.titulo("Prazos", "Tarefas, prazos e dependências abertos com data: os vencidos (até " ~ dias_prazo ~ " dias à frente e 30 para trás), os de hoje e os próximos. Só fatos com trecho conferido; os suspeitos ficam em Fatos. “Meu”: o responsável é você (a Pessoa com o seu e-mail).") }}
+      {% for grupo, rotulo, classe in [("vencidos", "Vencidos", "erro"), ("hoje", "Hoje", "aviso"), ("proximos", "Próximos dias", "")] %}
+        {% if pz[grupo] %}
+          <h3 class="{{ classe }}">{{ rotulo }} ({{ pz[grupo] | length }})</h3>
+          <div class="tabela"><table>
+            {% for p in pz[grupo] %}
+              <tr>
+                <td style="white-space:nowrap">{{ p.prazo }}{% if p.dias < 0 %}<div class="muted pequeno">há {{ -p.dias }} dia(s)</div>{% elif p.dias > 0 %}<div class="muted pequeno">em {{ p.dias }} dia(s)</div>{% endif %}</td>
+                <td>{{ p.titulo }} {% if p.meu %}<span class="selo">meu</span>{% endif %}<div class="muted pequeno">{{ p.tipo }}{% if p.projeto %} · {{ p.projeto }}{% endif %} · {{ p.responsavel or "ninguém" }}</div></td>
+                <td><a class="pequeno" href="/conteudo/{{ p.item_id }}">origem</a></td>
+              </tr>
+            {% endfor %}
+          </table></div>
+        {% endif %}
+      {% endfor %}
+      {% if not (pz.vencidos or pz.hoje or pz.proximos) %}<p class="vazio">Nenhum prazo aberto até {{ dias_prazo }} dias.</p>{% endif %}
+    </section>
+  </div>
+
+  <section id="alertas-{{ b.company_id }}">
+    <div class="secao-topo">
+      {{ m.titulo("Alertas novos", "Alertas ainda não marcados como vistos, um fato por linha, os de peso alto primeiro (até 15; o resto está em Alertas). “Chegou agora”: nasceu depois do último briefing que você abriu. Marque como visto ou resolvido na página Alertas.") }}
+      <a class="pequeno" href="/alertas?{{ q }}&amp;situacao=novo">Abrir em Alertas</a>
+    </div>
+    {% if c.alertas %}
+      <div class="tabela"><table>
+        <tr><th>Peso</th><th>Alerta</th><th>Quem disse</th><th>Projeto</th><th>Prazo</th><th></th></tr>
+        {% for a in c.alertas %}
+          <tr>
+            <td><span class="{{ 'erro' if a.peso == 'alta' else ('aviso' if a.peso == 'media' else 'muted') }}">{{ {"alta": "Alta", "media": "Média", "baixa": "Baixa"}.get(a.peso, a.peso) }}</span></td>
+            <td><strong>{{ a.regra }}</strong> · {{ a.tipo }} {% if a.chegou %}<span class="selo aviso-selo">chegou agora</span>{% endif %}
+              {% if a.outras %}<div class="muted pequeno">também: {{ a.outras | join(", ") }}</div>{% endif %}
+              <div>{{ a.titulo }}</div>
+              <div class="muted">“{{ a.trecho }}”</div></td>
+            <td>{{ a.quem }}</td>
+            <td>{{ a.projeto or "—" }}</td>
+            <td>{{ a.prazo or "—" }}</td>
+            <td><a class="pequeno" href="/conteudo/{{ a.item_id }}">origem</a></td>
+          </tr>
+        {% endfor %}
+      </table></div>
+      {% if c.alertas_total > c.alertas | length %}<p class="muted pequeno">E mais {{ c.alertas_total - c.alertas | length }} em <a href="/alertas?{{ q }}&amp;situacao=novo">Alertas</a>.</p>{% endif %}
+    {% else %}
+      <p class="vazio">Nenhum alerta novo.</p>
+    {% endif %}
+  </section>
+
+  <section id="mudancas-{{ b.company_id }}">
+    {{ m.titulo("O que mudou por projeto", "O que entrou no sistema desde " ~ (b.since | local("%d/%m %H:%M")) ~ " (o último briefing que você abriu): e-mails, transcrições e arquivos por projeto, e os fatos conferidos que apareceram. Destaques: decisões, riscos e problemas novos, que mudam o rumo do projeto. “Sem projeto”: itens ainda não classificados ou que não são de projeto nenhum.") }}
+    {% if c.mudancas %}
+      <div class="grade">
+        {% for p in c.mudancas %}
+          <div class="projeto-mudanca">
+            <h3>{{ p.projeto or "Sem projeto" }}</h3>
+            <div class="pequeno">{% for nome, n in p.itens.items() %}{{ n }} {{ nome }}{{ ", " if not loop.last }}{% else %}<span class="muted">nada chegou</span>{% endfor %}</div>
+            {% if p.fatos %}<div class="muted pequeno">Fatos novos: {% for nome, n in p.fatos.items() %}{{ n }} {{ nome | lower }}{{ ", " if not loop.last }}{% endfor %}</div>{% endif %}
+            {% if p.destaques %}
+              <ul class="pequeno">
+                {% for d in p.destaques %}<li><span class="muted">{{ d.tipo }}:</span> <a href="/conteudo/{{ d.item_id }}">{{ d.titulo }}</a></li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="vazio">Nada novo desde {{ b.since | local("%d/%m %H:%M") }}.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    {{ m.titulo("Pendências", "O que espera uma decisão sua para o sistema continuar certo. Cada número leva à página que resolve.") }}
+    {% set pd = c.pendencias %}
+    <ul class="lista">
+      <li><a href="/classificacao?{{ q }}">{{ pd.revisar }} item(ns) na fila A revisar</a> <span class="quando">o Claude ficou em dúvida sobre o projeto</span></li>
+      <li><a href="/fatos?{{ q }}&amp;suspeitos=1">{{ pd.suspeitos }} fato(s) suspeito(s)</a> <span class="quando">trecho não achado no texto</span></li>
+      <li><a href="/#erros">{{ pd.sem_texto }} arquivo(s) sem texto</a> <span class="quando">a IA não enxerga o conteúdo</span></li>
+    </ul>
+  </section>
+{% endfor %}
+{% endblock %}

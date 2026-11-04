@@ -49,6 +49,9 @@ def _menu_state(request: Request) -> dict[str, object]:
     # Alertas novos (o número ao lado de "Alertas" no menu).
     from app.alerts import count_new
 
+    # Briefing de hoje ainda não lido (o ponto ao lado de "Briefing" no menu).
+    from app.briefing import unread_today
+
     # Lista das Empresas (para os combos de Empresa de todas as páginas).
     from app.companies import list_companies
     from app.db import get_sessionmaker
@@ -77,6 +80,8 @@ def _menu_state(request: Request) -> dict[str, object]:
                 "nomes_empresa": {c.id: c.name for c in companies},
                 # Alertas novos, de todas as Empresas (o menu é um só).
                 "alertas_novos": count_new(session),
+                # Briefing de hoje montado e ainda não aberto.
+                "briefing_nao_lido": unread_today(session, settings),
             }
     # Banco fora do ar: isso já é um problema de saúde; marca vazia (a página não atualiza).
     except Exception:
@@ -87,6 +92,7 @@ def _menu_state(request: Request) -> dict[str, object]:
             "empresas_todas": [],
             "nomes_empresa": {},
             "alertas_novos": 0,
+            "briefing_nao_lido": False,
         }
 
 

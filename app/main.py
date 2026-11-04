@@ -34,6 +34,12 @@ from app import google_auth
 # Seção Processamento (diário de ações por dia).
 from app.activity import activity_page, parse_day
 
+# Hoje no fuso do console (o quadro do briefing no Início).
+from app.alerts import today_local
+
+# Briefings de hoje (o quadro do Início).
+from app.briefing import of_day
+
 # Empresas: a escolhida nos formulários e a conta de cada uma.
 from app.companies import accounts_by_company, filter_id, list_companies, parse_company
 
@@ -60,6 +66,9 @@ from app.project_tags import project_names
 
 # Página Alertas e as regras de alerta de liderança (bloco 3).
 from app.routes_alerts import router as alerts_router
+
+# Página Briefing (bloco 5).
+from app.routes_briefing import router as briefing_router
 
 # Rotas da página Classificação (fila "A revisar" e projeto de cada item).
 from app.routes_classification import router as classification_router
@@ -134,6 +143,8 @@ app.include_router(classification_router)
 app.include_router(facts_router)
 # Alertas.
 app.include_router(alerts_router)
+# Briefing diário.
+app.include_router(briefing_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.
@@ -230,6 +241,10 @@ def index(request: Request, owner: Owner, db: DB):
             "reunioes": meetings,
             # Projetos de cada transcrição (pelas tags de projeto).
             "projetos_item": project_names(db, [r.id for r in meetings]),
+            # Briefings de hoje (o quadro com os números e o link para a página Briefing).
+            "briefings_hoje": of_day(db, today_local(settings)),
+            # Hora em que o coletor monta o briefing (o quadro avisa antes dela).
+            "briefing_hora": settings.briefing_hour,
             # Já houve algum teste automático de saúde?
             "saude_testada": last_run_at(db) is not None,
             # Reuniões ao vivo (ou salvas há pouco), cada uma com suas falas; o "**" junta

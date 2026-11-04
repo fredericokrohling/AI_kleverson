@@ -23,6 +23,7 @@ consideradas e onde ela aparece no código.
 15. [Reuniões: a reunião como uma coisa só, acima das transcrições](15-reunioes.md)
 16. [Extração de fatos: o Claude lê, o código confere](16-fatos.md)
 17. [Alertas de liderança: regras são filtros, não perguntas à IA](17-alertas.md)
+18. [Briefing diário: uma foto da manhã, montada por SQL](18-briefing.md)
 
 ## Como ler o código
 
