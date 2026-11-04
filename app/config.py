@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     # 1h30). Acima disso o texto é cortado e o corte fica registrado na extração.
     facts_max_chars: int = 60000
 
+    # Alertas de liderança (bloco 3, app/alerts.py). Sem custo de IA: são consultas SQL.
+    # Quantos dias para trás uma regra nova (ou editada) olha. Sem limite, uma regra
+    # criada daqui a seis meses dispararia de uma vez centenas de alertas antigos.
+    alerts_lookback_days: int = 30
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.

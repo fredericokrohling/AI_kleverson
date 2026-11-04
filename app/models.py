@@ -711,6 +711,71 @@ class FactExtraction(Base):
     note: Mapped[str | None] = mapped_column(Text)
 
 
+# --- Alertas de liderança (bloco 3, terceira parte) ----------------------------
+
+
+# Uma regra de alerta: um filtro sobre os fatos que você monta no console (página Alertas).
+class AlertRule(Timestamped, Base):
+    """Regras são filtros (tipo, liderança, responsável, prazo), não texto para a IA.
+
+    Assim, cada alerta é explicável ("disparou porque a Márcia, liderança no projeto,
+    pediu uma tarefa") e não custa nada: o código aplica o filtro com uma consulta SQL.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "alert_rules"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa da regra; vazia = vale para todas as Empresas (as regras-padrão são assim).
+    company_id: Mapped[int | None] = _company(nullable=True)
+    # Nome mostrado no alerta ("Pedido de liderança").
+    name: Mapped[str] = mapped_column(String(120))
+    # Desligada, a regra para de criar alertas (os já criados ficam).
+    active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # Tipos de fato que contam ("tarefa", "decisao"...); lista vazia = todos os tipos.
+    fact_kinds: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
+    # Que liderança disse: "qualquer" (na empresa ou no projeto), "empresa" ou "projeto".
+    leadership: Mapped[str] = mapped_column(String(20), server_default="qualquer")
+    # Condição do responsável: "qualquer", "sem_responsavel" ou "eu" (a dona do console).
+    owner_rule: Mapped[str] = mapped_column(String(20), server_default="qualquer")
+    # Só fatos com prazo em até N dias (inclui os vencidos); vazio = o prazo não importa.
+    due_within_days: Mapped[int | None] = mapped_column(Integer)
+    # Peso do alerta: "alta", "media" ou "baixa" (ordena a lista).
+    severity: Mapped[str] = mapped_column(String(10), server_default="media")
+    # Última alteração.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+# Um alerta: um fato que passou por uma regra. Cada par (regra, fato) dispara uma vez só.
+class Alert(Timestamped, Base):
+    # Nome da tabela no banco.
+    __tablename__ = "alerts"
+    # A mesma regra não dispara duas vezes para o mesmo fato (o coletor roda a cada 5 min).
+    __table_args__ = (UniqueConstraint("rule_id", "fact_id"),)
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Empresa do alerta (a do item de onde o fato saiu); é o filtro da página.
+    company_id: Mapped[int] = _company()
+    # Regra que disparou. Apagou a regra, apaga os alertas dela.
+    rule_id: Mapped[int] = mapped_column(ForeignKey("alert_rules.id", ondelete="CASCADE"))
+    # Fato que disparou. "Extrair de novo" apaga o fato e, com ele, o alerta.
+    fact_id: Mapped[int] = mapped_column(ForeignKey("facts.id", ondelete="CASCADE"), index=True)
+    # Peso copiado da regra no momento do alerta (mudar a regra não reescreve o passado).
+    severity: Mapped[str] = mapped_column(String(10))
+    # Quem disse era liderança na empresa quando o alerta nasceu.
+    by_company_leader: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Quem disse era liderança no projeto do fato quando o alerta nasceu.
+    by_project_leader: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # Situação: "novo", "visto", "resolvido" ou "descartado"; index para contar os novos.
+    status: Mapped[str] = mapped_column(String(12), server_default="novo", index=True)
+    # Quando a situação mudou pela última vez (vazio enquanto é novo).
+    status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 # --- Sugestões da IA ----------------------------------------------------------
 
 

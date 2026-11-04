@@ -58,6 +58,9 @@ from app.models import BronzeItem, OAuthToken, SourceKind
 # Projetos de cada item (para mostrar ao lado da Empresa).
 from app.project_tags import project_names
 
+# Página Alertas e as regras de alerta de liderança (bloco 3).
+from app.routes_alerts import router as alerts_router
+
 # Rotas da página Classificação (fila "A revisar" e projeto de cada item).
 from app.routes_classification import router as classification_router
 
@@ -129,6 +132,8 @@ app.include_router(registry_router)
 app.include_router(classification_router)
 # Fatos.
 app.include_router(facts_router)
+# Alertas.
+app.include_router(alerts_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.

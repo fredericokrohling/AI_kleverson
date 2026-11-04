@@ -46,6 +46,9 @@ from app.security import require_owner
 # e a marca da atualização automática (app/updates.py).
 def _menu_state(request: Request) -> dict[str, object]:
     # Imports locais: evitam importação circular (health usa modelos que usam este módulo).
+    # Alertas novos (o número ao lado de "Alertas" no menu).
+    from app.alerts import count_new
+
     # Lista das Empresas (para os combos de Empresa de todas as páginas).
     from app.companies import list_companies
     from app.db import get_sessionmaker
@@ -72,6 +75,8 @@ def _menu_state(request: Request) -> dict[str, object]:
                 "novidades_segundos": REFRESH_SECONDS,
                 "empresas_todas": [(c.id, c.name) for c in companies],
                 "nomes_empresa": {c.id: c.name for c in companies},
+                # Alertas novos, de todas as Empresas (o menu é um só).
+                "alertas_novos": count_new(session),
             }
     # Banco fora do ar: isso já é um problema de saúde; marca vazia (a página não atualiza).
     except Exception:
@@ -81,6 +86,7 @@ def _menu_state(request: Request) -> dict[str, object]:
             "novidades_segundos": REFRESH_SECONDS,
             "empresas_todas": [],
             "nomes_empresa": {},
+            "alertas_novos": 0,
         }
 
 

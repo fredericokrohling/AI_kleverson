@@ -68,6 +68,12 @@
     nav.menu a.ativo svg { color: var(--accent); }
     /* Coração vermelho: algum serviço com problema no último teste. */
     nav.menu a.alerta, nav.menu a.alerta svg { color: var(--erro); }
+    /* Número de alertas novos ao lado de "Alertas" (no menu recolhido, sobre o ícone). */
+    nav.menu a { position: relative; }
+    .contador { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--aviso);
+                color: #111; font-size: 11px; font-weight: 700; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+    .menu-recolhido .contador { position: absolute; top: 2px; right: 6px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; padding: 0 3px; }
+    @media (max-width: 860px) { .contador { position: absolute; top: 2px; right: 6px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; padding: 0 3px; } }
     /* Ícones pequenos e de traço fino. */
     nav.menu svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6;
                    stroke-linecap: round; stroke-linejoin: round; }
@@ -359,6 +365,14 @@
       <a href="/fatos" title="Fatos: tarefas, decisões, riscos e prazos achados no texto, com o trecho conferido" class="{{ 'ativo' if menu == 'fatos' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8.5h8M8 12h8M8 15.5h4.5"/></svg>
         <span class="rotulo">Fatos</span>
+      </a>
+      {# Com novidades, o item se busca de novo (só ele), para o número de novos mudar. #}
+      <a id="menu-alertas" href="/alertas" title="Alertas: o que lideranças pediram, decidiram ou apontaram{% if alertas_novos %} ({{ alertas_novos }} novo(s)){% endif %}"
+         class="{{ 'ativo' if menu == 'alertas' }}"
+         hx-get="{{ request.url.path }}" hx-select="#menu-alertas" hx-swap="outerHTML" hx-trigger="novidades from:body">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>
+        <span class="rotulo">Alertas</span>
+        {% if alertas_novos %}<span class="contador" aria-label="{{ alertas_novos }} alerta(s) novo(s)">{{ alertas_novos if alertas_novos < 100 else "99+" }}</span>{% endif %}
       </a>
 
       <div class="menu-grupo">Organização</div>
