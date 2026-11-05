@@ -79,6 +79,9 @@ from app.routes_config import router as config_router
 # Rotas da página Processamento (números, coleta, diário e conteúdo coletado).
 from app.routes_content import router as content_router
 
+# API da conversa com os dados pelo Claude (bloco 7, chamada pelo servidor MCP local).
+from app.routes_conversa import router as conversa_router
+
 # Página Rascunhos e o botão "Rascunhar resposta" (bloco 5).
 from app.routes_drafts import router as drafts_router
 
@@ -147,6 +150,8 @@ app.include_router(registry_router)
 app.include_router(classification_router)
 # Fatos.
 app.include_router(facts_router)
+# API da conversa com os dados (MCP).
+app.include_router(conversa_router)
 # Alertas.
 app.include_router(alerts_router)
 # Briefing diário.
