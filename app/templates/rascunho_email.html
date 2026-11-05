@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Rascunho · {{ item.subject or "(sem assunto)" }} · Kleverson A.I.{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <div class="sub"><a href="/rascunhos">&larr; Rascunhos</a> · Empresa <strong>{{ company.name }}</strong>{% if projeto %} · Projeto <strong>{{ projeto.name }}</strong>{% endif %}</div>
+    <h1>{{ item.subject or "(sem assunto)" }}</h1>
+  </div>
+  <div class="acoes linha">
+    {% if link_gmail %}<a class="botao" href="{{ link_gmail }}" target="_blank" rel="noopener" title="Abre esta conversa no Gmail, na conta desta Empresa, para você responder lá">Abrir conversa no Gmail</a>{% endif %}
+    <a class="botao secundario" href="/conteudo/{{ item.id }}">Ver o item</a>
+  </div>
+</div>
+
+{% if not ultima %}
+  <div class="aviso-caixa">Há uma mensagem mais nova nesta conversa. O rascunho responde a esta, mas talvez você queira <a href="/rascunhos">responder à mais nova</a>.</div>
+{% endif %}
+
+<section>
+  {{ m.titulo("Conversa", "As mensagens coletadas desta conversa até este e-mail, só com o texto próprio de cada uma (sem a parte citada da anterior). É o que o Claude lê, junto com os anexos com texto desta mensagem, os fatos abertos do projeto e até três e-mails seus desta Empresa, como exemplo de tom. Mensagens de outras Empresas nunca entram.") }}
+  {% for msg, texto, sua in conversa %}
+    <details class="mensagem" {{ 'open' if loop.last }}>
+      <summary><strong>{{ msg.author or "desconhecido" }}</strong>{% if sua %} <span class="tag">você</span>{% endif %}
+        <span class="muted"> · {{ msg.occurred_at | local("%d/%m/%Y %H:%M") }}</span></summary>
+      <div class="texto-mensagem">{{ texto or "(sem texto)" }}</div>
+    </details>
+  {% endfor %}
+  {% if anexos %}<p class="muted pequeno">Anexos lidos desta mensagem: {{ anexos | join(", ") }}</p>{% endif %}
+</section>
+
+<section>
+  {{ m.titulo("Rascunhar resposta", "Diga em uma ou duas frases o que você quer responder: aceitar, recusar, pedir mais prazo, passar uma informação. É o que mais melhora o texto. Sem pedido, o Claude propõe a resposta mais provável e marca entre colchetes cada decisão que é sua. Cada clique é uma chamada paga ao Claude (cerca de US$ 0,02 com o Sonnet).") }}
+  <form method="post" action="/rascunhos/email/{{ item.id }}/escrever"
+        onsubmit="var b=this.querySelector('button'); b.disabled=true; b.textContent='Escrevendo… (até 30 segundos)';">
+    <textarea name="pedido" rows="3" maxlength="{{ max_pedido }}" style="width:100%" placeholder="Ex.: aceitar a reunião, mas propor quinta às 10h; dizer que o cronograma sai até sexta."></textarea>
+    <div class="linha" style="margin-top:8px; gap:10px">
+      <button type="submit">Rascunhar resposta</button>
+      <span class="muted pequeno">Gasto dos rascunhos no mês: US$ {{ "%.2f" | format(resumo.gasto) }} de US$ {{ "%.2f" | format(resumo.teto) }} · {{ resumo.modelo }}</span>
+    </div>
+  </form>
+  <div class="linha" style="margin-top:10px">
+    {% if dispensado %}
+      <span class="muted pequeno">Fora da lista Para responder.</span>
+      <form class="inline" method="post" action="/rascunhos/email/{{ item.id }}/voltar" style="margin:0">
+        <button class="mini secundario" type="submit">Voltar para a lista</button>
+      </form>
+    {% else %}
+      <form class="inline" method="post" action="/rascunhos/email/{{ item.id }}/dispensar" style="margin:0">
+        <button class="mini secundario" type="submit" title="Tira este e-mail da lista Para responder (já respondeu, ou não precisa)">Tirar da lista Para responder</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+<section>
+  {{ m.titulo("Rascunhos", "O mais novo primeiro. O texto é editável aqui; “Copiar” copia o que está na caixa, com as suas mudanças (elas não são gravadas). Cole na resposta da conversa no Gmail. “Falta completar” são os marcadores entre colchetes que o Claude deixou no lugar do que não sabia. “Confira” são números e datas do rascunho que o código não achou nas mensagens, nos fatos nem no seu pedido: podem estar certos, mas não vieram de lá.") }}
+  {% for d in rascunhos %}
+    <div class="rascunho" id="rascunho-{{ d.id }}">
+      <p class="muted pequeno">{{ d.created_at | local("%d/%m %H:%M") }} · {{ d.model }} · US$ {{ "%.3f" | format(d.cost_usd) }}{% if d.instructions %} · pedido: “{{ d.instructions }}”{% endif %}</p>
+      {% if d.status == "ok" %}
+        <textarea id="texto-{{ d.id }}" rows="{{ [[d.body.count('\n') + 3, 6] | max, 24] | min }}" style="width:100%" aria-label="Texto do rascunho">{{ d.body }}</textarea>
+        {% if d.gaps %}<p><strong class="aviso">Falta completar:</strong> {% for g in d.gaps %}<span class="tag">{{ g }}</span> {% endfor %}</p>{% endif %}
+        {% if d.unverified %}<p><strong class="aviso">Confira:</strong> {% for n in d.unverified %}<span class="tag">{{ n }}</span> {% endfor %}<span class="muted pequeno">não aparecem nas mensagens</span></p>{% endif %}
+        <div class="linha" style="gap:8px">
+          <button class="botao primario" type="button" onclick="copiarRascunho({{ d.id }}, this)">Copiar</button>
+          {% if link_gmail %}<a class="botao" href="{{ link_gmail }}" target="_blank" rel="noopener">Abrir conversa no Gmail</a>{% endif %}
+        </div>
+      {% elif d.status == "recusa" %}
+        <p class="erro">O Claude recusou escrever esta resposta.</p>
+      {% else %}
+        <p class="erro">A resposta veio cortada ou fora do formato. Tente de novo.</p>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">Nenhum rascunho para este e-mail ainda.</p>
+  {% endfor %}
+</section>
+
+<style>
+  details.mensagem { border: 1px solid var(--linha); border-radius: var(--raio-p); padding: 8px 12px; margin-bottom: 8px; background: var(--cartao-2); }
+  details.mensagem summary { cursor: pointer; }
+  .texto-mensagem { white-space: pre-wrap; margin-top: 8px; color: var(--fg-2); max-height: 420px; overflow-y: auto; }
+  .rascunho { border-top: 1px solid var(--linha); padding-top: 10px; margin-top: 12px; }
+  .rascunho:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+</style>
+<script>
+  // Copia o texto da caixa (com as suas mudanças) e avisa no próprio botão.
+  function copiarRascunho(id, botao) {
+    var caixa = document.getElementById("texto-" + id);
+    var pronto = function () { botao.textContent = "Copiado ✓"; setTimeout(function () { botao.textContent = "Copiar"; }, 2000); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(caixa.value).then(pronto, function () { caixa.select(); document.execCommand("copy"); pronto(); });
+    } else {
+      // Fora de HTTPS (o console no Tailscale é http): o jeito antigo, que ainda funciona.
+      caixa.select(); document.execCommand("copy"); pronto();
+    }
+  }
+</script>
+{% endblock %}

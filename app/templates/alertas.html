@@ -62,7 +62,7 @@
           <td>{% if dono %}{{ dono.name }}{% elif f.owner_text %}{{ f.owner_text }} <span class="muted">(não cadastrada)</span>{% else %}<span class="muted">ninguém</span>{% endif %}</td>
           <td style="white-space:nowrap">{{ f.due_date.strftime("%d/%m/%Y") if f.due_date else "—" }}
             {% if f.due_date and f.quote_verified and f.status != "concluido" %}<div>{{ m.botao_agenda(f.id, na_agenda, aqui) }}</div>{% endif %}</td>
-          <td><a href="/conteudo/{{ item.id }}">{{ labels.get(item.source, item.source) }}</a><div class="muted">{{ item.subject or "(sem assunto)" }}</div><div class="muted pequeno">{{ item.occurred_at | local("%d/%m %H:%M") }}</div></td>
+          <td><a href="/conteudo/{{ item.id }}">{{ labels.get(item.source, item.source) }}</a><div class="muted">{{ item.subject or "(sem assunto)" }}</div><div class="muted pequeno">{{ item.occurred_at | local("%d/%m %H:%M") }}</div>{% if item.source.value == "gmail" %}<div class="pequeno"><a href="/rascunhos/email/{{ item.id }}">Rascunhar resposta</a></div>{% endif %}</td>
           <td>
             <div>{{ situacoes.get(a.status, a.status) }}</div>
             <form class="linha" style="margin:0; flex-wrap: wrap; gap: 2px" method="post" action="/alertas/{{ a.id }}/situacao">

@@ -25,6 +25,7 @@ consideradas e onde ela aparece no código.
 17. [Alertas de liderança: regras são filtros, não perguntas à IA](17-alertas.md)
 18. [Briefing diário: uma foto da manhã, montada por SQL](18-briefing.md)
 19. [Pôr prazos na agenda: a primeira vez que o assistente escreve no Google](19-eventos-na-agenda.md)
+20. [Rascunhos de resposta: o Claude escreve, você envia](20-rascunhos.md)
 
 ## Como ler o código
 

@@ -79,6 +79,9 @@ from app.routes_config import router as config_router
 # Rotas da página Processamento (números, coleta, diário e conteúdo coletado).
 from app.routes_content import router as content_router
 
+# Página Rascunhos e o botão "Rascunhar resposta" (bloco 5).
+from app.routes_drafts import router as drafts_router
+
 # Pastas do Drive monitoradas (em Cadastros) e a navegação pelas pastas.
 from app.routes_drive import router as drive_router
 
@@ -150,6 +153,8 @@ app.include_router(alerts_router)
 app.include_router(briefing_router)
 # Eventos que o assistente pôs na agenda.
 app.include_router(events_router)
+# Rascunhos de resposta de e-mail.
+app.include_router(drafts_router)
 # Rotas da página Configurações.
 app.include_router(config_router)
 # Rotas das pastas do Drive.

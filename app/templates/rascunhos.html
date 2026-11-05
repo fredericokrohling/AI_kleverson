@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Rascunhos · Kleverson A.I.{% endblock %}
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Rascunhos {{ m.dica("O Claude escreve um rascunho de resposta só quando você pede, no botão “Rascunhar resposta” da página de cada e-mail. Você copia o texto e responde pela própria conversa no Gmail: o assistente não tem permissão para gravar nem enviar nada no Gmail. A lista “Para responder” é montada pelo banco, sem custo.") }}</h1>
+    <div class="sub">E-mails que esperam a sua resposta, e os rascunhos para copiar.</div>
+  </div>
+  <form class="acoes linha" method="get" action="/rascunhos">
+    <label>Empresa {{ m.combo_empresa(empresas_todas, empresa, obrigatoria=false, todas=true, rotulo="Empresa mostrada", extra='onchange="this.form.submit()"') }}</label>
+    <noscript><button class="mini" type="submit">Ver</button></noscript>
+  </form>
+</div>
+
+<div class="kpis" style="margin-bottom: 16px">
+  <div class="kpi">
+    <div class="rotulo-kpi">Para responder</div>
+    <div class="valor">{{ para_responder | length }}</div>
+    <div class="detalhe">últimos {{ dias }} dias</div>
+  </div>
+  <div class="kpi">
+    <div class="rotulo-kpi">Rascunhos no mês</div>
+    <div class="valor">{{ resumo.no_mes }}</div>
+    <div class="detalhe">modelo {{ resumo.modelo }}</div>
+  </div>
+  <div class="kpi">
+    <div class="rotulo-kpi">Gasto no mês {{ m.dica("Soma de todas as Empresas, do registro de custo do Claude. Ao chegar no teto dos rascunhos (DRAFTS_MONTHLY_BUDGET_USD no .env), o botão para de chamar o Claude até o mês virar; a classificação e os fatos continuam com o resto do teto geral.") }}</div>
+    <div class="valor">US$ {{ "%.2f" | format(resumo.gasto) }}</div>
+    <div class="detalhe">de US$ {{ "%.2f" | format(resumo.teto) }}{% if resumo.media %} · média US$ {{ "%.3f" | format(resumo.media) }}{% endif %}</div>
+  </div>
+</div>
+
+<section>
+  {{ m.titulo("Para responder", "E-mails dos últimos " ~ dias ~ " dias em que a última mensagem da conversa não é sua e você está no “Para”. Ficam de fora: remetentes automáticos (no-reply), mensagens de promoções, redes sociais, avisos e fóruns do Gmail, e e-mails de quem não é Pessoa cadastrada quando o e-mail também não tem projeto. Quando a sua resposta é coletada, a conversa sai da lista sozinha.") }}
+  {% if para_responder %}
+    <div class="tabela"><table>
+      <tr><th>Chegou</th><th>De</th><th>Assunto</th><th>Projeto</th><th>Empresa</th><th></th></tr>
+      {% for r in para_responder %}
+        <tr>
+          <td style="white-space:nowrap">{{ r.item.occurred_at | local("%d/%m %H:%M") }}</td>
+          <td>{% if r.person %}{{ r.person.name }}{% if r.person.is_leader %} <span class="tag" title="Liderança na Empresa">liderança</span>{% endif %}{% else %}{{ r.item.author }}{% endif %}</td>
+          <td><a href="/rascunhos/email/{{ r.item.id }}">{{ r.item.subject or "(sem assunto)" }}</a>
+            <div class="muted pequeno">{{ r.messages }} mensagem(ns) na conversa{% if r.drafts %} · <span class="ok">{{ r.drafts }} rascunho(s)</span>{% endif %}</div></td>
+          <td>{{ r.project.name if r.project else "—" }}</td>
+          <td>{{ nomes_empresa.get(r.item.company_id, "") }}</td>
+          <td style="white-space:nowrap">
+            <a class="botao mini" href="/rascunhos/email/{{ r.item.id }}">{{ "Ver rascunho" if r.drafts else "Rascunhar" }}</a>
+            <form class="inline" method="post" action="/rascunhos/email/{{ r.item.id }}/dispensar" style="margin:0">
+              <input type="hidden" name="volta" value="lista">
+              <button class="mini secundario" type="submit" title="Tirar da lista (já respondeu por fora, ou não precisa responder)">Dispensar</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhum e-mail esperando você nos últimos {{ dias }} dias. Para responder a qualquer outro, abra o e-mail em Processamento e use “Rascunhar resposta”.</p>
+  {% endif %}
+</section>
+
+<section>
+  {{ m.titulo("Rascunhos recentes", "Os 30 mais novos. Cada clique em “Rascunhar resposta” cria um rascunho novo; os anteriores continuam na página do e-mail.") }}
+  {% if recentes %}
+    <div class="tabela"><table>
+      <tr><th>Quando</th><th>E-mail</th><th>Pedido</th><th>Situação</th><th>Custo</th></tr>
+      {% for d, email in recentes %}
+        <tr>
+          <td style="white-space:nowrap">{{ d.created_at | local("%d/%m %H:%M") }}</td>
+          <td><a href="/rascunhos/email/{{ email.id }}#rascunho-{{ d.id }}">{{ email.subject or "(sem assunto)" }}</a><div class="muted pequeno">{{ email.author }}</div></td>
+          <td class="muted">{{ (d.instructions or "—") | truncate(80) }}</td>
+          <td>{% if d.status == "ok" %}{% if d.gaps or d.unverified %}<span class="aviso">{{ (d.gaps | length) + (d.unverified | length) }} ponto(s) para conferir</span>{% else %}<span class="ok">pronto</span>{% endif %}{% elif d.status == "recusa" %}<span class="erro">recusado</span>{% else %}<span class="erro">ilegível</span>{% endif %}</td>
+          <td style="white-space:nowrap">US$ {{ "%.3f" | format(d.cost_usd) }}</td>
+        </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="muted">Nenhum rascunho ainda.</p>
+  {% endif %}
+</section>
+{% endblock %}

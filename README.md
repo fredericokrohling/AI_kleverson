@@ -54,6 +54,7 @@ Siga na ordem:
 18. [Alertas de liderança](docs/setup/18-alertas.md)
 19. [Briefing diário](docs/setup/19-briefing.md)
 20. [Pôr prazos na agenda](docs/setup/20-eventos-na-agenda.md)
+21. [Rascunhos de resposta](docs/setup/21-rascunhos.md)
 
 ## Desenvolvimento local
 

@@ -48,6 +48,11 @@
       {{ m.dica("Use se a transcrição foi atribuída à Empresa errada. O texto não muda; saem as tags, a classificação e os fatos da Empresa antiga (inclusive tags colocadas à mão), as regras da Empresa nova rodam de novo e quem falou é procurado entre as Pessoas dela." ~ (" A reunião ao vivo e os participantes mudam junto." if meeting else "")) }}
     </form>
   {% endif %}
+  {% if item.source.value == "gmail" %}
+    {# Rascunho de resposta: a página do e-mail em Rascunhos (app/routes_drafts.py). #}
+    <p><a class="botao mini" href="/rascunhos/email/{{ item.id }}">Rascunhar resposta</a>
+      {{ m.dica("Abre este e-mail em Rascunhos: você diz o que quer responder e o Claude escreve um rascunho para copiar e enviar pelo Gmail. O assistente não grava nada no Gmail.") }}</p>
+  {% endif %}
   {% if item.extra.get("caminho") %}<p class="muted">Caminho: {{ item.extra.caminho }}</p>{% endif %}
   {% if item.extra.get("erro_extracao") %}<p class="erro">Sem texto: {{ item.extra.erro_extracao }}</p>{% endif %}
   {% if item.source.value != "drive" %}
