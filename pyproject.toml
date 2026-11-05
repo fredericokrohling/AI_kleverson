@@ -32,6 +32,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28",
+    # Biblioteca oficial do MCP: só para os testes do servidor local (mcp_local/), que
+    # no seu computador instala as próprias dependências pelo uv; o servidor não usa.
+    "mcp>=2.3,<3",
     "pytest>=8.3",
     "ruff>=0.9",
 ]

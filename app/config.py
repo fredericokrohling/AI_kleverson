@@ -141,6 +141,16 @@ class Settings(BaseSettings):
     # mensagens mais antigas saem primeiro.
     drafts_max_chars: int = 20000
 
+    # Conversa com os dados pelo Claude (bloco 7, app/conversa.py e mcp_local/). Sem
+    # custo de IA no servidor: quem lê e responde é o Claude da sua assinatura, no seu
+    # computador; o servidor só faz consultas SQL.
+    # Máximo de resultados por pergunta (busca, fatos, alertas, reuniões). Cada resultado
+    # ocupa espaço na conversa; 20 cabe com folga e o Claude pede a próxima página.
+    mcp_max_results: int = 20
+    # Máximo de caracteres de uma fonte por leitura (cerca de 3 mil tokens). Uma reunião
+    # longa sai em páginas, em vez de lotar a conversa de uma vez.
+    mcp_source_chars: int = 12000
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.
