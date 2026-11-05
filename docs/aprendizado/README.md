@@ -24,6 +24,7 @@ consideradas e onde ela aparece no código.
 16. [Extração de fatos: o Claude lê, o código confere](16-fatos.md)
 17. [Alertas de liderança: regras são filtros, não perguntas à IA](17-alertas.md)
 18. [Briefing diário: uma foto da manhã, montada por SQL](18-briefing.md)
+19. [Pôr prazos na agenda: a primeira vez que o assistente escreve no Google](19-eventos-na-agenda.md)
 
 ## Como ler o código
 
@@ -53,7 +54,8 @@ Sugestão de ordem para ler o código, do mais simples ao mais denso:
 12. `app/classification.py`: a classificação de cada item por projeto (bloco 3).
 13. `app/facts.py`: a extração de fatos com o trecho conferido (bloco 3).
 14. `app/alerts.py`: os alertas de liderança, regras como filtros sobre os fatos (bloco 3).
-15. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
+15. `app/briefing.py` e `app/calendar_events.py`: o briefing diário e os prazos na agenda (bloco 5).
+16. `tests/`: os testes mostram, na prática, o que cada parte deve fazer.
 
 ## Pequeno glossário de Python que aparece no código
 

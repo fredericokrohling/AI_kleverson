@@ -65,6 +65,10 @@ from sqlalchemy import (
     func,
 )
 
+# SQL escrito à mão; aqui, a condição de um índice parcial. Renomeado para não se
+# confundir com as colunas chamadas "text".
+from sqlalchemy import text as sql_text
+
 # Tipos que só o Postgres tem: ARRAY (lista dentro de uma coluna) e JSONB (JSON indexável).
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
@@ -828,6 +832,55 @@ class Briefing(Timestamped, Base):
         }
         # O que foi gravado por cima das vazias.
         return {**empty, **(self.content or {})}
+
+
+# Um evento que o assistente pôs na agenda do Google (bloco 5, segunda peça).
+class CreatedEvent(Timestamped, Base):
+    """Registro de cada evento criado, para listar e apagar pelo console.
+
+    A prova de que o evento é do assistente fica no próprio evento: uma marca invisível
+    (propriedade privada "kleverson=1"). Esta tabela é o índice do console: mostra o que
+    foi criado sem perguntar ao Google, evita dois eventos para o mesmo fato e guarda
+    quem criou e quem apagou. Se ela se perder, "Apagar todos" ainda acha os eventos
+    pela marca.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "created_events"
+    # Um fato tem no máximo um evento ativo na agenda. "Índice parcial": a regra só
+    # vale para as linhas ainda não apagadas, então dá para criar de novo depois de apagar.
+    __table_args__ = (
+        Index(
+            "uq_created_events_fact_ativo",
+            "fact_id",
+            unique=True,
+            postgresql_where=sql_text("removed_at IS NULL"),
+        ),
+    )
+
+    # Identificador interno (vai também na marca do evento).
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Empresa: a agenda usada é a da conta Google desta Empresa.
+    company_id: Mapped[int] = _company()
+    # Fato que originou o evento. "Extrair de novo" apaga o fato; o registro fica (o
+    # evento continua na agenda e precisa continuar apagável), só perde o vínculo.
+    fact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("facts.id", ondelete="SET NULL"), index=True
+    )
+    # Id do evento no Google (é com ele que o console apaga).
+    google_event_id: Mapped[str | None] = mapped_column(String(1024))
+    # Título como foi para a agenda ("Prazo: enviar cronograma").
+    title: Mapped[str] = mapped_column(String(500))
+    # Dia do evento (de dia inteiro).
+    day: Mapped[date] = mapped_column(Date, index=True)
+    # Quem pediu (seu login ou "terminal").
+    created_by: Mapped[str] = mapped_column(String(100))
+    # Quando foi apagado da agenda (vazio = continua lá, até onde o console sabe).
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Quem apagou.
+    removed_by: Mapped[str | None] = mapped_column(String(100))
+    # Observação ("já tinha sido apagado na agenda").
+    removed_note: Mapped[str | None] = mapped_column(String(200))
 
 
 # --- Sugestões da IA ----------------------------------------------------------

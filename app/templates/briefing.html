@@ -119,7 +119,7 @@
     </section>
 
     <section id="prazos-{{ b.company_id }}">
-      {{ m.titulo("Prazos", "Tarefas, prazos e dependências abertos com data: os vencidos (até " ~ dias_prazo ~ " dias à frente e 30 para trás), os de hoje e os próximos. Só fatos com trecho conferido; os suspeitos ficam em Fatos. “Meu”: o responsável é você (a Pessoa com o seu e-mail).") }}
+      {{ m.titulo("Prazos", "Tarefas, prazos e dependências abertos com data: os vencidos (até " ~ dias_prazo ~ " dias à frente e 30 para trás), os de hoje e os próximos. Só fatos com trecho conferido; os suspeitos ficam em Fatos. “Meu”: o responsável é você (a Pessoa com o seu e-mail). “Pôr na agenda” cria um evento de dia inteiro no dia do prazo, sem convidados; para tirar, use a página Na agenda.") }}
       {% for grupo, rotulo, classe in [("vencidos", "Vencidos", "erro"), ("hoje", "Hoje", "aviso"), ("proximos", "Próximos dias", "")] %}
         {% if pz[grupo] %}
           <h3 class="{{ classe }}">{{ rotulo }} ({{ pz[grupo] | length }})</h3>
@@ -128,7 +128,8 @@
               <tr>
                 <td style="white-space:nowrap">{{ p.prazo }}{% if p.dias < 0 %}<div class="muted pequeno">há {{ -p.dias }} dia(s)</div>{% elif p.dias > 0 %}<div class="muted pequeno">em {{ p.dias }} dia(s)</div>{% endif %}</td>
                 <td>{{ p.titulo }} {% if p.meu %}<span class="selo">meu</span>{% endif %}<div class="muted pequeno">{{ p.tipo }}{% if p.projeto %} · {{ p.projeto }}{% endif %} · {{ p.responsavel or "ninguém" }}</div></td>
-                <td><a class="pequeno" href="/conteudo/{{ p.item_id }}">origem</a></td>
+                <td style="white-space:nowrap"><a class="pequeno" href="/conteudo/{{ p.item_id }}">origem</a>
+                  {% if p.fato_id %}<div>{{ m.botao_agenda(p.fato_id, na_agenda, aqui) }}</div>{% endif %}</td>
               </tr>
             {% endfor %}
           </table></div>

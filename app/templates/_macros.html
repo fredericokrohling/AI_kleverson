@@ -28,3 +28,19 @@
   {% endfor %}
 </select>
 {%- endmacro %}
+
+{# Botão "Pôr na agenda" de um fato com prazo (bloco 5). na_agenda: fato → evento criado
+   (o route passa, com calendar_events.active_by_fact). aqui: endereço para voltar.
+   Já na agenda: um link para a página Na agenda, no lugar do botão. #}
+{% macro botao_agenda(fato_id, na_agenda, aqui) %}
+{%- set ev = na_agenda.get(fato_id) -%}
+{%- if ev -%}
+  <a class="pequeno ok" href="/eventos" title="Este fato já está na sua agenda. Para tirar, use a página Na agenda.">na agenda ✓</a>
+{%- else -%}
+  <form class="inline" method="post" action="/eventos/criar" style="margin:0">
+    <input type="hidden" name="fato_id" value="{{ fato_id }}">
+    <input type="hidden" name="volta" value="{{ aqui }}">
+    <button class="mini" type="submit" title="Cria um evento de dia inteiro no dia do prazo, na agenda da conta Google desta Empresa: sem convidados (ninguém recebe aviso), livre (não bloqueia horário) e com a marca do assistente, para tirar depois pela página Na agenda.">Pôr na agenda</button>
+  </form>
+{%- endif -%}
+{%- endmacro %}

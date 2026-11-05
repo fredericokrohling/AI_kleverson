@@ -271,6 +271,15 @@ class FakeCalendar:
         self.items = events
         # Intervalos pedidos na listagem (para conferir o fuso).
         self.list_calls: list[tuple[str, str]] = []
+        # Pedidos de criação: (corpo, sendUpdates), para os testes conferirem o que iria
+        # ao Google (sem convidados, sem aviso).
+        self.inserted: list[tuple[dict, str | None]] = []
+        # Pedidos de apagar: (id, sendUpdates).
+        self.deleted: list[tuple[str, str | None]] = []
+        # Contador para os ids dos eventos criados.
+        self._next = 0
+        # Quando preenchido, a próxima criação falha com este erro (simula o Google fora).
+        self.fail_insert: Exception | None = None
 
     # calendar.events() devolve o próprio objeto.
     def events(self):
@@ -287,10 +296,24 @@ class FakeCalendar:
         # Dia inteiro.
         return datetime.fromisoformat(f"{start['date']}T00:00:00-03:00")
 
-    # Listagem por intervalo de tempo.
-    def list(self, calendarId, timeMin, timeMax, **_):  # noqa: N803 (nome da API)
+    # Listagem por intervalo de tempo, ou pela propriedade privada (a marca do assistente).
+    def list(  # noqa: N803 (nomes da API)
+        self, calendarId, timeMin=None, timeMax=None, privateExtendedProperty=None, **_
+    ):
         # Função que produz a resposta.
         def respond():
+            # Busca pela marca ("chave=valor"), sem intervalo de tempo.
+            if privateExtendedProperty:
+                # Separa chave e valor.
+                key, value = privateExtendedProperty.split("=", 1)
+                # Eventos com a propriedade, como o Google faz.
+                found = [
+                    e
+                    for e in self.items
+                    if ((e.get("extendedProperties") or {}).get("private") or {}).get(key) == value
+                ]
+                # Resposta numa página só.
+                return {"items": found}
             # Registra o intervalo pedido.
             self.list_calls.append((timeMin, timeMax))
             # Limites como data e hora.
@@ -299,6 +322,47 @@ class FakeCalendar:
             found = sorted((e for e in self.items if low <= self._start(e) < high), key=self._start)
             # Resposta no formato da API.
             return {"items": found}
+
+        # Devolve a chamada preparada.
+        return _Call(respond)
+
+    # Cria um evento (guarda o corpo e devolve com um id novo).
+    def insert(self, calendarId, body, sendUpdates=None):  # noqa: N803 (nome da API)
+        # Função que produz a resposta.
+        def respond():
+            # Falha pedida pelo teste.
+            if self.fail_insert is not None:
+                raise self.fail_insert
+            # Registra o pedido.
+            self.inserted.append((body, sendUpdates))
+            # Próximo id.
+            self._next += 1
+            # O evento como o Google guardaria.
+            event = {"id": f"criado{self._next}", "status": "confirmed", **body}
+            # Passa a existir na agenda.
+            self.items.append(event)
+            # Devolve.
+            return event
+
+        # Devolve a chamada preparada.
+        return _Call(respond)
+
+    # Apaga um evento.
+    def delete(self, calendarId, eventId, sendUpdates=None):  # noqa: N803 (nome da API)
+        # Função que produz a resposta.
+        def respond():
+            # Procura.
+            for event in self.items:
+                # Achou: tira.
+                if event["id"] == eventId:
+                    # Registra o pedido.
+                    self.deleted.append((eventId, sendUpdates))
+                    # Remove.
+                    self.items.remove(event)
+                    # A API devolve corpo vazio.
+                    return ""
+            # Não existe.
+            raise http_error(410)
 
         # Devolve a chamada preparada.
         return _Call(respond)

@@ -53,6 +53,7 @@ Siga na ordem:
 17. [Extração de fatos com trecho conferido](docs/setup/17-fatos.md)
 18. [Alertas de liderança](docs/setup/18-alertas.md)
 19. [Briefing diário](docs/setup/19-briefing.md)
+20. [Pôr prazos na agenda](docs/setup/20-eventos-na-agenda.md)
 
 ## Desenvolvimento local
 
