@@ -883,6 +883,63 @@ class CreatedEvent(Timestamped, Base):
     removed_note: Mapped[str | None] = mapped_column(String(200))
 
 
+# Um rascunho de resposta escrito pelo Claude para um e-mail (bloco 5, terceira peça).
+class EmailDraft(Timestamped, Base):
+    """Rascunho mostrado no console para você copiar e enviar pelo Gmail.
+
+    O assistente não grava no Gmail (não tem a permissão gmail.compose, que também
+    permitiria enviar). O rascunho só existe aqui. Cada clique em "Rascunhar resposta"
+    cria uma linha nova: os anteriores ficam, para comparar e voltar a um deles.
+    """
+
+    # Nome da tabela no banco.
+    __tablename__ = "email_drafts"
+
+    # Identificador interno.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Empresa do e-mail (o banco confere que é a mesma do e-mail respondido).
+    company_id: Mapped[int] = _company()
+    # O e-mail respondido (a última mensagem da conversa quando o rascunho foi pedido).
+    bronze_item_id: Mapped[int] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="CASCADE"), index=True
+    )
+    # O que você pediu para responder ("aceitar, mas pedir quinta"); vazio = nada.
+    instructions: Mapped[str | None] = mapped_column(Text)
+    # Situação: "ok", "recusa" (o Claude não quis escrever) ou "ilegivel" (resposta cortada).
+    status: Mapped[str] = mapped_column(String(20))
+    # Texto do rascunho (vazio quando não saiu).
+    body: Mapped[str] = mapped_column(Text, server_default="")
+    # Informações que faltaram, marcadas no texto entre colchetes ("[confirmar data]").
+    gaps: Mapped[list[str]] = mapped_column(JSONB, server_default="[]")
+    # Números e datas do rascunho que o código não achou nas mensagens: para conferir.
+    unverified: Mapped[list[str]] = mapped_column(JSONB, server_default="[]")
+    # Modelo que escreveu.
+    model: Mapped[str | None] = mapped_column(String(100))
+    # Quanto custou (a mesma conta do registro de custo, para mostrar ao lado).
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), server_default="0")
+    # Quem pediu (seu login).
+    created_by: Mapped[str] = mapped_column(String(100))
+
+
+# Um e-mail que você tirou da lista "Para responder" (já respondeu por fora, ou não precisa).
+class ReplyDismissal(Base):
+    # Nome da tabela no banco.
+    __tablename__ = "reply_dismissals"
+
+    # O e-mail; é também a chave primária (um e-mail é dispensado uma vez).
+    bronze_item_id: Mapped[int] = mapped_column(
+        ForeignKey("bronze_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Empresa do e-mail (o banco confere).
+    company_id: Mapped[int] = _company()
+    # Quem dispensou.
+    dismissed_by: Mapped[str] = mapped_column(String(100))
+    # Quando.
+    dismissed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 # --- Sugestões da IA ----------------------------------------------------------
 
 

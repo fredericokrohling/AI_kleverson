@@ -82,13 +82,15 @@ def _settings():
 
 
 # Uma reunião da agenda no formato da API do Google, hoje em Brasília.
-def _event(event_id: str, title: str, start: str, end: str, emails: list[str]) -> dict:
-    # Evento.
+def _event(
+    event_id: str, title: str, start: str, end: str, emails: list[str], day: str = "2026-11-04"
+) -> dict:
+    # Evento (no dia pedido; o padrão é o dia fixo dos testes que passam a data).
     return {
         "id": event_id,
         "summary": title,
-        "start": {"dateTime": f"2026-11-04T{start}:00-03:00"},
-        "end": {"dateTime": f"2026-11-04T{end}:00-03:00"},
+        "start": {"dateTime": f"{day}T{start}:00-03:00"},
+        "end": {"dateTime": f"{day}T{end}:00-03:00"},
         "hangoutLink": "https://meet.google.com/abc-defg-hij",
         "attendees": [{"email": e} for e in emails],
     }
@@ -495,10 +497,24 @@ def test_page_index_menu_and_command(sessions, monkeypatch, capsys):
     # A agenda falsa no lugar da do Google.
     from app import briefing
 
-    # Troca.
-    monkeypatch.setattr(briefing, "calendar_client", lambda db, settings, cid: CALENDAR)
     # Cadastros e um prazo para hoje (pela data real, porque a página usa o relógio real).
     real_today = briefing.today_local(get_settings())
+    # A reunião também precisa ser de hoje: com o dia fixo, o teste quebrava no dia seguinte
+    # ao que foi escrito.
+    today_calendar = FakeCalendar(
+        [
+            _event(
+                "ev1",
+                "Status Atlas",
+                "09:00",
+                "10:00",
+                ["marcia@cli.com", "dona@exemplo.com"],
+                day=real_today.isoformat(),
+            )
+        ]
+    )
+    # Troca.
+    monkeypatch.setattr(briefing, "calendar_client", lambda db, settings, cid: today_calendar)
     # Uma sessão.
     with sessions() as session:
         # Cadastros.

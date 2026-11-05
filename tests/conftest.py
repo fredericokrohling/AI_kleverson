@@ -82,11 +82,13 @@ def _clean_tables():
 # troque por um leitor com o Claude falso.
 @pytest.fixture(autouse=True)
 def _no_real_claude(monkeypatch):
-    # Rotas de "Tentar de novo".
-    from app import routes_failures
+    # Rotas de "Tentar de novo" e do botão "Rascunhar resposta".
+    from app import routes_drafts, routes_failures
 
     # Leitor ausente (como sem chave da Anthropic).
     monkeypatch.setattr(routes_failures, "vision_reader", lambda settings: None)
+    # Sem Claude nos rascunhos (o teste que precisa troca por um Claude falso).
+    monkeypatch.setattr(routes_drafts, "draft_writer", lambda settings: None)
 
 
 # Fixture pedida pelo nome: um teste com parâmetro "sessions" recebe a fábrica.

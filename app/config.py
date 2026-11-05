@@ -123,6 +123,24 @@ class Settings(BaseSettings):
     # ALERTS_LOOKBACK_DAYS para trás).
     briefing_due_days: int = 7
 
+    # Rascunhos de resposta (bloco 5, app/drafts.py). Só a pedido: o botão "Rascunhar
+    # resposta" chama o Claude; a lista "Para responder" é SQL, sem custo.
+    # Modelo. Sonnet: o texto sai em seu nome para o cliente, e tom e precisão pesam mais
+    # que na extração. Cerca de US$ 0,02 por rascunho (o Haiku, US$ 0,001, escreve um
+    # português genérico; o Opus, US$ 0,04, não melhora o bastante). Ver o guia 20.
+    drafts_model: str = "claude-sonnet-5-5"
+    # Esforço: escrever cinco parágrafos com o que já está na conversa não pede
+    # raciocínio longo, e o raciocínio é cobrado como texto de saída.
+    drafts_effort: str = "low"
+    # Teto próprio dos rascunhos no mês, dentro do teto geral. Assim os rascunhos nunca
+    # deixam a classificação e os fatos sem verba.
+    drafts_monthly_budget_usd: Decimal = Decimal("3")
+    # Quantos dias para trás a lista "Para responder" olha.
+    drafts_lookback_days: int = 7
+    # Máximo de caracteres da conversa enviados ao Claude (cerca de 5 mil tokens). As
+    # mensagens mais antigas saem primeiro.
+    drafts_max_chars: int = 20000
+
     # Transcrição em tempo real (bloco 1).
     # Qual serviço transcreve o áudio. Hoje só "deepgram"; a troca fica isolada em
     # app/transcription/providers.py.
