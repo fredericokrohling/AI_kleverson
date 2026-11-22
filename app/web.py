@@ -124,7 +124,7 @@ DB = Annotated[Session, Depends(get_session)]
 
 
 # "esquema://servidor[:porta]" de um endereço, para comparar origens.
-def _origin_of(url: str) -> str:
+def origin_of(url: str) -> str:
     # Separa as partes.
     parts = urlsplit(url)
     # Junta só esquema e servidor, em minúsculas.
@@ -136,7 +136,7 @@ def same_origin(request: Request) -> None:
     """Recusa (403) POST vindo de outro site."""
     # Origens aceitas: o endereço público (Tailscale) e o endereço pelo qual o pedido
     # chegou (útil em testes e no acesso local).
-    allowed = {_origin_of(get_settings().public_base_url), _origin_of(str(request.base_url))}
+    allowed = {origin_of(get_settings().public_base_url), origin_of(str(request.base_url))}
     # Origin: o navegador manda em todo POST.
     origin = request.headers.get("origin")
     # Sem Origin (navegadores antigos), usa o Referer (endereço da página de onde veio).
@@ -144,7 +144,7 @@ def same_origin(request: Request) -> None:
         # Referer completo.
         referer = request.headers.get("referer")
         # Só a origem dele.
-        origin = _origin_of(referer) if referer else None
+        origin = origin_of(referer) if referer else None
     # Ausente ou de outro site: recusa.
     if origin is None or origin.lower() not in allowed:
         # 403 = proibido.

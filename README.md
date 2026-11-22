@@ -55,6 +55,7 @@ Siga na ordem:
 19. [Briefing diário](docs/setup/19-briefing.md)
 20. [Pôr prazos na agenda](docs/setup/20-eventos-na-agenda.md)
 21. [Rascunhos de resposta](docs/setup/21-rascunhos.md)
+22. [Conversar com os dados pelo Claude (MCP)](docs/setup/22-conversa-mcp.md)
 
 ## Desenvolvimento local
 
@@ -89,6 +90,7 @@ app/
   transcription/   transcrição ao vivo: serviço de streaming, trechos, finalização
   ingestion/       coleta do Gmail: e-mail bruto, anexos, links do Drive, extração de texto
 extensao/          extensão do Chrome que captura o áudio do Meet
+mcp_local/         servidor MCP que roda no seu computador (conversa com os dados no Claude)
 migrations/        migrações do banco (Alembic)
 docs/setup/        guias de instalação (como)
 docs/aprendizado/  por que cada escolha foi feita
@@ -103,7 +105,7 @@ docs/aprendizado/  por que cada escolha foi feita
 | 2. E-mail para bronze | Código pronto; falta instalar e importar um mês |
 | 3. Silver: classificação e extração | Classificação, extração de fatos e alertas de liderança prontos |
 | 4. Console: cadastro, fila, fatos, busca | A fazer |
-| 5. Ações: rascunhos, agenda, briefing | Briefing diário pronto; criar eventos e rascunhos a fazer |
+| 5. Ações: rascunhos, agenda, briefing | Briefing diário, prazos na agenda e rascunhos prontos |
 | 6. Transcrição em produção | A fazer |
-| 7. Servidor MCP | A fazer |
+| 7. Servidor MCP | Pronto: oito ferramentas, busca por palavra, uma Empresa por vez |
 | 8. MD de auditoria no Git | A fazer |

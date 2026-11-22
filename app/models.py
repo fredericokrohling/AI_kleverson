@@ -37,6 +37,8 @@ from sqlalchemy import (
     BigInteger,
     # Verdadeiro/falso.
     Boolean,
+    # Coluna calculada pelo próprio banco a cada gravação (a da busca por palavra).
+    Computed,
     # Data sem hora.
     Date,
     # Data com hora.
@@ -69,8 +71,9 @@ from sqlalchemy import (
 # confundir com as colunas chamadas "text".
 from sqlalchemy import text as sql_text
 
-# Tipos que só o Postgres tem: ARRAY (lista dentro de uma coluna) e JSONB (JSON indexável).
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+# Tipos que só o Postgres tem: ARRAY (lista dentro de uma coluna), JSONB (JSON indexável)
+# e TSVECTOR (as palavras de um texto prontas para a busca; bloco 7, migração 0017).
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 
 # Peças do mapeamento classe ↔ tabela (explicadas no topo do arquivo).
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -284,13 +287,38 @@ class ProjectStakeholder(Base):
 # --- Bronze -------------------------------------------------------------------
 
 
+# Busca por palavra (bloco 7, migração 0017). Texto indexado de cada item: assunto,
+# autor e corpo, até 100 mil caracteres (acima de 1 MB de palavras o Postgres recusaria a
+# gravação do item).
+_ITEM_SEARCH_TEXT = (
+    "left(coalesce(subject, '') || ' ' || coalesce(author, '') || ' ' || body_text, 100000)"
+)
+# Texto indexado de cada anexo: o nome e o texto extraído.
+_ATTACHMENT_SEARCH_TEXT = "left(filename || ' ' || coalesce(extracted_text, ''), 100000)"
+
+
+# Fórmula da coluna de busca: as palavras pela configuração "portuguese" (com acento) e
+# pela "kleverson_pt" (sem acento), juntas. O porquê está na migração 0017.
+def _search_formula(text_sql: str) -> str:
+    # Uma lista por configuração, unidas com ||.
+    return (
+        f"to_tsvector('portuguese'::regconfig, {text_sql}) || "
+        f"to_tsvector('kleverson_pt'::regconfig, {text_sql})"
+    )
+
+
 # Um item bruto, exatamente como chegou da fonte. Nunca é editado depois de gravado.
 class BronzeItem(Base):
     # Nome da tabela no banco.
     __tablename__ = "bronze_items"
     # Reprocessar a mesma mensagem não duplica nada (dentro da Empresa: o mesmo arquivo
     # do Drive compartilhado com as contas de duas Empresas vira um item em cada uma).
-    __table_args__ = (UniqueConstraint("company_id", "source", "external_id"),)
+    __table_args__ = (
+        UniqueConstraint("company_id", "source", "external_id"),
+        # Índice GIN da busca por palavra (o tipo feito para "quais linhas têm esta
+        # palavra"), criado na migração 0017.
+        Index("ix_bronze_items_search_vector", "search_vector", postgresql_using="gin"),
+    )
 
     # Identificador interno; BigInteger porque esta tabela cresce rápido.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -324,12 +352,25 @@ class BronzeItem(Base):
     meeting_id: Mapped[int | None] = mapped_column(
         ForeignKey("meetings.id", ondelete="SET NULL"), index=True
     )
+    # Palavras do assunto, do autor e do texto, sem acento e reduzidas à raiz, para a
+    # busca por palavra (app/conversa.py). Calculada pelo Postgres (Computed): o código
+    # nunca escreve nela. deferred=True: só é lida quando uma consulta pede, porque é
+    # grande e nenhuma página precisa dela. Fórmula igual à da migração 0017.
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(_search_formula(_ITEM_SEARCH_TEXT), persisted=True),
+        deferred=True,
+    )
 
 
 # Anexo de um item bruto (PDF, planilha, documento).
 class Attachment(Base):
     # Nome da tabela no banco.
     __tablename__ = "attachments"
+    # Índice GIN da busca por palavra nos anexos (migração 0017).
+    __table_args__ = (
+        Index("ix_attachments_search_vector", "search_vector", postgresql_using="gin"),
+    )
 
     # Identificador interno.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -359,6 +400,12 @@ class Attachment(Base):
     content_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
     # Quando você dispensou o aviso de "sem texto" no console; vazio = aparece na lista.
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Palavras do nome e do texto extraído, para a busca por palavra (igual à do item).
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(_search_formula(_ATTACHMENT_SEARCH_TEXT), persisted=True),
+        deferred=True,
+    )
 
 
 # Trechos da transcrição ao vivo. Ficam aqui enquanto a reunião acontece; ao finalizar,
